@@ -2,13 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { KILL_GRACE_MS, createBash, clampTimeout } from '../../src/tools/bash.js';
 import { capResult } from '../../src/tools/cap.js';
 import { cleanEnv, ctxFor, useTempDir } from './tmp-dir.js';
 
 const bash = createBash();
 const GUARD = { timeout: 10000 };
+const HAS_PERL = (process.env.PATH ?? '').split(delimiter).some((dir) => dir !== '' && existsSync(join(dir, 'perl')));
 
 function isGone(pid) {
   try {
@@ -89,12 +90,29 @@ test('SIGKILL follows SIGTERM to the group after the grace period', GUARD, async
   assert.equal(KILL_GRACE_MS, 2000);
 });
 
-test('a descendant that leaves the process group cannot hold a timed-out call open', GUARD, async (t) => {
+test('a line written just before the SIGKILL still reaches the output', GUARD, async (t) => {
+  const dir = await useTempDir(t);
+  const marker = join(dir, 'wrote');
+  const kill = (pid, signal) => {
+    if (signal === 'SIGKILL') {
+      process.kill(pid, 'SIGUSR1');
+      const deadline = Date.now() + 5000;
+      while (!existsSync(marker) && Date.now() < deadline) {}
+    }
+    process.kill(pid, signal);
+  };
+  const stubborn = createBash({ killGraceMs: 50, kill });
+  const command = "(trap '' TERM; trap 'echo last-line; touch wrote' USR1; while :; do sleep 1; done) 2>/dev/null &";
+  const result = await stubborn.run({ command, timeout: 300 }, ctxFor(dir));
+  assert.deepEqual(result, { content: 'last-line\n[timed out after 300 ms]', isError: true });
+});
+
+test('a descendant that leaves the process group cannot hold a timed-out call open', { ...GUARD, skip: HAS_PERL ? false : 'perl is not on PATH' }, async (t) => {
   const dir = await useTempDir(t);
   const quick = createBash({ killGraceMs: 50 });
   const started = Date.now();
   const command = "perl -MPOSIX -e 'POSIX::setsid(); sleep 5' & echo started";
-  const result = await quick.run({ command, timeout: 300 }, ctxFor(dir));
+  const result = await quick.run({ command, timeout: 300 }, ctxFor(dir, { env: cleanEnv({ LC_ALL: 'C' }) }));
   assert.ok(Date.now() - started < 3000, `took ${Date.now() - started} ms`);
   assert.deepEqual(result, { content: 'started\n[timed out after 300 ms]', isError: true });
 });

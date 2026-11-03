@@ -14,6 +14,12 @@ function gitFiles(root, { env, signal, execFile }) {
   });
 }
 
+function gitIgnored(root, { env, signal, execFile }) {
+  return new Promise((done) => {
+    execFile('git', ['check-ignore', '-q', '.'], { cwd: root, env, signal }, (err) => done(!err));
+  });
+}
+
 async function walk(root, signal) {
   const out = [];
   const pending = [''];
@@ -35,6 +41,7 @@ async function walk(root, signal) {
 }
 
 export async function listFiles(root, { env, signal, execFile = nodeExecFile } = {}) {
+  if (await gitIgnored(root, { env, signal, execFile })) return walk(root, signal);
   const tracked = await gitFiles(root, { env, signal, execFile });
   return tracked ?? walk(root, signal);
 }

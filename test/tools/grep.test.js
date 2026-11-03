@@ -125,3 +125,18 @@ test('inside a git work tree .gitignore is respected and untracked files are sea
   const result = await grep.run({ pattern: 'foo' }, ctxFor(dir));
   assert.equal(result.content, [join(dir, 'tracked.js'), join(dir, 'untracked.js')].join('\n'));
 });
+
+test('a path that is itself git-ignored is searched by walking it', async (t) => {
+  const dir = await useTempDir(t);
+  gitInit(dir);
+  await plant(dir, {
+    '.gitignore': 'node_modules/\n',
+    'src/a.js': 'foo\n',
+    'node_modules/pkg/index.js': 'foo\n',
+    'node_modules/pkg/lib/util.js': 'foo\n',
+  });
+  const result = await grep.run({ pattern: 'foo', path: 'node_modules/pkg' }, ctxFor(dir));
+  assert.equal(result.content, [join(dir, 'node_modules/pkg/index.js'), join(dir, 'node_modules/pkg/lib/util.js')].join('\n'));
+  const top = await grep.run({ pattern: 'foo' }, ctxFor(dir));
+  assert.equal(top.content, join(dir, 'src/a.js'));
+});

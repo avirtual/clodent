@@ -57,7 +57,7 @@ export function discoverAgentsMd(cwd, deps) {
   for (const dir of dirsRootToCwd(cwd, gitRoot)) {
     const path = join(dir, 'AGENTS.md');
     const text = readIfFile(path, deps);
-    if (text !== null) found.push({ path, text });
+    if (text !== null && text.trim() !== '') found.push({ path, text });
   }
   let remaining = TOTAL_CAP_BYTES;
   for (let i = found.length - 1; i >= 0; i--) {
