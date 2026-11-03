@@ -102,7 +102,7 @@ test('a line written just before the SIGKILL still reaches the output', GUARD, a
     process.kill(pid, signal);
   };
   const stubborn = createBash({ killGraceMs: 50, kill });
-  const command = "(trap '' TERM; trap 'echo last-line; touch wrote' USR1; while :; do sleep 1; done) &";
+  const command = "(trap '' TERM; trap 'echo last-line; touch wrote' USR1; while :; do sleep 1; done) 2>/dev/null &";
   const result = await stubborn.run({ command, timeout: 300 }, ctxFor(dir));
   assert.deepEqual(result, { content: 'last-line\n[timed out after 300 ms]', isError: true });
 });

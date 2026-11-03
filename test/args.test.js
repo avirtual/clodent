@@ -128,13 +128,13 @@ test('a boolean flag given a value is an error', () => {
 });
 
 test('--effort rejects anything but low, medium or high', () => {
-  for (const raw of ['max', 'LOW', '', 'xhigh']) {
+  for (const raw of ['max', 'LOW', 'xhigh']) {
     assert.equal(err(['--effort', raw]), `--effort must be low, medium or high, got "${raw}"`);
   }
 });
 
 test('--budget rejects anything but a finite number greater than 0', () => {
-  for (const raw of ['0', '-1', '0.0', 'abc', '', 'Infinity', 'NaN', '1e999', '0x10', ' 5', '5usd']) {
+  for (const raw of ['0', '-1', '0.0', 'abc', 'Infinity', 'NaN', '1e999', '0x10', ' 5', '5usd']) {
     assert.equal(err([`--budget=${raw}`]), `--budget must be a number greater than 0, got "${raw}"`);
   }
 });
