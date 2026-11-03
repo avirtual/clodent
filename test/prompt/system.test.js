@@ -5,7 +5,7 @@ import { buildSystemPrompt } from '../../src/prompt/system.js';
 import { DIR, fakeFs } from './fake-fs.js';
 
 function deps(entries, now = new Date(2026, 10, 4, 23, 59, 30)) {
-  return { ...fakeFs(entries), env: {}, platform: 'darwin', now: () => now };
+  return { ...fakeFs(entries), env: {}, platform: 'darwin', clock: () => now };
 }
 
 function input(extra = {}) {
@@ -82,6 +82,14 @@ test('the date is the local calendar day with no time', () => {
     assert.equal(line, `Date: ${day}`);
     assert.doesNotMatch(out, /\d{2}:\d{2}/);
   }
+});
+
+test('the date uses the local getters even where the UTC day differs', () => {
+  const local = { getFullYear: () => 2026, getMonth: () => 10, getDate: () => 4 };
+  const utc = { getUTCFullYear: () => 2026, getUTCMonth: () => 10, getUTCDate: () => 5, getUTCDay: () => 4 };
+  const when = { ...local, ...utc, toISOString: () => '2026-11-05T01:00:00.000Z', toJSON: () => '2026-11-05T01:00:00.000Z' };
+  const out = buildSystemPrompt(input(), deps({}, when));
+  assert.equal(out.split('\n').find((l) => l.startsWith('Date: ')), 'Date: 2026-11-04');
 });
 
 test('additional directories are listed one per line, resolved against cwd', () => {

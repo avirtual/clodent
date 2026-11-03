@@ -24,7 +24,7 @@ function environment({ cwd, model, addDirs }, gitRoot, deps) {
     `Working directory: ${cwd}`,
     gitRoot === null ? 'Git repository: no' : `Git repository: yes, root ${gitRoot}`,
     `Platform: ${deps.platform}`,
-    `Date: ${isoDate(deps.now())}`,
+    `Date: ${isoDate(deps.clock())}`,
     `Model: ${model}`,
   ];
   if (addDirs.length > 0) {

@@ -1,28 +1,55 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn as nodeSpawn, spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { FLAGS } from '../src/args.js';
 import { main, NOT_YET } from '../src/cli.js';
+import { createFakeFetch } from './helpers/fake-fetch.js';
+import { sse } from './helpers/sse-builder.js';
+import { cleanEnv, plant, useTempDir } from './tools/tmp-dir.js';
 
-function fakeDeps() {
+const COST_LINE = /^\[clay:cost\] \$\d+\.\d{4} \(in \d+, cache-read \d+, cache-write \d+, out \d+\)$/m;
+const TOTAL_LINE = /^\[clay:cost\] session total \$\d+\.\d{4} /m;
+
+function fakeDeps({ responses = [], env = {}, cwd = tmpdir(), ...extra } = {}) {
   const out = [];
   const err = [];
+  const signals = {};
+  const fetch = createFakeFetch(responses);
   const deps = {
     stdout: { write: (chunk) => out.push(chunk) },
     stderr: { write: (chunk) => err.push(chunk) },
-    env: {},
-    cwd: tmpdir(),
+    stdin: null,
+    env,
+    cwd,
+    platform: 'darwin',
+    fetch,
+    sleep: async () => {},
+    random: () => 0.5,
+    now: () => 0,
+    clock: () => new Date(2026, 10, 4),
+    onSignal: (name, handler) => {
+      signals[name] = handler;
+      return () => delete signals[name];
+    },
+    ...extra,
   };
-  return { deps, stdout: () => out.join(''), stderr: () => err.join('') };
+  return { deps, fetch, signals, stdout: () => out.join(''), stderr: () => err.join('') };
 }
 
-async function run(argv) {
-  const fake = fakeDeps();
+async function run(argv, options) {
+  const fake = fakeDeps(options);
   const code = await main(argv, fake.deps);
-  return { code, stdout: fake.stdout(), stderr: fake.stderr() };
+  return Object.defineProperty({ code, stdout: fake.stdout(), stderr: fake.stderr() }, 'fetch', { value: fake.fetch });
 }
+
+const KEY = { ANTHROPIC_API_KEY: 'sk-test' };
+const textReply = (text, stopReason = 'end_turn') => ({ body: sse({ blocks: [{ type: 'text', text }], stopReason }) });
+const toolReply = (name, input) => ({
+  body: sse({ blocks: [{ type: 'tool_use', id: 'toolu_1', name, input }], stopReason: 'tool_use', usage: { input_tokens: 1000 } }),
+});
 
 test('--version prints the package version and returns 0', async () => {
   assert.deepEqual(await run(['--version']), { code: 0, stdout: 'clay 0.0.1\n', stderr: '' });
@@ -75,21 +102,161 @@ test('NOT_YET names only real flags and never --version or --help', () => {
   assert.equal(NOT_YET.has('help'), false);
 });
 
-test('a flag that is not implemented yet is refused with exit 2', async () => {
-  assert.deepEqual(await run(['--model', 'x']), {
-    code: 2,
-    stdout: '',
-    stderr: 'clay: --model is not implemented yet\n',
-  });
-  assert.deepEqual(await run(['--add-dir', '/a', '-p', 'go']), {
-    code: 2,
-    stdout: '',
-    stderr: 'clay: --print is not implemented yet\nclay: --add-dir is not implemented yet\n',
-  });
+test('a flag that is not implemented yet is refused with exit 2, even with -p', async () => {
+  const one = await run(['--settings', 'x.json'], { env: KEY });
+  assert.deepEqual([one.code, one.stdout, one.stderr], [2, '', 'clay: --settings is not implemented yet\n']);
+  const two = await run(['--session-id', '01234567-89ab-cdef-0123-456789abcdef', '-p', 'go', '--settings', 's'], { env: KEY });
+  assert.equal(two.code, 2);
+  assert.equal(two.stderr, 'clay: --session-id is not implemented yet\nclay: --settings is not implemented yet\n');
+  assert.equal(two.fetch.calls.length, 0);
+});
+
+test('NOT_YET holds only the session, resume and settings flags', () => {
+  assert.deepEqual([...NOT_YET].sort(), ['fork-session', 'resume', 'session-id', 'settings']);
 });
 
 test('valid arguments with nothing to run return 1 with a message on stderr', async () => {
-  assert.deepEqual(await run([]), { code: 1, stdout: '', stderr: 'clay: not implemented yet\n' });
+  const res = await run([]);
+  assert.deepEqual([res.code, res.stdout, res.stderr], [1, '', 'clay: not implemented yet\n']);
+  assert.equal((await run(['--model', 'x', '--yolo'])).stderr, 'clay: not implemented yet\n');
+});
+
+test('README ### Flags marks exactly the NOT_YET flags as parsed; not yet implemented', () => {
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  const section = readme.split('\n### Flags\n')[1].split('\n### ')[0];
+  const rows = section.split('\n').filter((line) => line.startsWith('| `'));
+  const status = new Map(
+    rows.map((row) => {
+      const cells = row.split('|').map((cell) => cell.trim());
+      return [cells[1].match(/`--([a-z-]+)/)[1], cells[2]];
+    }),
+  );
+  assert.deepEqual([...status.keys()].sort(), FLAGS.map((flag) => flag.long).sort());
+  for (const [name, text] of status) {
+    assert.equal(text === 'parsed; not yet implemented', NOT_YET.has(name), `${name}: ${text}`);
+  }
+});
+
+test('-p without ANTHROPIC_API_KEY exits 2 before any request', async () => {
+  const res = await run(['-p', 'hi']);
+  assert.deepEqual([res.code, res.stdout, res.stderr], [2, '', 'clay: ANTHROPIC_API_KEY is not set\n']);
+  assert.equal(res.fetch.calls.length, 0);
+});
+
+test('-p prints only the answer on stdout, the cost and total on stderr, and exits 0', async (t) => {
+  const cwd = await useTempDir(t);
+  const res = await run(['-p', 'hi'], { env: KEY, cwd, responses: [{ body: 'text-only.sse' }] });
+  assert.equal(res.code, 0, res.stderr);
+  assert.equal(res.stdout, 'Hello, world!\n');
+  const lines = res.stderr.split('\n');
+  assert.equal(lines[0], '[clay:cost] $0.0004 (in 25, cache-read 0, cache-write 0, out 15)');
+  assert.match(lines[1], TOTAL_LINE);
+  assert.equal(lines.length, 3);
+});
+
+test('-p sends the flags: model, effort, system prompt parts and add-dir', async (t) => {
+  const cwd = await useTempDir(t);
+  await plant(cwd, { 'extra.md': 'appended from file' });
+  const res = await run(
+    ['-p', 'hi', '--model', 'claude-haiku-5-5', '--effort', 'low', '--system-prompt', 'BASE', '--append-system-prompt', 'MORE',
+      '--append-system-prompt-file', 'extra.md', '--add-dir', '/shared'],
+    { env: KEY, cwd, responses: [{ body: 'text-only.sse' }] },
+  );
+  assert.equal(res.code, 0, res.stderr);
+  const { body } = res.fetch.calls[0];
+  assert.equal(body.model, 'claude-haiku-5-5');
+  assert.deepEqual(body.output_config, { effort: 'low' });
+  const system = body.system[0].text;
+  assert.ok(system.startsWith('BASE\n\n# Environment'), system);
+  assert.match(system, /\nDate: 2026-11-04\nModel: claude-haiku-5-5\nAdditional directories:\n\/shared\n/);
+  assert.ok(system.endsWith('MORE\n\nappended from file'), system);
+  assert.deepEqual(body.messages, [{ role: 'user', content: [{ type: 'text', text: 'hi', cache_control: { type: 'ephemeral' } }] }]);
+});
+
+test('-p with an unreadable prompt file exits 2 before any request', async (t) => {
+  const cwd = await useTempDir(t);
+  const res = await run(['-p', 'hi', '--system-prompt-file', 'missing.md'], { env: KEY, cwd });
+  assert.equal(res.code, 2);
+  assert.equal(res.stderr, `clay: cannot read --system-prompt-file ${cwd}/missing.md: ENOENT\n`);
+  assert.equal(res.fetch.calls.length, 0);
+});
+
+test('-p exits 1 on an API error, with the message verbatim', async (t) => {
+  const cwd = await useTempDir(t);
+  const res = await run(['-p', 'hi'], {
+    env: KEY,
+    cwd,
+    responses: [{ status: 400, body: JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'credit balance is too low' } }) }],
+  });
+  assert.equal(res.code, 1);
+  assert.equal(res.stdout, '');
+  assert.match(res.stderr, /^clay: credit balance is too low\n/);
+  assert.match(res.stderr, COST_LINE);
+});
+
+test('-p exits 1 when max_tokens cuts the answer, still printing the text', async (t) => {
+  const cwd = await useTempDir(t);
+  const res = await run(['-p', 'hi'], { env: KEY, cwd, responses: [textReply('partial', 'max_tokens')] });
+  assert.equal(res.code, 1);
+  assert.equal(res.stdout, 'partial\n');
+  assert.match(res.stderr, /^clay: response hit max_tokens$/m);
+});
+
+test('-p under the default ask mode denies Write and says why on stderr', async (t) => {
+  const cwd = await useTempDir(t);
+  const res = await run(['-p', 'write it'], {
+    env: KEY,
+    cwd,
+    responses: [toolReply('Write', { file_path: 'x.txt', content: 'x' }), textReply('could not')],
+  });
+  assert.equal(res.code, 0);
+  assert.equal(res.stdout, 'could not\n');
+  assert.match(res.stderr, /^● Write x\.txt\n {2}✗ permission required: rerun with --yolo/);
+});
+
+test('--budget below the first request cost stops before the second: exit 1 and the budget line', async (t) => {
+  const cwd = await useTempDir(t);
+  const res = await run(['-p', 'go', '--budget', '0.001'], {
+    env: KEY,
+    cwd,
+    responses: [toolReply('Read', { file_path: 'nope.md' }), textReply('never')],
+  });
+  assert.equal(res.code, 1);
+  assert.equal(res.fetch.calls.length, 1);
+  assert.match(res.stderr, /^\[clay:budget\] stopped: spent \$0\.0044, next request est\. \$0\.0044, budget \$0\.0010$/m);
+  assert.match(res.stderr, COST_LINE);
+  assert.match(res.stderr, TOTAL_LINE);
+});
+
+test('SIGINT during -p kills the running Bash, awaits it, and exits 130', async (t) => {
+  const cwd = await useTempDir(t);
+  let sleepPid;
+  let signals;
+  const spawn = (...args) => {
+    const child = nodeSpawn(...args);
+    child.stdout.on('data', (chunk) => {
+      sleepPid ??= Number(String(chunk).trim());
+      signals.SIGINT?.();
+    });
+    return child;
+  };
+  const fake = fakeDeps({
+    env: cleanEnv(KEY),
+    cwd,
+    spawn,
+    responses: [toolReply('Bash', { command: 'sleep 30 & echo $!; wait' })],
+  });
+  signals = fake.signals;
+  const code = await main(['-p', 'run it', '--yolo'], fake.deps);
+  assert.equal(code, 130);
+  assert.ok(Number.isInteger(sleepPid) && sleepPid > 0, String(sleepPid));
+  const ps = spawnSync('ps', ['-o', 'stat=', '-p', String(sleepPid)], { encoding: 'utf8' });
+  const stat = ps.stdout.trim();
+  assert.ok(stat === '' || stat.startsWith('Z'), `sleep ${sleepPid} still running: ${stat}`);
+  assert.equal(fake.fetch.calls.length, 1);
+  assert.deepEqual(fake.signals, {});
+  assert.match(fake.stderr(), /^clay: interrupted$/m);
+  assert.match(fake.stderr(), TOTAL_LINE);
 });
 
 test('bin/clay.js --version runs from any cwd', () => {
