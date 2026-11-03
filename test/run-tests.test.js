@@ -73,6 +73,22 @@ describe('scripts/run-tests.js', () => {
     assert.match(fails[0], /: child fails — Expected values/);
   });
 
+  it('nests tests registered from a helper module under their parent', () => {
+    const result = runRunner(['--dir', path.join(FIXTURES, 'helper')]);
+    assertTotals(result, 'TOTALS: 2 pass, 1 fail, 3 tests');
+    assert.equal(result.code, 1);
+    const fails = result.lines.filter((line) => line.startsWith('FAIL '));
+    assert.equal(fails.length, 1, result.stdout);
+    assert.match(fails[0], /: helper fails — Expected values/);
+  });
+
+  it('counts a skipped describe block as one skip', () => {
+    const result = runRunner(['--dir', path.join(FIXTURES, 'skipped-suite')]);
+    assertTotals(result, 'TOTALS: 0 pass, 0 fail, 0 tests');
+    assert.equal(result.code, 0);
+    assert.ok(result.lines.includes('SKIPPED: 1'), result.stdout);
+  });
+
   it('does not count a test file that registers no tests', () => {
     const result = runRunner(['--dir', path.join(FIXTURES, 'no-tests')]);
     assertTotals(result, 'TOTALS: 0 pass, 0 fail, 0 tests');

@@ -53,7 +53,7 @@ function errorLine(err) {
 function fileEntry(state, file) {
   let entry = state.files.get(file);
   if (!entry) {
-    entry = { seen: [], failedBelow: [], reported: false, failed: false, stderrError: undefined };
+    entry = { reported: false, failed: false, stderrError: undefined };
     state.files.set(file, entry);
   }
   return entry;
@@ -66,6 +66,8 @@ function recordFailure(state, deps, data, name, reason) {
 }
 
 function onFileResult(type, data, entry, state, deps) {
+  state.seen.length = 0;
+  state.failedBelow.length = 0;
   if (type !== 'test:fail' || entry.failed) return;
   entry.failed = true;
   const useStderr = !entry.reported && entry.stderrError !== undefined;
@@ -74,16 +76,16 @@ function onFileResult(type, data, entry, state, deps) {
 
 function onTestResult(type, data, entry, state, deps) {
   const level = data.nesting;
-  const hasChildren = entry.seen[level + 1] === true;
-  const failedBelow = entry.failedBelow[level + 1] === true;
-  entry.seen.length = level + 1;
-  entry.failedBelow.length = level + 1;
-  entry.seen[level] = true;
+  const hasChildren = state.seen[level + 1] === true;
+  const failedBelow = state.failedBelow[level + 1] === true;
+  state.seen.length = level + 1;
+  state.failedBelow.length = level + 1;
+  state.seen[level] = true;
   entry.reported = true;
   const leaf = !hasChildren && data.details?.type !== 'suite';
   let counted = false;
   if (data.skip !== undefined) {
-    if (leaf) state.skipped += 1;
+    if (!hasChildren) state.skipped += 1;
   } else if (data.todo === undefined) {
     if (type === 'test:fail' && !failedBelow) {
       counted = true;
@@ -93,7 +95,7 @@ function onTestResult(type, data, entry, state, deps) {
       state.pass += 1;
     }
   }
-  entry.failedBelow[level] = entry.failedBelow[level] === true || failedBelow || counted;
+  state.failedBelow[level] = state.failedBelow[level] === true || failedBelow || counted;
 }
 
 function onEvent({ type, data }, state, deps) {
@@ -119,7 +121,7 @@ export async function main(argv, deps) {
     return 2;
   }
   const files = opts.files.length ? opts.files : discover(opts.dir);
-  const state = { pass: 0, fail: 0, skipped: 0, files: new Map() };
+  const state = { pass: 0, fail: 0, skipped: 0, seen: [], failedBelow: [], files: new Map() };
   if (files.length) {
     const events = deps.run({ files, concurrency: true, isolation: 'process', timeout: TIMEOUT_MS });
     for await (const event of events) onEvent(event, state, deps);
