@@ -232,8 +232,12 @@ test('SIGINT during -p kills the running Bash, awaits it, and exits 130', async 
   const cwd = await useTempDir(t);
   let sleepPid;
   let signals;
+  let bashExit;
   const spawn = (...args) => {
     const child = nodeSpawn(...args);
+    child.on('exit', (exitCode, signal) => {
+      bashExit = { exitCode, signal };
+    });
     child.stdout.on('data', (chunk) => {
       sleepPid ??= Number(String(chunk).trim());
       signals.SIGINT?.();
@@ -249,6 +253,7 @@ test('SIGINT during -p kills the running Bash, awaits it, and exits 130', async 
   signals = fake.signals;
   const code = await main(['-p', 'run it', '--yolo'], fake.deps);
   assert.equal(code, 130);
+  assert.deepEqual(bashExit, { exitCode: null, signal: 'SIGTERM' });
   assert.ok(Number.isInteger(sleepPid) && sleepPid > 0, String(sleepPid));
   const ps = spawnSync('ps', ['-o', 'stat=', '-p', String(sleepPid)], { encoding: 'utf8' });
   const stat = ps.stdout.trim();
