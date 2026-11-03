@@ -72,6 +72,18 @@ test('the = form keeps everything after the first = and allows an empty value', 
   assert.equal(ok(['--print=--yolo']).print, '--yolo');
 });
 
+test('an empty value is a missing value, except for --print, --system-prompt and --append-system-prompt', () => {
+  const allowed = ['print', 'system-prompt', 'append-system-prompt'];
+  for (const flag of FLAGS.filter((f) => f.arg && !allowed.includes(f.long))) {
+    assert.equal(err([`--${flag.long}`, '']), `--${flag.long} needs a value`);
+    assert.equal(err([`--${flag.long}=`]), `--${flag.long} needs a value`);
+  }
+  assert.equal(err(['--add-dir', 'x', '--add-dir=']), '--add-dir needs a value');
+  assert.equal(ok(['-p', '']).print, '');
+  assert.equal(ok(['--system-prompt=']).systemPrompt, '');
+  assert.deepEqual(ok(['--append-system-prompt', '']).appendSystemPrompt, ['']);
+});
+
 test('a separate value that is not a clay flag is taken as is, even with a leading dash', () => {
   assert.equal(ok(['-p', '- list the files']).print, '- list the files');
   assert.equal(ok(['--print', '--not-a-flag']).print, '--not-a-flag');
@@ -177,6 +189,7 @@ test('givenFlags names every flag present, in table order', () => {
   assert.deepEqual(givenFlags(ok([])), []);
   assert.deepEqual(givenFlags(ok(['--read-only', '--add-dir', 'x', '-p', 'go'])), ['print', 'read-only', 'add-dir']);
   assert.deepEqual(givenFlags(ok(['--yolo'])), ['yolo']);
+  assert.deepEqual(givenFlags(ok(['--system-prompt-file', 'sys.md'])), ['system-prompt-file']);
   const every = FLAGS.filter((f) => f.long !== 'read-only' && f.long !== 'system-prompt-file');
   const argv = every.flatMap((f) => {
     if (!f.arg) return [`--${f.long}`];

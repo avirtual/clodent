@@ -5,7 +5,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DECIMAL = /^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
 export const FLAGS = [
-  { long: 'print', short: 'p', key: 'print', arg: 'prompt', help: 'run one prompt without the REPL, print the reply and exit' },
+  { long: 'print', short: 'p', key: 'print', arg: 'prompt', allowEmpty: true, help: 'run one prompt without the REPL, print the reply and exit' },
   { long: 'model', key: 'model', arg: 'id', help: `model id (default ${DEFAULT_MODEL})` },
   { long: 'effort', key: 'effort', arg: 'level', check: checkEffort, help: 'reasoning effort: low, medium or high' },
   { long: 'budget', key: 'budgetUsd', arg: 'usd', check: checkBudget, help: 'stop before the session spends more than this many US dollars' },
@@ -16,9 +16,9 @@ export const FLAGS = [
   { long: 'fork-session', key: 'forkSession', value: true, help: 'with --resume, continue under a new session id' },
   { long: 'settings', key: 'settings', arg: 'file', repeat: true, help: 'merge settings from this JSON file (repeatable)' },
   { long: 'add-dir', key: 'addDirs', arg: 'path', repeat: true, help: 'give the agent an additional directory (repeatable)' },
-  { long: 'system-prompt', key: 'systemPrompt', arg: 'text', help: 'replace the base system prompt with this text' },
+  { long: 'system-prompt', key: 'systemPrompt', arg: 'text', allowEmpty: true, help: 'replace the base system prompt with this text' },
   { long: 'system-prompt-file', key: 'systemPromptFile', arg: 'path', help: 'replace the base system prompt with this file' },
-  { long: 'append-system-prompt', key: 'appendSystemPrompt', arg: 'text', repeat: true, help: 'append this text to the system prompt (repeatable)' },
+  { long: 'append-system-prompt', key: 'appendSystemPrompt', arg: 'text', allowEmpty: true, repeat: true, help: 'append this text to the system prompt (repeatable)' },
   { long: 'append-system-prompt-file', key: 'appendSystemPromptFile', arg: 'path', repeat: true, help: "append this file's contents to the system prompt (repeatable)" },
   { long: 'version', short: 'v', key: 'version', value: true, help: 'print the version and exit' },
   { long: 'help', short: 'h', key: 'help', value: true, help: 'print this help and exit' },
@@ -87,6 +87,7 @@ export function parseArgs(argv) {
       raw = next;
       i++;
     }
+    if (raw === '' && !flag.allowEmpty) return fail(`${name} needs a value`);
     let value = raw;
     if (flag.check) {
       const checked = flag.check(raw);
