@@ -29,10 +29,10 @@ Tests use `node:test` and never call the API; they use `test/helpers/fake-fetch.
 ### Live smoke
 
 ```sh
-ANTHROPIC_API_KEY=sk-ant-... node scripts/live-smoke.js [--model <id>]
+ANTHROPIC_API_KEY=sk-ant-... node scripts/live-smoke.js [--model <id>] [--pad <n>]
 ```
 
-An opt-in check against the real Messages API; the suite only runs it without a key or over the fake fetch, never against the API. It reads the key from `ANTHROPIC_API_KEY` and, without it, prints `live-smoke: ANTHROPIC_API_KEY not set` to stderr and exits 2. With the key it sends one streamed request (model `claude-haiku-5-5` unless `--model` is given, a short system prompt, one trivial tool, the user text `Reply with exactly: pong`), streams the reply text to stdout, then prints `[1] stop_reason: <reason>` and `[1] usage: <raw usage JSON>`. It sends the same request again and prints the same lines prefixed `[2]`, so a cache read shows once the prefix is long enough to be cached. It exits 0 when both replies carry text, 1 when either is empty or a request fails (the failure is printed to stderr as `live-smoke: request <n> failed: <status> <type>: <message>`), and 2 on an unknown argument.
+An opt-in check against the real Messages API; the suite only runs it without a key or over the fake fetch, never against the API. It reads the key from `ANTHROPIC_API_KEY` and, without it, prints `live-smoke: ANTHROPIC_API_KEY not set` to stderr and exits 2. With the key it sends one streamed request (model `claude-haiku-5-5` unless `--model` is given, a short system prompt, one trivial tool, the user text `Reply with exactly: pong`), streams the reply text to stdout, then prints `[1] stop_reason: <reason>` and `[1] usage: <raw usage JSON>`. It sends the same request again and prints the same lines prefixed `[2]`, so a cache read shows once the prefix is long enough to be cached. `--pad <n>` appends n filler words to the system prompt (default 0); with a pad, a request 2 whose `cache_read_input_tokens` is not above 0 prints `live-smoke: no cache read on request 2` to stderr and exits 1. `--pad 6000` makes the prefix long enough to cache. It exits 0 when both replies carry text, 1 when either is empty, a request fails (the failure is printed to stderr as `live-smoke: request <n> failed: <status> <type>: <message>`) or the pad check fails, and 2 on an unknown argument or a `--pad` that is not a non-negative integer.
 
 ## Contract
 
@@ -42,21 +42,21 @@ Later releases document every environment variable, hook event and settings key 
 
 | flag | status | meaning |
 |---|---|---|
-| `-p`, `--print <prompt>` | parsed; not yet implemented | run one prompt without the REPL, print the reply and exit |
-| `--model <id>` | parsed; not yet implemented | model id, default `claude-opus-5-5` |
-| `--effort <level>` | parsed; not yet implemented | `low`, `medium` or `high` |
-| `--budget <usd>` | parsed; not yet implemented | stop before the session spends more than this many US dollars |
-| `--yolo` | parsed; not yet implemented | run every tool without asking |
-| `--read-only` | parsed; not yet implemented | refuse write tools and any shell command that is not a read |
+| `-p`, `--print <prompt>` | works | run one prompt without the REPL, print the reply and exit |
+| `--model <id>` | works | model id, default `claude-opus-5-5` |
+| `--effort <level>` | works | `low`, `medium` or `high` |
+| `--budget <usd>` | works | stop before the session spends more than this many US dollars |
+| `--yolo` | works | run every tool without asking |
+| `--read-only` | works | refuse write tools and every Bash command |
 | `--session-id <uuid>` | parsed; not yet implemented | use this session id instead of minting one |
 | `--resume <id>` | parsed; not yet implemented | resume the session with this id |
 | `--fork-session` | parsed; not yet implemented | with `--resume`, continue under a new session id |
 | `--settings <file>` | parsed; not yet implemented | merge settings from this JSON file; repeatable |
-| `--add-dir <path>` | parsed; not yet implemented | give the agent an additional directory; repeatable |
-| `--system-prompt <text>` | parsed; not yet implemented | replace the base system prompt with this text |
-| `--system-prompt-file <path>` | parsed; not yet implemented | replace the base system prompt with this file |
-| `--append-system-prompt <text>` | parsed; not yet implemented | append this text to the system prompt; repeatable |
-| `--append-system-prompt-file <path>` | parsed; not yet implemented | append this file's contents to the system prompt; repeatable |
+| `--add-dir <path>` | works | give the agent an additional directory; repeatable |
+| `--system-prompt <text>` | works | replace the base system prompt with this text |
+| `--system-prompt-file <path>` | works | replace the base system prompt with this file |
+| `--append-system-prompt <text>` | works | append this text to the system prompt; repeatable |
+| `--append-system-prompt-file <path>` | works | append this file's contents to the system prompt; repeatable |
 | `-v`, `--version` | works | print `clay <version>` and exit 0 |
 | `-h`, `--help` | works | print usage, one line per flag, and exit 0 |
 
@@ -71,11 +71,41 @@ Exit codes:
 - A parse error prints `clay: <error>` and then `clay: see --help` to stderr, and exits 2.
 - Once the arguments parse, `--help` wins over every other flag, then `--version`.
 - A flag marked parsed; not yet implemented prints `clay: --<flag> is not implemented yet` to stderr, one line per such flag in table order, and exits 2.
-- `clay` with no flags prints `clay: not implemented yet` to stderr and exits 1.
+- Without `-p`, `clay` prints `clay: not implemented yet` to stderr and exits 1; the REPL lands in a later release.
+- With `-p`, see [Print mode](#print-mode).
+
+### Print mode
+
+`clay -p "<prompt>"` runs one turn of the agent loop: it sends the prompt, runs every tool the model calls, sends the results back, and repeats until the model ends its turn.
+
+stdout gets only the final answer: the text blocks of the turn's last assistant message, joined, then a newline. When that message has no text, stdout gets nothing. Thinking is never printed. stderr gets everything else, one line each:
+
+- `● <Tool> <summary>` for each tool call; the summary is the call's main input, such as the path or the command.
+- `  ✗ <reason>` when a tool call is refused, and `  ✗ <first line of the result>` when a tool returns an error.
+- `clay: <message>` for warnings and errors. An API error message is printed verbatim.
+- After the turn: `[clay:cost] warning: no price for model <id>; cost not counted` once per unpriced model, then the per-turn `[clay:cost]` line. A budget stop prints the `[clay:budget]` line first.
+- On exit: the `[clay:cost] session total` line.
+
+ANSI colour codes are written only to a stream that is a TTY.
+
+Exit codes:
+
+- 0: the model ended its turn (`end_turn` or `stop_sequence`).
+- 1: an API error, a budget stop, a refusal, `max_tokens` (warned as `clay: response hit max_tokens`), or any other stop reason (warned as `clay: unexpected stop_reason <reason>`).
+- 2: an argument error; `ANTHROPIC_API_KEY` unset, printed as `clay: ANTHROPIC_API_KEY is not set`; or an unreadable prompt file, printed as `clay: <message>`. No request is sent.
+- 130: SIGINT. clay aborts the request or the running tool, waits for that tool to return (a Bash process group gets SIGTERM, then SIGKILL 2 s later), prints `clay: interrupted` and the cost lines, and exits.
+
+Permissions in `-p` go by the tool's kind (see [Tools](#tools)). A refused call is not run: the model gets the reason as an error tool result, and the turn goes on.
+
+| mode | read | write | exec (`Bash`) |
+|---|---|---|---|
+| default | runs | refused: `permission required: rerun with --yolo (interactive approval lands in the REPL)` | refused, same reason |
+| `--yolo` | runs | runs | runs |
+| `--read-only` | runs | refused: `--read-only: <Tool> is not allowed` | refused: `--read-only: Bash is not allowed` |
 
 ### System prompt
 
-clay does not send requests yet; this is the system prompt it builds for them. Its parts, in this order, are separated by blank lines, and an empty part is left out:
+Every request carries this system prompt. Its parts, in this order, are separated by blank lines, and an empty part is left out:
 
 1. The base: the `--system-prompt` text, else the contents of `--system-prompt-file`, else clay's own prompt.
 2. `# Environment`: the working directory; whether it is a git repository, and its root; the platform; the local date as `YYYY-MM-DD`; the model id; and, when `--add-dir` is given, `Additional directories:` followed by one absolute path per line.
@@ -103,7 +133,7 @@ clay sends every request as `POST https://api.anthropic.com/v1/messages` with ex
 
 No `anthropic-beta` header is sent. The body always has `stream: true`, `thinking: {"type": "adaptive"}` and `max_tokens` 32000 unless overridden; `output_config: {"effort": "low"|"medium"|"high"}` is present only when an effort is set. It carries exactly three `cache_control: {"type": "ephemeral"}` breakpoints: the system block, the last tool definition, and the last content block of the last message, skipping back over trailing `thinking` and `redacted_thinking` blocks. With no tools the tool breakpoint is absent and `tools` is omitted.
 
-Requests that fail before the first SSE event with status 429, 500, 502, 503, 504 or 529, or with a network error, are tried at most 4 times. The waits are 1 s, 2 s and 4 s, each with ±20% jitter, and a `retry-after` header in seconds replaces the wait, capped at 60 s. Any other status, and an `error` event once the stream has started, is not retried, and the API's error message is surfaced verbatim.
+Requests that fail before the first SSE event with status 429, 500, 502, 503, 504 or 529, or with a network error, are tried at most 4 times. The waits are 1 s, 2 s and 4 s, each with ±20% jitter, and a `retry-after` header in seconds replaces the wait, capped at 60 s. Any other status is not retried. An `error` event once the stream has started discards the partial response; when its type is `overloaded_error` or `api_error`, clay re-sends the same request at most 2 more times, after 2 s and then 4 s, each announced by a `clay: <message>; retrying in <n> s` warning. Any other `error` event is not retried. The API's error message is surfaced verbatim.
 
 ### Cost
 
@@ -133,9 +163,9 @@ Line formats. Each is one line. Amounts have exactly four decimals, rounded half
 [clay:budget] stopped: model <id> has no price; --budget needs a priced model
 ```
 
-`in` is `input_tokens`, `cache-read` is `cache_read_input_tokens`, `cache-write` is all cache-write tokens and `out` is `output_tokens`, summed over the turn's requests, or over the session for the total. The per-turn line prints after every turn, and the session total prints on exit. The printing is wired in a later release, with the agent loop.
+`in` is `input_tokens`, `cache-read` is `cache_read_input_tokens`, `cache-write` is all cache-write tokens and `out` is `output_tokens`, summed over the turn's requests, or over the session for the total. The per-turn line prints after every turn, and the session total prints on exit.
 
-`--budget <usd>` (flag wired in a later release) is checked before every API request:
+`--budget <usd>` is checked before every API request:
 
 - The estimate for the next request is the cost of the previous request, or 0 before the first.
 - clay stops with the `spent` line when the session total spent plus that estimate exceeds the budget. A projected total exactly equal to the budget proceeds.
@@ -165,3 +195,26 @@ Every tool result is capped at 32768 bytes (UTF-8). A longer result keeps its fi
 ```
 
 where `<n>` is the exact number of bytes removed.
+
+### Events
+
+Internal; serialized by a later stream-json mode. The agent loop reports everything through typed events, each `{type, ...fields}`, and the terminal renderer consumes them.
+
+| type | fields | emitted |
+|---|---|---|
+| `session_start` | `model`, `cwd`, `tools` (names), `permission` (`ask`, `yolo` or `read-only`) | once, when the agent is created |
+| `request_start` | `attempt` (1-based; a mid-stream re-send counts up) | before each Messages API request |
+| `text_delta` | `text`, `index` (content block index) | as text streams in |
+| `thinking_delta` | `text`, `index` | as thinking streams in |
+| `assistant_message` | `message` (the assembled API message), `requestId`, `durationMs`, `usd`, `priced` | when a response completes |
+| `tool_use` | `id`, `name`, `input`, `summary` | before each tool call |
+| `permission` | `id`, `name`, `decision` (`allow` or `deny`), `reason` (on deny) | after `tool_use`, for a known tool |
+| `tool_result` | `id`, `name`, `content`, `isError`, `durationMs` | after each tool call, including refused, unknown and interrupted calls |
+| `turn_end` | `stopReason`, `turn` (the turn's cost aggregate) | last, once per turn |
+| `budget_stop` | `result` (the budget check that failed) | instead of a request the budget does not cover |
+| `warning` | `message` | |
+| `error` | `message`, `errorType`, `status` (HTTP status, or null mid-stream) | when the turn ends on an error |
+| `interrupted` | none | when the turn's signal aborts |
+| `session_end` | `session` (the session's cost aggregate) | once, on exit |
+
+`stopReason` is the API's `stop_reason` (`end_turn`, `stop_sequence`, `max_tokens`, `refusal`, or another value), or one of `budget`, `interrupted` and `error`.

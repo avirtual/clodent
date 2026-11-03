@@ -2,8 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { liveSmoke, DEFAULT_MODEL } from '../../scripts/live-smoke.js';
+import { liveSmoke, DEFAULT_MODEL, padSystem } from '../../scripts/live-smoke.js';
 import { createFakeFetch } from '../helpers/fake-fetch.js';
+import { sse } from '../helpers/sse-builder.js';
 
 const SCRIPT = fileURLToPath(new URL('../../scripts/live-smoke.js', import.meta.url));
 
@@ -83,4 +84,33 @@ test('an unknown argument exits 2 with usage', async () => {
   const fake = fakeDeps([]);
   assert.equal(await liveSmoke(['--bogus'], fake.deps), 2);
   assert.match(fake.stderr(), /unknown argument --bogus/);
+});
+
+const cached = (cacheRead) => ({ body: sse({ blocks: [{ type: 'text', text: 'pong' }], usage: { cache_read_input_tokens: cacheRead } }) });
+
+test('--pad appends n filler words to the system prompt; 0 leaves it alone', async () => {
+  const fake = fakeDeps([cached(0), cached(5000)]);
+  assert.equal(await liveSmoke(['--pad', '10'], fake.deps), 0);
+  const system = fake.fetch.calls[0].body.system[0].text;
+  const filler = system.split('\n\n').at(-1).split(' ');
+  assert.equal(filler.length, 10);
+  assert.equal(padSystem('s', 0), 's');
+  assert.equal(padSystem('s', 3), 's\n\nalpha bravo charlie');
+  const plain = fakeDeps([cached(0), cached(0)]);
+  assert.equal(await liveSmoke(['--pad', '0'], plain.deps), 0);
+  assert.equal(`${plain.fetch.calls[0].body.system[0].text}\n\n${filler.join(' ')}`, system);
+});
+
+test('with --pad, no cache read on request 2 exits 1 with a stderr line', async () => {
+  const fake = fakeDeps([cached(0), cached(0)]);
+  assert.equal(await liveSmoke(['--pad', '6000'], fake.deps), 1);
+  assert.equal(fake.stderr(), 'live-smoke: no cache read on request 2\n');
+});
+
+test('--pad needs a non-negative integer', async () => {
+  for (const argv of [['--pad'], ['--pad', '-1'], ['--pad', 'x']]) {
+    const fake = fakeDeps([]);
+    assert.equal(await liveSmoke(argv, fake.deps), 2, argv.join(' '));
+    assert.match(fake.stderr(), /usage: .*\[--pad <n>\]/);
+  }
 });
