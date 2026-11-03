@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
+import { capResult } from '../../src/tools/cap.js';
 import { createGlob } from '../../src/tools/glob.js';
 import { ctxFor, gitAdd, gitInit, plant, setMtime, useTempDir } from './tmp-dir.js';
 
@@ -69,12 +70,14 @@ test('a missing or non-directory path is an error', async (t) => {
   assert.deepEqual(file, { content: `${join(dir, 'a.js')} is not a directory`, isError: true });
 });
 
-test('results are capped at 1000 with a note', async (t) => {
+test('results are capped at 1000 newest with a note, then byte-capped like any result', async (t) => {
   const dir = await useTempDir(t);
   await plant(dir, Object.fromEntries(Array.from({ length: 1001 }, (_, i) => [`f${i}.txt`, ''])));
-  const lines = (await glob.run({ pattern: '*.txt' }, ctxFor(dir))).content.split('\n');
-  assert.equal(lines.length, 1001);
-  assert.equal(lines[1000], '[clay: showing the 1000 newest of 1001 matches; narrow the pattern]');
+  for (let i = 0; i < 1001; i += 1) await setMtime(join(dir, `f${i}.txt`), 1000 + i);
+  const newest = Array.from({ length: 1000 }, (_, i) => join(dir, `f${1000 - i}.txt`));
+  const note = '[clay: showing the 1000 newest of 1001 matches; narrow the pattern]';
+  const result = await glob.run({ pattern: '*.txt' }, ctxFor(dir));
+  assert.deepEqual(result, { content: capResult([...newest, note].join('\n')), isError: false });
 });
 
 test('inside a git work tree .gitignore is respected, also from a subdirectory', async (t) => {
