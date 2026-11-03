@@ -57,7 +57,7 @@ function execute(command, timeoutMs, ctx, { spawn, killGraceMs, kill }) {
     };
     child.on('exit', () => {
       exited = true;
-      if (graceOver) releasePipes();
+      if (graceOver) setImmediate(releasePipes);
     });
     const terminate = () => {
       if (killTimer) return;
@@ -65,7 +65,7 @@ function execute(command, timeoutMs, ctx, { spawn, killGraceMs, kill }) {
       killTimer = setTimeout(() => {
         killGroup('SIGKILL');
         graceOver = true;
-        if (exited) releasePipes();
+        if (exited) setImmediate(releasePipes);
       }, killGraceMs);
       killTimer.unref();
     };
