@@ -66,6 +66,16 @@ test('an AGENTS.md that is a directory or unreadable is skipped', () => {
   assert.deepEqual(discoverAgentsMd('/r/x', fs).files, []);
 });
 
+test('an AGENTS.md that is empty or only whitespace is skipped', () => {
+  const fs = fakeFs({
+    '/r/.git': DIR,
+    '/r/AGENTS.md': '',
+    '/r/a/AGENTS.md': ' \n\t\n',
+    '/r/a/b/AGENTS.md': 'real rules',
+  });
+  assert.deepEqual(discoverAgentsMd('/r/a/b', fs).files, [{ path: '/r/a/b/AGENTS.md', text: 'real rules' }]);
+});
+
 test('each file is capped at 32 KiB with a marker', () => {
   const fs = fakeFs({ '/r/.git': DIR, '/r/AGENTS.md': 'a'.repeat(FILE_CAP_BYTES + 100), '/r/s/AGENTS.md': 'small' });
   const { files } = discoverAgentsMd('/r/s', fs);
