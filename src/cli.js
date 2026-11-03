@@ -1,12 +1,17 @@
-import { readFileSync, statSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, truncateSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { createAgent } from './agent/loop.js';
 import { DEFAULT_MODEL, FLAGS, givenFlags, parseArgs } from './args.js';
 import { createLedger } from './cost/ledger.js';
 import { buildSystemPrompt } from './prompt/system.js';
 import { createRenderer } from './render/terminal.js';
+import { openSession } from './session/open.js';
+import { clayHome } from './session/paths.js';
+import { createRecorder } from './session/recorder.js';
 import { createTools } from './tools/index.js';
 
-export const NOT_YET = new Set(['session-id', 'resume', 'fork-session', 'settings']);
+export const NOT_YET = new Set(['settings']);
 
 function version() {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
@@ -40,8 +45,35 @@ function systemPrompt(opts, model, deps) {
   );
 }
 
+function startSession(opts, deps) {
+  return openSession(
+    {
+      sessionId: opts.sessionId,
+      resume: opts.resume,
+      forkSession: opts.forkSession === true,
+      home: clayHome(deps.env, deps.homedir ?? homedir()),
+      cwd: deps.cwd,
+      version: version(),
+    },
+    {
+      existsSync,
+      readdirSync,
+      readFileSync,
+      truncateSync,
+      appendFileSync,
+      mkdirSync,
+      clock: deps.clock,
+      uuid: deps.uuid ?? randomUUID,
+    },
+  );
+}
+
 async function runPrint(opts, deps) {
   const { stdout, stderr, env, cwd } = deps;
+  if (opts.print === '') {
+    stderr.write('clay: -p needs a non-empty prompt\n');
+    return 2;
+  }
   if (!env.ANTHROPIC_API_KEY) {
     stderr.write('clay: ANTHROPIC_API_KEY is not set\n');
     return 2;
@@ -54,6 +86,15 @@ async function runPrint(opts, deps) {
     stderr.write(`clay: ${err.message}\n`);
     return 2;
   }
+  const session = startSession(opts, deps);
+  if (!session.ok) {
+    stderr.write(`clay: ${session.error}\n`);
+    return 2;
+  }
+  stderr.write(`[clay:session] ${session.sessionId}\n`);
+  for (const warning of session.warnings) stderr.write(`clay: ${warning}\n`);
+  const render = createRenderer({ out: stdout, err: stderr, mode: 'print' });
+  const record = createRecorder(session.transcript, { now: deps.now });
   const agent = createAgent(
     {
       model,
@@ -61,6 +102,8 @@ async function runPrint(opts, deps) {
       system,
       tools: createTools({ spawn: deps.spawn, kill: deps.kill }),
       permission: opts.permission,
+      history: session.history,
+      interrupted: session.interrupted,
     },
     {
       fetch: deps.fetch,
@@ -70,7 +113,10 @@ async function runPrint(opts, deps) {
       random: deps.random,
       now: deps.now,
       ledger: createLedger({ budgetUsd: opts.budgetUsd }, {}),
-      emit: createRenderer({ out: stdout, err: stderr, mode: 'print' }),
+      emit: (event) => {
+        record(event);
+        render(event);
+      },
     },
   );
   const controller = new AbortController();

@@ -1,6 +1,6 @@
 # clay
 
-clay is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. This release is the package scaffold: the `clay` binary prints its version and usage, and nothing else is implemented yet.
+clay is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. This release runs one prompt in print mode (`clay -p`) with the built-in tools, cost accounting and a JSONL session transcript; the REPL, hooks and settings land in later releases.
 
 ## Install
 
@@ -36,7 +36,7 @@ An opt-in check against the real Messages API; the suite only runs it without a 
 
 ## Contract
 
-Later releases document every environment variable, hook event and settings key here; this section is the contract a host integrates against.
+Hook events and settings keys are documented here as they land; this section is the contract a host integrates against.
 
 ### Flags
 
@@ -48,9 +48,9 @@ Later releases document every environment variable, hook event and settings key 
 | `--budget <usd>` | works | stop before the session spends more than this many US dollars |
 | `--yolo` | works | run every tool without asking |
 | `--read-only` | works | refuse write tools and every Bash command |
-| `--session-id <uuid>` | parsed; not yet implemented | use this session id instead of minting one |
-| `--resume <id>` | parsed; not yet implemented | resume the session with this id |
-| `--fork-session` | parsed; not yet implemented | with `--resume`, continue under a new session id |
+| `--session-id <uuid>` | works | use this session id instead of minting one; see [Sessions](#sessions) |
+| `--resume <id>` | works | resume the session with this id |
+| `--fork-session` | works | with `--resume`, continue under a new session id in a new transcript |
 | `--settings <file>` | parsed; not yet implemented | merge settings from this JSON file; repeatable |
 | `--add-dir <path>` | works | give the agent an additional directory; repeatable |
 | `--system-prompt <text>` | works | replace the base system prompt with this text |
@@ -64,7 +64,7 @@ Parsing:
 
 - A value is the next argument, or the text after the first `=` (`--model=x`, `-p=x`). When the next argument is itself a clay flag, such as `--yolo` or `-p`, the value counts as missing; the `=` form passes such text.
 - `--settings`, `--add-dir`, `--append-system-prompt` and `--append-system-prompt-file` collect every occurrence in argv order. Any other flag given twice is an error.
-- These are errors: an unknown flag, a positional argument (clay takes none), a missing value, a value on a flag that takes none, an `--effort` other than `low`, `medium` or `high`, a `--budget` that is not a decimal number greater than 0, a `--session-id` not shaped as 8-4-4-4-12 hex digits, `--yolo` with `--read-only`, `--fork-session` without `--resume`, and `--system-prompt` with `--system-prompt-file`.
+- These are errors: an unknown flag, a positional argument (clay takes none), a missing value, a value on a flag that takes none, an `--effort` other than `low`, `medium` or `high`, a `--budget` that is not a decimal number greater than 0, a `--session-id` not shaped as 8-4-4-4-12 hex digits, `--yolo` with `--read-only`, `--fork-session` without `--resume`, `--session-id` with `--resume` but without `--fork-session` (`--session-id with --resume requires --fork-session`), and `--system-prompt` with `--system-prompt-file`.
 
 Exit codes:
 
@@ -74,12 +74,20 @@ Exit codes:
 - Without `-p`, `clay` prints `clay: not implemented yet` to stderr and exits 1; the REPL lands in a later release.
 - With `-p`, see [Print mode](#print-mode).
 
+### Environment
+
+| variable | meaning |
+|---|---|
+| `ANTHROPIC_API_KEY` | the API key, sent as `x-api-key`; `-p` exits 2 without it |
+| `CLAY_HOME` | where clay keeps its data, such as session transcripts; default `~/.clay`; an empty value counts as unset |
+
 ### Print mode
 
 `clay -p "<prompt>"` runs one turn of the agent loop: it sends the prompt, runs every tool the model calls, sends the results back, and repeats until the model ends its turn.
 
-stdout gets only the final answer: the text blocks of the turn's last assistant message, joined, then a newline. When that message has no text, stdout gets nothing. Thinking is never printed. stderr gets everything else, one line each:
+stdout gets only the final answer: the text blocks of the turn's last assistant message whose `stop_reason` is not `tool_use`, joined, then a newline. When there is no such message or it has no text, stdout gets nothing; text the model writes alongside a tool call is never printed. Thinking is never printed. stderr gets everything else, one line each:
 
+- `[clay:session] <session-id>` first, before any other line; see [Sessions](#sessions).
 - `● <Tool> <summary>` for each tool call; the summary is the call's main input, such as the path or the command.
 - `  ✗ <reason>` when a tool call is refused, and `  ✗ <first line of the result>` when a tool returns an error.
 - `clay: <message>` for warnings and errors. An API error message is printed verbatim.
@@ -92,7 +100,7 @@ Exit codes:
 
 - 0: the model ended its turn (`end_turn` or `stop_sequence`).
 - 1: an API error, a budget stop, a refusal, `max_tokens` (warned as `clay: response hit max_tokens`), or any other stop reason (warned as `clay: unexpected stop_reason <reason>`).
-- 2: an argument error; `ANTHROPIC_API_KEY` unset, printed as `clay: ANTHROPIC_API_KEY is not set`; or an unreadable prompt file, printed as `clay: <message>`. No request is sent.
+- 2: an argument error; an empty prompt (`-p ''` or `-p=`), printed as `clay: -p needs a non-empty prompt`; `ANTHROPIC_API_KEY` unset, printed as `clay: ANTHROPIC_API_KEY is not set`; an unreadable prompt file, printed as `clay: <message>`; or a session error (see [Sessions](#sessions)). No request is sent and no `[clay:session]` line is printed.
 - 130: SIGINT. clay aborts the request or the running tool, waits for that tool to return (a Bash process group gets SIGTERM, then SIGKILL 2 s later), prints `clay: interrupted` and the cost lines, and exits.
 
 Permissions in `-p` go by the tool's kind (see [Tools](#tools)). A refused call is not run: the model gets the reason as an error tool result, and the turn goes on.
@@ -198,16 +206,17 @@ where `<n>` is the exact number of bytes removed.
 
 ### Events
 
-Internal; serialized by a later stream-json mode. The agent loop reports everything through typed events, each `{type, ...fields}`, and the terminal renderer consumes them.
+Internal; serialized by a later stream-json mode. The agent loop reports everything through typed events, each `{type, ...fields}`; the terminal renderer and the session recorder consume them.
 
 | type | fields | emitted |
 |---|---|---|
 | `session_start` | `model`, `cwd`, `tools` (names), `permission` (`ask`, `yolo` or `read-only`) | once, when the agent is created |
-| `request_start` | `attempt` (1-based; a mid-stream re-send counts up) | before each Messages API request |
+| `request_start` | `attempt` (1-based; a mid-stream re-send counts up) | before each request the loop sends; streamMessage's pre-stream retries are not announced |
 | `text_delta` | `text`, `index` (content block index) | as text streams in |
 | `thinking_delta` | `text`, `index` | as thinking streams in |
 | `assistant_message` | `message` (the assembled API message), `requestId`, `durationMs`, `usd`, `priced` | when a response completes |
-| `tool_use` | `id`, `name`, `input`, `summary` | before each tool call |
+| `message_append` | `role`, `content` (the blocks just added to the history), `kind` (`prompt`, `tool_results`, `assistant` or `partial`), `meta` (`message`, `requestId`, `durationMs`, `usd` for `assistant`; `{}` otherwise) | each time blocks join the history; for a response, just before `assistant_message`, even when its content is empty |
+| `tool_use` | `id`, `name`, `input`, `summary` | before each tool call, and before the result made up for a call that never ran |
 | `permission` | `id`, `name`, `decision` (`allow` or `deny`), `reason` (on deny) | after `tool_use`, for a known tool |
 | `tool_result` | `id`, `name`, `content`, `isError`, `durationMs` | after each tool call, including refused, unknown and interrupted calls |
 | `turn_end` | `stopReason`, `turn` (the turn's cost aggregate) | last, once per turn |
@@ -217,4 +226,57 @@ Internal; serialized by a later stream-json mode. The agent loop reports everyth
 | `interrupted` | none | when the turn's signal aborts |
 | `session_end` | `session` (the session's cost aggregate) | once, on exit |
 
-`stopReason` is the API's `stop_reason` (`end_turn`, `stop_sequence`, `max_tokens`, `refusal`, or another value), or one of `budget`, `interrupted` and `error`.
+`stopReason` is the API's `stop_reason` (`end_turn`, `stop_sequence`, `max_tokens`, `refusal`, or another value), or one of `budget`, `interrupted`, `error` and `unknown` (the response carried no `stop_reason`).
+
+When a response that does not stop for `tool_use` still holds `tool_use` blocks, none of them runs: each gets a `tool_use` event and an error result `interrupted by user`, so the next request stays valid.
+
+### Sessions
+
+Every `-p` run records its session as a JSONL transcript, one record per line, at `$CLAY_HOME/projects/<slug>/<session-id>.jsonl` (see [Environment](#environment) for `CLAY_HOME`).
+
+- `<slug>` is the working directory with every `/` and `.` replaced by `-`, and no other character changed: `/Users/a/my.proj/x_y` becomes `-Users-a-my-proj-x_y`.
+- Directories are created mode 0700, the file mode 0600. The file appears with the first record.
+- Each record is appended with one synchronous write, ending in `\n`, the moment it exists: every record of a request is on disk before the next request is sent, and the turn's last assistant record and `turn_duration` record are on disk when the turn ends.
+
+Session id:
+
+- `[clay:session] <session-id>` is printed at start, once the arguments, the API key and the session check out. In print mode it is the first line on stderr.
+- Without `--session-id`, clay mints a random UUID.
+- `--session-id <uuid>` uses that id. When its transcript already exists, clay prints `clay: session <id> already exists; use --resume` and exits 2.
+- `--resume <id>` looks for `$CLAY_HOME/projects/<slug of cwd>/<id>.jsonl`, then for `$CLAY_HOME/projects/*/<id>.jsonl` in sorted dir order. With no such file, or an id that is not made of letters, digits, `_` and `-`, clay prints `clay: no session <id>` and exits 2. Otherwise it loads the history and appends to that same file under the same id; the first new record's `parentUuid` is the `uuid` of the file's last record.
+- `--fork-session` (with `--resume`) records into a new file under a new id: the `--session-id` if given, else a minted one; an existing `--session-id` transcript exits 2 as above. It first copies every record of the source with `sessionId` set to the new id and every other field, `uuid` and `parentUuid` included, unchanged; then it continues. The source file is never written.
+- `-p` with `--resume` loads the session, then runs the one prompt.
+
+Loading a transcript:
+
+- User and assistant records that are not `isMeta: true` are replayed in file order into the history, consecutive records of one role joining one message, exactly as the live history merged them. Other record types and meta records are skipped.
+- A last line without its `\n` is a write cut short by a crash. clay prints `clay: <path>: ignoring a truncated last line` right after the `[clay:session]` line; when resuming in place, it cuts the file back to its last complete line before appending.
+- Any other line that is not a JSON object, or a user or assistant record without a `message.content` array, prints `clay: <path>: line <n> is not valid JSON`, `… is not a record` or `… has no message content` and exits 2.
+- When the last user record is the interrupt record, the next prompt goes to the API prefixed with the text block `[clay: previous turn interrupted by the user]`, as it would have in the interrupted run.
+
+Every record carries:
+
+| field | value |
+|---|---|
+| `type` | `user`, `assistant` or `system` |
+| `uuid` | a fresh random UUID (copied records keep theirs) |
+| `parentUuid` | the previous record's `uuid`; `null` for the first record of a new file |
+| `sessionId` | the session id; the file's basename without `.jsonl` |
+| `timestamp` | ISO 8601 in UTC |
+| `cwd` | the working directory |
+| `isSidechain` | `false` |
+| `version` | clay's version |
+| `entrypoint` | `clay` |
+
+Record kinds, in the order a turn writes them:
+
+| kind | fields besides the common ones |
+|---|---|
+| prompt | `type: "user"`, `message: {role: "user", content: [text blocks]}`; after an interrupted turn the content starts with the `[clay: previous turn interrupted by the user]` block |
+| assistant | `type: "assistant"`, `message` (the API message: `id`, `model`, `role`, `content`, `stop_reason`, `stop_sequence`, `usage` as the API reported it), `requestId` (the `request-id` response header, or null), `costUsd` (this request's cost; 0 for an unpriced model), `durationMs` (this request's duration). A response with empty content is recorded too. |
+| tool results | `type: "user"`, `message: {role: "user", content: [tool_result blocks]}`, `toolUseResult: {name, isError}` describing the first block |
+| partial assistant | `type: "assistant"`, `message: {role: "assistant", content: [the completed text blocks], stop_reason: null}`; written on an interrupt that kept text |
+| interrupt | `type: "user"`, `message: {role: "user", content: [{type: "text", text: "[Request interrupted by user]"}]}`, `isMeta: true` |
+| turn end | `type: "system"`, `subtype: "turn_duration"`, `durationMs` (the turn's duration), `messageCount` (the turn's user and assistant records, the interrupt record included); after the turn's last record |
+
+A turn the model ended has `stop_reason: "end_turn"` on its last assistant record.

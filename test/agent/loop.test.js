@@ -13,19 +13,20 @@ import { plant, useTempDir } from '../tools/tmp-dir.js';
 
 const MODEL = 'claude-opus-5-5';
 
-function harness(responses, { tools = [], permission = 'yolo', budgetUsd, cwd = '/work', onEvent } = {}) {
+function harness(responses, { tools = [], permission = 'yolo', budgetUsd, cwd = '/work', onEvent, sleep, history, interrupted } = {}) {
   const events = [];
   const sleeps = [];
   const fetch = createFakeFetch(responses);
   const ledger = createLedger({ budgetUsd }, {});
   const agent = createAgent(
-    { model: MODEL, system: 'You are a test.', tools, permission },
+    { model: MODEL, system: 'You are a test.', tools, permission, history, interrupted },
     {
       fetch,
       env: { ANTHROPIC_API_KEY: 'sk-test' },
       cwd,
-      sleep: async (ms) => {
+      sleep: async (ms, signal) => {
         sleeps.push(ms);
+        await sleep?.(ms, signal);
       },
       random: () => 0.5,
       now: () => 0,
@@ -87,8 +88,8 @@ const toolReply = (uses, extra = {}) => ({
 test('EVENT_TYPES is a frozen list naming every event the loop emits', () => {
   assert.ok(Object.isFrozen(EVENT_TYPES));
   assert.deepEqual(EVENT_TYPES, [
-    'session_start', 'request_start', 'text_delta', 'thinking_delta', 'assistant_message', 'tool_use', 'permission',
-    'tool_result', 'turn_end', 'budget_stop', 'warning', 'error', 'interrupted', 'session_end',
+    'session_start', 'request_start', 'text_delta', 'thinking_delta', 'assistant_message', 'message_append', 'tool_use',
+    'permission', 'tool_result', 'turn_end', 'budget_stop', 'warning', 'error', 'interrupted', 'session_end',
   ]);
 });
 
@@ -100,7 +101,9 @@ test('session_start names the model, cwd, tools and permission mode', () => {
 test('a text-only turn streams deltas, records the message and ends ok', async () => {
   const h = harness([{ body: 'text-only.sse' }]);
   assert.deepEqual(await h.agent.runTurn('hi'), { stopReason: 'end_turn', ok: true });
-  assert.deepEqual(h.types(), ['session_start', 'request_start', 'text_delta', 'text_delta', 'assistant_message', 'turn_end']);
+  assert.deepEqual(h.types(), [
+    'session_start', 'message_append', 'request_start', 'text_delta', 'text_delta', 'message_append', 'assistant_message', 'turn_end',
+  ]);
   assert.deepEqual(h.of('text_delta').map((e) => [e.text, e.index]), [['Hello', 0], [', world!', 0]]);
   const [msg] = h.of('assistant_message');
   assert.equal(msg.message.content[0].text, 'Hello, world!');
@@ -268,7 +271,7 @@ test('stop_sequence ends ok; an unknown stop_reason warns and ends not ok', asyn
   assert.deepEqual(u.of('warning'), [{ type: 'warning', message: 'unexpected stop_reason model_context_window_exceeded' }]);
 });
 
-test('a mid-stream overloaded error re-sends the same request after 2 s and discards the partial', async () => {
+test('a mid-stream overloaded error re-sends the same request after 2 s', async () => {
   const h = harness([{ body: 'error-mid-stream.sse' }, { body: 'text-only.sse' }]);
   assert.deepEqual(await h.agent.runTurn('go'), { stopReason: 'end_turn', ok: true });
   assert.deepEqual(h.sleeps, [2000]);
@@ -276,6 +279,21 @@ test('a mid-stream overloaded error re-sends the same request after 2 s and disc
   assert.deepEqual(h.of('request_start').map((e) => e.attempt), [1, 2]);
   assert.deepEqual(h.of('warning'), [{ type: 'warning', message: 'Overloaded; retrying in 2 s' }]);
   assert.deepEqual(h.agent.messages()[1], { role: 'assistant', content: [{ type: 'text', text: 'Hello, world!' }] });
+});
+
+test('an abort during the mid-stream retry wait discards the partial of the failed attempt', async () => {
+  const controller = new AbortController();
+  const head = sseEvents({ blocks: [{ type: 'text', text: 'Completed.' }] }).slice(0, 4).join('');
+  const h = harness([{ body: head + sseError('overloaded_error', 'Overloaded') }], {
+    sleep: async (ms, signal) => {
+      controller.abort();
+      signal.throwIfAborted();
+    },
+  });
+  assert.deepEqual(await h.agent.runTurn('go', { signal: controller.signal }), { stopReason: 'interrupted', ok: false });
+  assert.deepEqual(h.sleeps, [2000]);
+  assert.deepEqual(h.agent.messages(), [{ role: 'user', content: [{ type: 'text', text: 'go' }] }]);
+  assert.deepEqual(h.of('message_append').map((e) => e.kind), ['prompt']);
 });
 
 test('three mid-stream overloaded errors in a row emit the API message and end not ok', async () => {
@@ -382,4 +400,82 @@ test('every emitted event type is in EVENT_TYPES', async () => {
   await h.agent.runTurn('go');
   h.agent.endSession();
   for (const type of h.types()) assert.ok(EVENT_TYPES.includes(type), type);
+});
+
+test('every append emits message_append with the blocks just appended, its kind and meta', async () => {
+  const h = harness([toolReply([{ name: 'A', input: { n: 1 } }]), textReply('done')], { tools: [fakeTool('A', 'read', [])] });
+  await h.agent.runTurn('go');
+  const appends = h.of('message_append');
+  assert.deepEqual(appends.map((e) => [e.role, e.kind]), [['user', 'prompt'], ['assistant', 'assistant'], ['user', 'tool_results'], ['assistant', 'assistant']]);
+  assert.deepEqual(appends[0], { type: 'message_append', role: 'user', content: [{ type: 'text', text: 'go' }], kind: 'prompt', meta: {} });
+  assert.deepEqual(appends[2].content, [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'A ok', is_error: false }]);
+  assert.deepEqual(appends[2].meta, {});
+  const [first] = h.of('assistant_message');
+  assert.deepEqual(appends[1].content, first.message.content);
+  assert.deepEqual(appends[1].meta, { message: first.message, requestId: first.requestId, durationMs: first.durationMs, usd: first.usd });
+  const types = h.types();
+  assert.equal(types[types.indexOf('assistant_message') - 1], 'message_append');
+});
+
+test('an interrupt emits message_append of kind partial for the kept text', async () => {
+  const controller = new AbortController();
+  const body = sse({ blocks: [{ type: 'text', text: 'Kept.' }, { type: 'text', text: ['Cut ', 'off'] }] });
+  const h = harness([{ body }], { onEvent: (e) => e.type === 'text_delta' && e.index === 1 && controller.abort() });
+  await h.agent.runTurn('go', { signal: controller.signal });
+  const appends = h.of('message_append');
+  assert.deepEqual(appends.at(-1), { type: 'message_append', role: 'assistant', content: [{ type: 'text', text: 'Kept.' }], kind: 'partial', meta: {} });
+  assert.deepEqual(h.types().slice(-3), ['message_append', 'interrupted', 'turn_end']);
+});
+
+test('an empty assistant message emits message_append but adds nothing to the history', async () => {
+  const h = harness([{ body: sse({ blocks: [] }) }]);
+  assert.deepEqual(await h.agent.runTurn('go'), { stopReason: 'end_turn', ok: true });
+  assert.deepEqual(h.of('message_append').map((e) => [e.kind, e.content]), [['prompt', [{ type: 'text', text: 'go' }]], ['assistant', []]]);
+  assert.deepEqual(h.agent.messages(), [{ role: 'user', content: [{ type: 'text', text: 'go' }] }]);
+});
+
+test('max_tokens with a complete tool_use synthesizes interrupted results, so the next request is valid', async () => {
+  const log = [];
+  const h = harness([toolReply([{ name: 'A', input: { n: 1 } }], { stopReason: 'max_tokens' }), textReply('ok')], {
+    tools: [fakeTool('A', 'read', log)],
+  });
+  assert.deepEqual(await h.agent.runTurn('go'), { stopReason: 'max_tokens', ok: false });
+  assert.deepEqual(log, []);
+  assert.deepEqual(h.of('tool_result').map((e) => [e.id, e.content, e.isError]), [['toolu_1', INTERRUPTED_RESULT, true]]);
+  assert.deepEqual(await h.agent.runTurn('again'), { stopReason: 'end_turn', ok: true });
+  const sent = strip(h.fetch.calls[1].body.messages);
+  assertValidHistory(sent);
+  assert.deepEqual(sent.at(-1).content, [
+    { type: 'tool_result', tool_use_id: 'toolu_1', content: INTERRUPTED_RESULT, is_error: true },
+    { type: 'text', text: 'again' },
+  ]);
+});
+
+test('a call that never ran gets its tool_use event before its interrupted tool_result', async () => {
+  const controller = new AbortController();
+  const tools = [fakeTool('A', 'read', []), fakeTool('B', 'read', [])];
+  const h = harness([toolReply([{ name: 'A', input: { n: 1 } }, { name: 'B', input: { n: 2 } }])], {
+    tools,
+    onEvent: (e) => e.type === 'tool_result' && e.id === 'toolu_1' && controller.abort(),
+  });
+  await h.agent.runTurn('go', { signal: controller.signal });
+  const calls = h.events.filter((e) => e.type === 'tool_use' || e.type === 'tool_result').map((e) => [e.type, e.id]);
+  assert.deepEqual(calls, [['tool_use', 'toolu_1'], ['tool_result', 'toolu_1'], ['tool_use', 'toolu_2'], ['tool_result', 'toolu_2']]);
+  assert.deepEqual(h.of('tool_use')[1], { type: 'tool_use', id: 'toolu_2', name: 'B', input: { n: 2 }, summary: 'B:2' });
+});
+
+test('createAgent starts from a given history and interrupted flag without mutating them', async () => {
+  const history = [
+    { role: 'user', content: [{ type: 'text', text: 'first' }] },
+    { role: 'assistant', content: [{ type: 'text', text: 'partial' }] },
+    { role: 'user', content: [{ type: 'text', text: 'before' }] },
+  ];
+  const frozen = structuredClone(history);
+  const h = harness([textReply('ok')], { history, interrupted: true });
+  await h.agent.runTurn('next');
+  assert.deepEqual(history, frozen);
+  assert.deepEqual(strip(h.fetch.calls[0].body.messages), [
+    ...frozen.slice(0, 2),
+    { role: 'user', content: [{ type: 'text', text: 'before' }, { type: 'text', text: INTERRUPT_MARKER }, { type: 'text', text: 'next' }] },
+  ]);
 });
