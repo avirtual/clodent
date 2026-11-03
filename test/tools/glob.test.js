@@ -112,3 +112,23 @@ test('inside a git work tree .gitignore is respected, also from a subdirectory',
   assert.deepEqual(await names(dir, { pattern: '**/*.js' }), ['pkg/inner.js', 'tracked.js', 'untracked.js']);
   assert.deepEqual(await names(dir, { pattern: '*.js', path: 'pkg' }), ['pkg/inner.js']);
 });
+
+test('a path that is itself git-ignored is walked instead of listing nothing', async (t) => {
+  const dir = await useTempDir(t);
+  gitInit(dir);
+  await plant(dir, {
+    '.gitignore': 'node_modules/\ndist/\n',
+    'src/a.js': '',
+    'node_modules/pkg/index.js': '',
+    'node_modules/pkg/lib/util.js': '',
+    'dist/out.js': '',
+  });
+  await setMtime(join(dir, 'node_modules/pkg/index.js'), 2000);
+  await setMtime(join(dir, 'node_modules/pkg/lib/util.js'), 1000);
+  assert.deepEqual(await names(dir, { pattern: '**/*.js', path: 'node_modules/pkg' }), [
+    'node_modules/pkg/index.js',
+    'node_modules/pkg/lib/util.js',
+  ]);
+  assert.deepEqual(await names(dir, { pattern: '*.js', path: 'dist' }), ['dist/out.js']);
+  assert.deepEqual(await names(dir, { pattern: '**/*.js' }), ['src/a.js']);
+});
