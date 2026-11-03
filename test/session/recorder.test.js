@@ -23,7 +23,7 @@ test('the recorder maps appends, the interrupt and turn_end to transcript record
   const record = createRecorder(transcript, { now: () => clock });
   record({ type: 'session_start' });
   record({ type: 'message_append', role: 'user', content: [{ type: 'text', text: 'go' }], kind: 'prompt', meta: {} });
-  record({ type: 'message_append', role: 'assistant', content: MESSAGE.content, kind: 'assistant', meta: { message: MESSAGE, requestId: 'req_1', durationMs: 7, usd: 0.25 } });
+  record({ type: 'message_append', role: 'assistant', content: MESSAGE.content, kind: 'assistant', meta: { message: MESSAGE, requestId: 'req_1', durationMs: 6.6, usd: 0.25 } });
   record({ type: 'assistant_message', message: MESSAGE });
   record({
     type: 'message_append',

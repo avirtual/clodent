@@ -273,10 +273,10 @@ Record kinds, in the order a turn writes them:
 | kind | fields besides the common ones |
 |---|---|
 | prompt | `type: "user"`, `message: {role: "user", content: [text blocks]}`; after an interrupted turn the content starts with the `[clay: previous turn interrupted by the user]` block |
-| assistant | `type: "assistant"`, `message` (the API message: `id`, `model`, `role`, `content`, `stop_reason`, `stop_sequence`, `usage` as the API reported it), `requestId` (the `request-id` response header, or null), `costUsd` (this request's cost; 0 for an unpriced model), `durationMs` (this request's duration). A response with empty content is recorded too. |
+| assistant | `type: "assistant"`, `message` (the API message: `id`, `model`, `role`, `content`, `stop_reason`, `stop_sequence`, `usage` as the API reported it), `requestId` (the `request-id` response header, or null), `costUsd` (this request's cost; 0 for an unpriced model), `durationMs` (this request's duration in whole milliseconds). A response with empty content is recorded too. |
 | tool results | `type: "user"`, `message: {role: "user", content: [tool_result blocks]}`, `toolUseResult: {name, isError}` describing the first block |
 | partial assistant | `type: "assistant"`, `message: {role: "assistant", content: [the completed text blocks], stop_reason: null}`; written on an interrupt that kept text |
 | interrupt | `type: "user"`, `message: {role: "user", content: [{type: "text", text: "[Request interrupted by user]"}]}`, `isMeta: true` |
-| turn end | `type: "system"`, `subtype: "turn_duration"`, `durationMs` (the turn's duration), `messageCount` (the turn's user and assistant records, the interrupt record included); after the turn's last record |
+| turn end | `type: "system"`, `subtype: "turn_duration"`, `durationMs` (the turn's duration in whole milliseconds), `messageCount` (the turn's user and assistant records, the interrupt record included); after the turn's last record |
 
 A turn the model ended has `stop_reason: "end_turn"` on its last assistant record.

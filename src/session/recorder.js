@@ -2,7 +2,7 @@ import { INTERRUPT_TEXT } from './transcript.js';
 
 function messageRecord({ role, content, kind, meta }) {
   if (kind === 'assistant') {
-    return { type: 'assistant', message: meta.message, requestId: meta.requestId, costUsd: meta.usd, durationMs: meta.durationMs };
+    return { type: 'assistant', message: meta.message, requestId: meta.requestId, costUsd: meta.usd, durationMs: Math.round(meta.durationMs) };
   }
   if (kind === 'partial') return { type: 'assistant', message: { role, content, stop_reason: null } };
   return { type: 'user', message: { role, content } };
