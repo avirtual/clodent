@@ -1,0 +1,15 @@
+{
+  "name": "clay",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "clay": "bin/clay.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node scripts/run-tests.js"
+  }
+}
