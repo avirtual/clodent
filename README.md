@@ -36,14 +36,61 @@ An opt-in check against the real Messages API; the suite only runs it without a 
 
 ## Contract
 
-Later releases document every flag, environment variable, hook event and settings key here; this section is the contract a host integrates against.
+Later releases document every environment variable, hook event and settings key here; this section is the contract a host integrates against.
 
-The only flags today:
+### Flags
 
-- `clay --version` prints `clay <version>` and exits 0.
-- `clay --help` prints a usage block and exits 0.
+| flag | status | meaning |
+|---|---|---|
+| `-p`, `--print <prompt>` | parsed; not yet implemented | run one prompt without the REPL, print the reply and exit |
+| `--model <id>` | parsed; not yet implemented | model id, default `claude-opus-5-5` |
+| `--effort <level>` | parsed; not yet implemented | `low`, `medium` or `high` |
+| `--budget <usd>` | parsed; not yet implemented | stop before the session spends more than this many US dollars |
+| `--yolo` | parsed; not yet implemented | run every tool without asking |
+| `--read-only` | parsed; not yet implemented | refuse write tools and any shell command that is not a read |
+| `--session-id <uuid>` | parsed; not yet implemented | use this session id instead of minting one |
+| `--resume <id>` | parsed; not yet implemented | resume the session with this id |
+| `--fork-session` | parsed; not yet implemented | with `--resume`, continue under a new session id |
+| `--settings <file>` | parsed; not yet implemented | merge settings from this JSON file; repeatable |
+| `--add-dir <path>` | parsed; not yet implemented | give the agent an additional directory; repeatable |
+| `--system-prompt <text>` | parsed; not yet implemented | replace the base system prompt with this text |
+| `--system-prompt-file <path>` | parsed; not yet implemented | replace the base system prompt with this file |
+| `--append-system-prompt <text>` | parsed; not yet implemented | append this text to the system prompt; repeatable |
+| `--append-system-prompt-file <path>` | parsed; not yet implemented | append this file's contents to the system prompt; repeatable |
+| `-v`, `--version` | works | print `clay <version>` and exit 0 |
+| `-h`, `--help` | works | print usage, one line per flag, and exit 0 |
 
-Any other invocation prints `clay: not implemented yet` to stderr and exits 1.
+Parsing:
+
+- A value is the next argument, or the text after the first `=` (`--model=x`, `-p=x`). When the next argument is itself a clay flag, such as `--yolo` or `-p`, the value counts as missing; the `=` form passes such text.
+- `--settings`, `--add-dir`, `--append-system-prompt` and `--append-system-prompt-file` collect every occurrence in argv order. Any other flag given twice is an error.
+- These are errors: an unknown flag, a positional argument (clay takes none), a missing value, a value on a flag that takes none, an `--effort` other than `low`, `medium` or `high`, a `--budget` that is not a decimal number greater than 0, a `--session-id` not shaped as 8-4-4-4-12 hex digits, `--yolo` with `--read-only`, `--fork-session` without `--resume`, and `--system-prompt` with `--system-prompt-file`.
+
+Exit codes:
+
+- A parse error prints `clay: <error>` and then `clay: see --help` to stderr, and exits 2.
+- Once the arguments parse, `--help` wins over every other flag, then `--version`.
+- A flag marked parsed; not yet implemented prints `clay: --<flag> is not implemented yet` to stderr, one line per such flag in table order, and exits 2.
+- `clay` with no flags prints `clay: not implemented yet` to stderr and exits 1.
+
+### System prompt
+
+clay does not send requests yet; this is the system prompt it builds for them. Its parts, in this order, are separated by blank lines, and an empty part is left out:
+
+1. The base: the `--system-prompt` text, else the contents of `--system-prompt-file`, else clay's own prompt.
+2. `# Environment`: the working directory; whether it is a git repository, and its root; the platform; the local date as `YYYY-MM-DD`; the model id; and, when `--add-dir` is given, `Additional directories:` followed by one absolute path per line.
+3. `# Instructions (AGENTS.md)`, when any AGENTS.md is found: each file under its own `## <absolute path>` heading.
+4. Every `--append-system-prompt` text in argv order, then the contents of every `--append-system-prompt-file` in argv order.
+
+Relative paths given to `--system-prompt-file`, `--append-system-prompt-file` and `--add-dir` resolve against the working directory. A prompt file that is missing or unreadable is an error that names its path.
+
+The date carries no time of day, so the system prompt, which starts the cached prefix, stays byte-identical all day.
+
+AGENTS.md discovery:
+
+- The git root is the nearest directory, from the working directory upwards, that has a `.git` entry, either a directory or a file (a git worktree has a `.git` file).
+- clay reads `AGENTS.md` in every directory from the git root down to the working directory, so the most specific file comes last. Outside a git repository only the working directory's `AGENTS.md` is read.
+- Each file is capped at 32 KiB, and all of them together at 96 KiB, counted in bytes. The total is spent from the working directory upwards, so the files nearest the git root are cut first. A cut file ends with the line `[clay: AGENTS.md truncated]`.
 
 ### API wire
 
