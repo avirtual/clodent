@@ -22,7 +22,7 @@ npm test
 TOTALS: <pass> pass, <fail> fail, <tests> tests
 ```
 
-`tests` is `pass + fail`; only leaf tests are counted, skipped and todo tests are excluded, and a test file that fails to load counts as one failure. Each failure is printed above it as `FAIL <file>: <test name> — <first line of error>`, followed by `SKIPPED: <n>` when any test was skipped. The script exits 0 when no test failed, including when no tests were found. `--dir <path>` runs the tests under another directory; file paths given as arguments are run instead of discovery; `--reporter=<name>` is accepted and ignored.
+`tests` is `pass + fail`. Only leaf tests are counted: a `describe` block or a test with subtests is not a test, but when it fails with no failing test beneath it (a broken hook, a `describe` that throws) it counts as one failure. Skipped and todo tests are excluded, a test file that registers no tests counts as nothing, and a test file that fails to load counts as one failure. Each failure is printed above it as `FAIL <file>: <test name> — <first line of error>`, followed by `SKIPPED: <n>` when any test was skipped. The script exits 0 when no test failed, including when no tests were found. `--dir <path>` runs the tests under another directory, which must exist; file paths given as arguments are run instead of discovery; `--reporter=<name>` is accepted and ignored.
 
 Tests use `node:test` and never call the live API.
 

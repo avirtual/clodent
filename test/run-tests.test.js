@@ -56,6 +56,29 @@ describe('scripts/run-tests.js', () => {
     );
   });
 
+  it('counts a failing suite with no failing test beneath it as one failure', () => {
+    const result = runRunner(['--dir', path.join(FIXTURES, 'suite-fail')]);
+    assertTotals(result, 'TOTALS: 1 pass, 2 fail, 3 tests');
+    assert.equal(result.code, 1);
+    assert.ok(result.lines.some((line) => /^FAIL .*after-hook\.test\.js: .* — after hook breaks$/.test(line)), result.stdout);
+    assert.ok(result.lines.some((line) => /^FAIL .*describe-throws\.test\.js: .* — table fails to load$/.test(line)), result.stdout);
+  });
+
+  it('counts subtests, not their parent test', () => {
+    const result = runRunner(['--dir', path.join(FIXTURES, 'subtests')]);
+    assertTotals(result, 'TOTALS: 3 pass, 1 fail, 4 tests');
+    assert.equal(result.code, 1);
+    const fails = result.lines.filter((line) => line.startsWith('FAIL '));
+    assert.equal(fails.length, 1, result.stdout);
+    assert.match(fails[0], /: child fails — Expected values/);
+  });
+
+  it('does not count a test file that registers no tests', () => {
+    const result = runRunner(['--dir', path.join(FIXTURES, 'no-tests')]);
+    assertTotals(result, 'TOTALS: 0 pass, 0 fail, 0 tests');
+    assert.equal(result.code, 0);
+  });
+
   it('runs only the files named as arguments and ignores --reporter=', () => {
     const file = path.join(FIXTURES, 'green', 'top.test.js');
     const result = runRunner(['--reporter=dot', file]);
