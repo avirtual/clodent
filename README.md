@@ -16,7 +16,7 @@ npm link
 npm test
 ```
 
-`npm test` runs `node scripts/run-tests.js`, which discovers every `*.test.js` under `test/` (skipping `node_modules`, `fixtures` and dot-directories) and runs them with `node:test`. Its last stdout line is always exactly:
+`npm test` runs `node scripts/run-tests.js`, which discovers every `*.test.js` under `test/` (skipping `node_modules`, `fixtures` and dot-directories) and runs them with `node:test`. After a run, its last stdout line is exactly:
 
 ```
 TOTALS: <pass> pass, <fail> fail, <tests> tests
