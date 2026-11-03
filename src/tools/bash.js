@@ -49,10 +49,24 @@ function execute(command, timeoutMs, ctx, { spawn, killGraceMs, kill }) {
         kill(-child.pid, signal);
       } catch {}
     };
+    let exited = false;
+    let graceOver = false;
+    const releasePipes = () => {
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+    };
+    child.on('exit', () => {
+      exited = true;
+      if (graceOver) releasePipes();
+    });
     const terminate = () => {
       if (killTimer) return;
       killGroup('SIGTERM');
-      killTimer = setTimeout(() => killGroup('SIGKILL'), killGraceMs);
+      killTimer = setTimeout(() => {
+        killGroup('SIGKILL');
+        graceOver = true;
+        if (exited) releasePipes();
+      }, killGraceMs);
       killTimer.unref();
     };
     const timer = setTimeout(() => {

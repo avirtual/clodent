@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { createBash, clampTimeout } from '../../src/tools/bash.js';
+import { KILL_GRACE_MS, createBash, clampTimeout } from '../../src/tools/bash.js';
 import { capResult } from '../../src/tools/cap.js';
 import { cleanEnv, ctxFor, useTempDir } from './tmp-dir.js';
 
@@ -16,8 +16,12 @@ function isGone(pid) {
   } catch (err) {
     return err.code === 'ESRCH';
   }
-  const state = execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).trim();
-  return state === '' || state.startsWith('Z');
+  try {
+    const state = execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).trim();
+    return state === '' || state.startsWith('Z');
+  } catch {
+    return true;
+  }
 }
 
 test('stdout comes back with an [exit 0] trailer', GUARD, async (t) => {
@@ -69,13 +73,30 @@ test('the process-group kill reaps a backgrounded grandchild', GUARD, async (t) 
   assert.ok(isGone(pid), `grandchild ${pid} still running`);
 });
 
-test('SIGKILL follows SIGTERM after the grace period', GUARD, async (t) => {
+test('SIGKILL follows SIGTERM to the group after the grace period', GUARD, async (t) => {
   const dir = await useTempDir(t);
-  const stubborn = createBash({ killGraceMs: 50 });
+  const calls = [];
+  const kill = (pid, signal) => {
+    calls.push([pid < 0, signal]);
+    process.kill(pid, signal);
+  };
+  const stubborn = createBash({ killGraceMs: 50, kill });
   const started = Date.now();
   const result = await stubborn.run({ command: "trap '' TERM; sleep 30", timeout: 300 }, ctxFor(dir));
   assert.ok(Date.now() - started < 3000);
   assert.equal(result.content, '[timed out after 300 ms]');
+  assert.deepEqual(calls, [[true, 'SIGTERM'], [true, 'SIGKILL']]);
+  assert.equal(KILL_GRACE_MS, 2000);
+});
+
+test('a descendant that leaves the process group cannot hold a timed-out call open', GUARD, async (t) => {
+  const dir = await useTempDir(t);
+  const quick = createBash({ killGraceMs: 50 });
+  const started = Date.now();
+  const command = "perl -MPOSIX -e 'POSIX::setsid(); sleep 5' & echo started";
+  const result = await quick.run({ command, timeout: 300 }, ctxFor(dir));
+  assert.ok(Date.now() - started < 3000, `took ${Date.now() - started} ms`);
+  assert.deepEqual(result, { content: 'started\n[timed out after 300 ms]', isError: true });
 });
 
 test('aborting through an AbortController kills the command', GUARD, async (t) => {

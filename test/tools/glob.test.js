@@ -62,6 +62,19 @@ test('no match is a plain result, not an error', async (t) => {
   assert.deepEqual(await glob.run({ pattern: '*.py' }, ctxFor(dir)), { content: 'No files matched', isError: false });
 });
 
+test('a malformed glob is an error naming the glob', async (t) => {
+  const dir = await plainTree(t);
+  const result = await glob.run({ pattern: '[z-a]' }, ctxFor(dir));
+  assert.equal(result.isError, true);
+  assert.match(result.content, /^Invalid glob \[z-a\]: /);
+});
+
+test('an abort during listing is an error, not an empty result', async (t) => {
+  const dir = await plainTree(t);
+  const result = await glob.run({ pattern: '*' }, ctxFor(dir, { signal: AbortSignal.abort() }));
+  assert.deepEqual(result, { content: 'Search aborted', isError: true });
+});
+
 test('a missing or non-directory path is an error', async (t) => {
   const dir = await plainTree(t);
   const missing = await glob.run({ pattern: '*', path: 'nope' }, ctxFor(dir));

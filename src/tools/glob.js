@@ -37,8 +37,14 @@ export function createGlob(deps = {}) {
         return fail(describeFsError(err, root));
       }
       if (!info.isDirectory()) return fail(`${root} is not a directory`);
-      const regex = globToRegExp(input.pattern.replace(/^(\.\/)+/, ''));
+      let regex;
+      try {
+        regex = globToRegExp(input.pattern.replace(/^(\.\/)+/, ''));
+      } catch (err) {
+        return fail(`Invalid glob ${input.pattern}: ${err.message}`);
+      }
       const rels = await listFiles(root, { env: ctx.env, signal: ctx.signal, execFile: deps.execFile });
+      if (ctx.signal?.aborted) return fail('Search aborted');
       const hits = [];
       for (const rel of rels) {
         if (ctx.signal?.aborted) return fail('Search aborted');

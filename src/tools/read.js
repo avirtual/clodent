@@ -39,6 +39,7 @@ export function createRead() {
         return fail(describeFsError(err, path));
       }
       if (info.isDirectory()) return fail(`${path} is a directory, not a file`);
+      if (!info.isFile()) return fail(`${path} is not a regular file`);
       let buf;
       try {
         buf = await readFile(path);

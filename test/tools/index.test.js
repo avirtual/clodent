@@ -35,6 +35,7 @@ test('each tool carries a description and an object input_schema with the agreed
 
 test('summaries are one line of at most 200 chars', () => {
   assert.equal(byName.Bash.summary({ command: 'echo a\necho b\r\necho c' }), 'echo a⏎echo b⏎echo c');
+  assert.equal(byName.Bash.summary({ command: 'a\vb\fc\u0085d\u2028e\u2029f' }), 'a⏎b⏎c⏎d⏎e⏎f');
   assert.equal(byName.Write.summary({ file_path: '/x/y.txt', content: 'z' }), '/x/y.txt');
   assert.equal(byName.Edit.summary({ file_path: 'y.txt' }), 'y.txt');
   assert.equal(byName.Read.summary({ file_path: 'r.txt' }), 'r.txt');

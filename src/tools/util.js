@@ -9,7 +9,7 @@ export function fail(text) {
 }
 
 export function oneLine(value, max = 200) {
-  const flat = String(value ?? '').replace(/\r\n|\r|\n/g, '⏎');
+  const flat = String(value ?? '').replace(/\r\n|[\n\r\v\f\u0085\u2028\u2029]/g, '⏎');
   const chars = Array.from(flat);
   return chars.length <= max ? flat : `${chars.slice(0, max - 1).join('')}…`;
 }

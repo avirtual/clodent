@@ -57,6 +57,12 @@ test('a directory is an error', async (t) => {
   assert.match(result.content, /is a directory/);
 });
 
+test('a device or other non-regular file is an error', async (t) => {
+  const dir = await useTempDir(t);
+  const result = await read.run({ file_path: '/dev/null' }, ctxFor(dir));
+  assert.deepEqual(result, { content: '/dev/null is not a regular file', isError: true });
+});
+
 test('a binary file (NUL in the first 8 KiB) is an error', async (t) => {
   const dir = await useTempDir(t);
   await writeFile(join(dir, 'b.bin'), Buffer.concat([Buffer.from('a'.repeat(8000)), Buffer.from([0]), Buffer.from('tail')]));

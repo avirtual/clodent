@@ -61,6 +61,19 @@ test('an invalid regex is an error carrying the SyntaxError message', async (t) 
   assert.deepEqual(await grep.run({ pattern: '(' }, ctxFor(dir)), { content: message, isError: true });
 });
 
+test('a malformed glob is an error naming the glob, not the path', async (t) => {
+  const dir = await plainTree(t);
+  const result = await grep.run({ pattern: 'foo', glob: '[z-a]' }, ctxFor(dir));
+  assert.equal(result.isError, true);
+  assert.match(result.content, /^Invalid glob \[z-a\]: /);
+});
+
+test('an abort during listing is an error, not an empty result', async (t) => {
+  const dir = await plainTree(t);
+  const result = await grep.run({ pattern: 'foo' }, ctxFor(dir, { signal: AbortSignal.abort() }));
+  assert.deepEqual(result, { content: 'Search aborted', isError: true });
+});
+
 test('a missing path is an error', async (t) => {
   const dir = await plainTree(t);
   const result = await grep.run({ pattern: 'foo', path: 'missing' }, ctxFor(dir));

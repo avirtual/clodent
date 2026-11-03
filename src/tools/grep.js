@@ -19,10 +19,9 @@ function textLines(buf) {
   return lines.map((line) => (line.endsWith('\r') ? line.slice(0, -1) : line));
 }
 
-async function targetFiles(target, input, ctx, execFile) {
+async function targetFiles(target, keep, ctx, execFile) {
   const info = await stat(target);
   if (!info.isDirectory()) return [target];
-  const keep = fileFilter(input.glob);
   const rels = await listFiles(target, { env: ctx.env, signal: ctx.signal, execFile });
   return rels.filter(keep).map((rel) => join(target, rel)).sort();
 }
@@ -57,13 +56,20 @@ export function createGrep(deps = {}) {
       } catch (err) {
         return fail(err.message);
       }
+      let keep;
+      try {
+        keep = fileFilter(input.glob);
+      } catch (err) {
+        return fail(`Invalid glob ${input.glob}: ${err.message}`);
+      }
       const target = resolve(ctx.cwd, input.path ?? '.');
       let files;
       try {
-        files = await targetFiles(target, input, ctx, deps.execFile);
+        files = await targetFiles(target, keep, ctx, deps.execFile);
       } catch (err) {
         return fail(describeFsError(err, target));
       }
+      if (ctx.signal?.aborted) return fail('Search aborted');
       const out = [];
       for (const file of files) {
         if (ctx.signal?.aborted) return fail('Search aborted');
