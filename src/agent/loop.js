@@ -125,8 +125,7 @@ export function createAgent(config, deps) {
     let ruled = null;
     let hidden = null;
     if (guard.active) {
-      ruled = await guard.check(tool.name, input, deps.cwd);
-      hidden = await guard.hidden(tool.name, input, deps.cwd);
+      ({ ruled, hidden } = await guard.screen(tool.name, input, deps.cwd, permission));
       if (signal?.aborted) return { content: INTERRUPTED_RESULT, isError: true, ran: false };
     }
     let verdict = verdictFor(tool, input, pre, ruled);
