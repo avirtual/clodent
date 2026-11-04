@@ -123,8 +123,10 @@ export function createAgent(config, deps) {
 
   async function execute(tool, use, input, pre, signal) {
     let ruled = null;
+    let hidden = null;
     if (guard.active) {
       ruled = await guard.check(tool.name, input, deps.cwd);
+      hidden = await guard.hidden(tool.name, input, deps.cwd);
       if (signal?.aborted) return { content: INTERRUPTED_RESULT, isError: true, ran: false };
     }
     let verdict = verdictFor(tool, input, pre, ruled);
@@ -138,7 +140,7 @@ export function createAgent(config, deps) {
     });
     if (!verdict.allow) return { content: verdict.reason, isError: true, ran: false };
     try {
-      const outcome = await tool.run(input, { cwd: deps.cwd, env: deps.env, signal, hidden: guard.hidden(tool.name) });
+      const outcome = await tool.run(input, { cwd: deps.cwd, env: deps.env, signal, hidden });
       return { content: outcome.content, isError: outcome.isError, ran: true };
     } catch (err) {
       return { content: `${use.name} failed: ${err?.message ?? err}`, isError: true, ran: true };

@@ -91,6 +91,20 @@ test('Grep and Glob skip files a Read rule denies, and refuse a denied root', GU
   assert.deepEqual(results(res), [join(cwd, 'a.txt'), join(cwd, 'a.txt'), denied('Read(./secret)'), denied('Read(./secret)'), denied('Read(./**/*.key)')]);
 });
 
+test('Grep and Glob at a symlink to a directory above a denied path do not list or search the denied files', GUARD, async (t) => {
+  const { home, cwd, dir, user } = await setup(t);
+  await plant(user, { '.ssh/id_rsa': 'BEGIN KEY', 'notes.txt': 'BEGIN note' });
+  symlinkSync(user, join(cwd, 'h'));
+  const settings = writeSettings(dir, { permissions: { deny: ['Read(~/.ssh)'] } });
+  const uses = [
+    ['Grep', { pattern: 'BEGIN', path: 'h', output_mode: 'content' }],
+    ['Glob', { pattern: '**/*', path: 'h' }],
+  ];
+  const res = await runMain(['-p', 'go', '--settings', settings], { home, cwd, env: { HOME: user }, responses: [toolsReply(uses), textReply('done')] });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(results(res), [`${join(cwd, 'h/notes.txt')}:1:BEGIN note`, join(cwd, 'h/notes.txt')]);
+});
+
 test('an ask rule refuses in -p and under --read-only, runs under --yolo, and asks in the REPL; a deny never asks', GUARD, async (t) => {
   const { home, cwd, dir } = await setup(t);
   await plant(cwd, { 'a.txt': 'alpha' });

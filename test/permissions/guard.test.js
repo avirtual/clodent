@@ -112,12 +112,22 @@ test('the path is checked again after realpath, of its deepest existing ancestor
   assert.equal(await guard.check('Read', { file_path: 'other/id_rsa' }, '/work'), null);
 });
 
-test('hidden(tool) lists only deny path rules that guard that listing tool', () => {
+test('hidden(tool) lists only deny path rules that guard that listing tool', async () => {
   const guard = guardOf({ deny: ['Read(./r)', 'Edit(./e)', 'Grep(./g)'], ask: ['Read(./a)'] });
-  const grep = guard.hidden('Grep');
-  const glob = guard.hidden('Glob');
+  const grep = await guard.hidden('Grep', {}, '/work');
+  const glob = await guard.hidden('Glob', {}, '/work');
   assert.deepEqual(['/work/r/x', '/work/e/x', '/work/g/x', '/work/a/x'].map(grep), [true, false, true, false]);
   assert.deepEqual(['/work/r/x', '/work/g/x'].map(glob), [true, false]);
-  assert.equal(guard.hidden('Read'), null);
-  assert.equal(guardOf({}).hidden('Grep'), null);
+  assert.equal(await guard.hidden('Read', { file_path: 'r/x' }, '/work'), null);
+  assert.equal(await guardOf({}).hidden('Grep', {}, '/work'), null);
+});
+
+test('hidden(tool) also tests each listed file under the realpath of a symlinked root', async () => {
+  const realpath = async (path) => {
+    if (path === '/work/h') return HOME;
+    throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+  };
+  const guard = guardOf({ deny: ['Read(~/.ssh)'] }, { realpath });
+  const grep = await guard.hidden('Grep', { path: 'h' }, '/work');
+  assert.deepEqual(['/work/h/.ssh/id_rsa', '/work/h/notes.txt', `${HOME}/.ssh/x`].map(grep), [true, false, true]);
 });

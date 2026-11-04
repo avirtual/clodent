@@ -1,5 +1,5 @@
 import { realpath as fsRealpath } from 'node:fs/promises';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { classifyBash } from '../tools/bash-readonly.js';
 
 const PATH_FIELDS = { Read: 'file_path', Edit: 'file_path', Write: 'file_path', Grep: 'path', Glob: 'path' };
@@ -9,7 +9,7 @@ export const OPEN_GUARD = Object.freeze({
   active: false,
   removes: () => false,
   check: async () => null,
-  hidden: () => null,
+  hidden: async () => null,
 });
 
 export function denialReason(rule) {
@@ -111,11 +111,14 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
     return null;
   }
 
-  function hidden(tool) {
+  async function hidden(tool, input, cwd) {
     if (!LISTING_TOOLS.has(tool)) return null;
     const rules = deny.filter((rule) => rule.kind === 'path' && rule.tools.includes(tool));
     if (rules.length === 0) return null;
-    return (path) => rules.some((rule) => rule.regex.test(path));
+    const denied = (path) => rules.some((rule) => rule.regex.test(path));
+    const [lexical, real] = await pathsOf(tool, input, cwd);
+    if (real === lexical) return denied;
+    return (path) => denied(path) || denied(join(real, relative(lexical, path)));
   }
 
   return {

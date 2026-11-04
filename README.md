@@ -510,7 +510,7 @@ In a pattern, `*` matches within one path segment and `**` matches zero or more 
 
 A file tool's path is checked twice, lexically (resolved against the working directory) and after `realpath`, of the path or, when it does not exist, of its deepest existing ancestor with the rest appended. The call matches when either check does, so a symlink into a denied directory is denied too.
 
-`Grep` and `Glob` also drop every file they would list or search that a deny rule for that tool matches, without a message. This check is lexical, on the path under the searched directory. Ask rules apply to the call's `path` only.
+`Grep` and `Glob` also drop every file they would list or search that a deny rule for that tool matches, without a message. Each file is checked on its path under the searched directory and on the same path under the directory's realpath, with no realpath per file. Ask rules apply to the call's `path` only.
 
 `Bash` rules are a best-effort string guard on the command text, not a sandbox:
 
