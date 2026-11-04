@@ -9,7 +9,7 @@ const READ_ONLY = [
   'cat README.md',
   'head -n 20 src/cli.js',
   'tail -5 CHANGELOG.md',
-  'wc -l src/*.js',
+  'wc -l src/a.js src/b.js',
   'grep -rn "decide(" src',
   "egrep 'a|b' file",
   'fgrep -x word file',
@@ -138,10 +138,10 @@ const NOT_READ_ONLY = [
   ['git config --unset user.name', 'git config --unset'],
   ['git push', 'git push is not read-only'],
   ['git checkout .', 'git checkout is not read-only'],
-  ['git log --output=out', 'git log --output=out'],
-  ['git diff --ext-diff', 'git diff --ext-diff'],
-  ['git grep -O x', 'git grep -O'],
-  ['git grep --open-files-in-pager=vim x', 'git grep --open-files-in-pager=vim'],
+  ['git log --output=out', 'git log is not read-only'],
+  ['git diff --ext-diff', 'git diff is not read-only'],
+  ['git grep -O x', 'git grep is not read-only'],
+  ['git grep --open-files-in-pager=vim x', 'git grep is not read-only'],
   ['git', 'git without a subcommand'],
   ['git describe $HOME', 'git argument $HOME is an expansion or glob'],
   ['sed -i s/a/b/ f', 'sed -i'],
@@ -164,6 +164,13 @@ const NOT_READ_ONLY = [
   ['sort -rout in', 'sort -rout'],
   ['sort --outp=out in', 'sort --outp=out'],
   ['sort --compress-program=sh in', 'sort --compress-program=sh'],
+  ['sort --files0-from=list', 'sort --files0-from=list'],
+  ['sort --files0-from list', 'sort --files0-from'],
+  ['wc -l --files0-from=list', 'wc --files0-from=list'],
+  ['wc --files0-from list', 'wc --files0-from'],
+  ['du -s --files0-from=list', 'du --files0-from=list'],
+  ['du --files0 list', 'du --files0'],
+  ['wc -l src/*.js', 'wc argument src/*.js is an expansion or glob'],
   ['tree -o out', 'tree -o'],
   ['tree -R -H . -L 1', 'tree -R'],
   ['rg --pre sh x', 'rg --pre'],
@@ -221,6 +228,12 @@ test('a newline-separated script is read-only only when every line is', () => {
 
 test('the first offending segment wins over a later construct', () => {
   assert.deepEqual(classifyBash('rm x; echo $(y)'), { readOnly: false, reason: 'rm is not a read-only command' });
+});
+
+test('in a session whose working directory is /, a relative word and a recursive search with no path may reach /proc', () => {
+  assert.deepEqual(classifyBash('grep -r KEY', '/'), { readOnly: false, reason: 'grep may search /proc' });
+  assert.deepEqual(classifyBash('cat proc/1/environ', '/'), { readOnly: false, reason: 'proc/1/environ may reach /proc' });
+  for (const command of ['grep -r KEY', 'cat proc/1/environ']) assert.deepEqual(classifyBash(command, '/work'), { readOnly: true }, command);
 });
 
 test('a command that is not a string is not read-only', () => {

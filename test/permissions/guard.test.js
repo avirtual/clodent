@@ -63,6 +63,13 @@ test('Bash: an Edit rule path passes a read-only command and denies any other', 
   assert.equal(await bash(guard, 'touch /work/out'), 'deny Write(./out)');
 });
 
+test('Bash: an Edit rule path passes a command only when it is read-only from the working directory, so not a recursive search from /', async () => {
+  const guard = guardOf({ deny: ['Edit(//notes)', 'Edit(//work/notes)'] });
+  const ruled = await guard.check('Bash', { command: 'grep -r KEY notes' }, '/');
+  assert.equal(ruled && `${ruled.decision} ${ruled.rule.text}`, 'deny Edit(//notes)');
+  assert.equal(await bash(guard, 'grep -r KEY notes'), null);
+});
+
 test('Bash(prefix:*) denies the prefix as a whole word, also inside a compound command', async () => {
   const guard = guardOf({ deny: ['Bash(git push:*)'] });
   for (const command of ['git push', 'git push origin', '  git push origin  ', 'ls && git push', 'ls; git push -f', 'ls | git push', 'ls || git push', 'ls & git push', 'ls\ngit push', 'echo $(git push)']) {
@@ -310,11 +317,42 @@ test(`Bash: $'…' and $"…" quoting is decoded and ~<user> is a sibling of the
   }
 });
 
+test('Bash: ~+, and ~0, ~+0 and ~-0 with any number of zeros, are the working directory, so ~+/.. from a directory under the home directory names the home directory', async () => {
+  const guard = guardOf({ deny: ['Read(~/.ssh)'] });
+  for (const tilde of ['~+', '~0', '~+0', '~00', '~+00', '~-0', '~-00']) {
+    const ruled = await guard.check('Bash', { command: `cat ${tilde}/../.ssh/id_rsa` }, `${HOME}/proj`);
+    assert.equal(ruled && `${ruled.decision} ${ruled.rule.text}`, 'deny Read(~/.ssh)', tilde);
+  }
+  assert.equal(await bash(guard, 'cat ~+/../.ssh/id_rsa'), null);
+});
+
+test(`simpleCommands reads $'…' as bash does, a backslash escaping the next character, so an escaped quote hides no command from a Bash rule`, async () => {
+  assert.deepEqual(simpleCommands("echo $'\\''; rm x"), ["echo $'\\''", 'rm x']);
+  assert.deepEqual(simpleCommands("echo $'a;b'"), ["echo $'a;b'"]);
+  assert.equal(await bash(guardOf({ deny: ['Bash(rm:*)'] }), "echo $'\\''; rm x"), 'deny Bash(rm:*)');
+  assert.deepEqual(simpleCommands("echo $$'\\'; rm x"), ["echo $$'\\'", 'rm x']);
+  assert.equal(await bash(guardOf({ deny: ['Bash(rm:*)'] }), "echo $$'\\'; rm x"), 'deny Bash(rm:*)');
+});
+
+test(`simpleCommands skips a line continuation after an unquoted $ as bash does, so $\\⏎$'…' and $\\⏎'…' hide no command from a Bash rule`, async () => {
+  assert.deepEqual(simpleCommands("echo $\\\n$'\\'; rm x"), ["echo $\\\n$'\\'", 'rm x']);
+  assert.equal(await bash(guardOf({ deny: ['Bash(rm:*)'] }), "echo $\\\n$'\\'; rm x"), 'deny Bash(rm:*)');
+  assert.deepEqual(simpleCommands("echo $\\\n'\\''; rm x"), ["echo $\\\n'\\''", 'rm x']);
+  assert.equal(await bash(guardOf({ deny: ['Bash(rm:*)'] }), "echo $\\\n'\\''; rm x"), 'deny Bash(rm:*)');
+});
+
+test(`shellWords skips a line continuation after $ as bash does before $, ', " and (`, () => {
+  assert.deepEqual(shellWords("a $\\\n$'b\\' c"), ['a', '$$b\\', 'c']);
+  assert.deepEqual(shellWords("a $\\\n'b\\tc' $\\\n\"d e\""), ['a', 'b\tc', 'd e']);
+  assert.deepEqual(shellWords('echo "$\\\n(cat b)"'), ['echo', 'cat', 'b']);
+});
+
 test('shellWords dequotes words and splits at blanks, operators, redirections and substitutions', () => {
   assert.deepEqual(shellWords(`a "b c" 'd e' f\\ g "x\\y\\$z" '' h;i&&j|k<l>>m`), ['a', 'b c', 'd e', 'f g', 'x\\y$z', 'h', 'i', 'j', 'k', 'l', 'm']);
   assert.deepEqual(shellWords('echo "a $(cat "b c") d" `e f` (g) $((1+2))'), ['echo', 'a ', 'cat', 'b c', ' d', 'e', 'f', 'g', '1+2']);
   assert.deepEqual(shellWords("echo '$(x)' \"it's\"\\\nz"), ['echo', '$(x)', "it'sz"]);
   assert.deepEqual(shellWords(`a $'b\\tc\\'d;e' $"f g" "$'h'" $'\\x41\\101\\u0042\\0z'i $'\\q\\cA'`), ['a', "b\tc'd;e", 'f g', "$'h'", 'AABi', '\\q\x01']);
+  assert.deepEqual(shellWords("a $$'b\\' c"), ['a', '$$b\\', 'c']);
 });
 
 test('built-in denies cover Read and Edit of each settings file and Read of /proc/*/environ, and the reason names the built-in rule', async () => {

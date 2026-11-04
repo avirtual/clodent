@@ -1,6 +1,6 @@
 # clodent
 
-clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.5.0 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), a stream-json mode for hosts, six built-in tools, cost accounting, JSONL session transcripts, settings files, hooks and post-compact file reload. clodent was named clay up to 0.2.0.
+clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.5.1 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), a stream-json mode for hosts, six built-in tools, cost accounting, JSONL session transcripts, settings files, hooks and post-compact file reload. clodent was named clay up to 0.2.0.
 
 Non-goals for v0.5: MCP, plugins, skills, subagents, web tools, image input, Windows, telemetry.
 
@@ -10,7 +10,7 @@ Requires Node.js 22 or later. clodent has no dependencies. From a checkout:
 
 ```sh
 npm link
-clodent --version   # clodent 0.5.0
+clodent --version   # clodent 0.5.1
 ```
 
 ## Usage
@@ -57,7 +57,7 @@ An opt-in check against the real Messages API; the suite only runs it without a 
 
 ## Contract
 
-This section is the contract a host integrates against. It describes clodent 0.5.0.
+This section is the contract a host integrates against. It describes clodent 0.5.1.
 
 ### Hosting clodent
 
@@ -78,7 +78,7 @@ A summary for a host adapter; each point links to the section that pins it down.
 - statusLine: the settings `statusLine` command gets `context_window.used_tokens`, `context_window.context_window_size`, `context_window.used_percentage`, `model.id` and `cost.total_cost_usd` on stdin after each API response, after `/clear` (zero usage) and after `/compact` (`used_tokens` is the summary's size). See [Hooks](#hooks).
 - Signals: SIGINT acts as Ctrl-C: it interrupts a turn, and two in a row at an empty prompt exit 0. SIGTERM exits 143 and SIGHUP 129, after interrupting a running turn, whose `Stop` hook still fires. Ctrl-D, `/quit` and stdin closing exit 0. See [REPL](#repl).
 - Settings guard: `permissions.deny`/`ask` are enforced (see [Permission rules](#permission-rules)). A `sandbox` block with `enabled: true` is never fatal: its `filesystem.denyRead`, `filesystem.denyWrite` and deny `credentials.files` entries are enforced as deny rules, its deny `credentials.envVars` are removed from the Bash tool's environment, and its other keys are ignored with one warning; clodent does not sandbox Bash. A malformed sandbox shape is a startup error (exit 2). clodent also always denies Read and Edit of every settings file it loaded and Read of `/proc/*/environ`, and the Bash tool's environment never contains `ANTHROPIC_API_KEY`.
-- Absent in 0.5.0: MCP and subagents, so hooks never get `agent_id`.
+- Absent in 0.5.1: MCP and subagents, so hooks never get `agent_id`.
 
 ### Flags
 
@@ -156,7 +156,7 @@ stdout gets only the final answer: the text blocks of the turn's last assistant 
 - `clodent: ignoring --<name>: not supported` once for each ignored flag given (see [Flags](#flags)), then `clodent: settings <path>: <what was dropped>` for each settings warning.
 - `● <Tool> <summary>` for each tool call; the summary is the call's main input: `file_path` for Read, Write and Edit, `command` for Bash, `pattern` for Grep and Glob. It is one line, with each line break shown as `⏎`, and is cut to 200 characters ending in `…`. With an empty summary the line is `● <Tool>`.
 - `  ✗ <reason>` when a tool call is refused, and `  ✗ <first line of the result>` when a tool returns an error.
-- `clodent: <message>` for warnings and errors, hook warnings included. An API error message is printed verbatim.
+- `clodent: <message>` for warnings and errors, hook warnings included. An API error message is printed as the API sent it, except that each control byte in it, a line break included, is written as `\u` and four lowercase hex digits, as in the REPL (see [REPL](#repl)).
 - After the turn: `[clodent:cost] warning: no price for model <id>; cost not counted` once per unpriced model, then the per-turn `[clodent:cost]` line. A budget stop prints the `[clodent:budget]` line first.
 - On exit: the `[clodent:cost] session total` line.
 
@@ -178,7 +178,7 @@ Permissions in `-p` go by the tool's kind (see [Tools](#tools)), and for `Bash` 
 | `--yolo`, `--dangerously-skip-permissions`, `--permission-mode bypassPermissions` | runs | runs | runs |
 | `--read-only`, `--permission-mode plan` | runs | refused: `--read-only: <Tool> is not allowed` | a read-only command runs; any other is refused: `--read-only: Bash command is not read-only (<reason>)` |
 
-A `PreToolUse` hook can refuse any call or let a call run in the default or `acceptEdits` mode; see [Hooks](#hooks) for the order. A call a settings deny rule matches is refused in every mode, and one an ask rule matches is refused unless the mode is `--yolo`'s; see [Permission rules](#permission-rules).
+A `PreToolUse` hook can refuse any call or let a call run in the default or `acceptEdits` mode; see [Hooks](#hooks) for the order. A call a settings deny rule matches is refused in every mode, and one an ask rule matches or a `PreToolUse` hook asks about is refused unless the mode is `--yolo`'s; see [Permission rules](#permission-rules).
 
 ### Stream JSON
 
@@ -436,7 +436,7 @@ clodent has six built-in tools, in this order (the request sends them sorted by 
 | `Grep` | read | `pattern` (JavaScript RegExp source); `path` (file or directory, default cwd); `glob`; `output_mode` (`files_with_matches` default, `content`, `count`); `ignore_case` (default false); `head_limit` (output lines, default 250) | `files_with_matches`: sorted paths. `content`: `<path>:<line>:<text>`. `count`: `<path>:<n>`. A `glob` without `/` matches the file name, with `/` the path relative to `path`. Binary files are skipped. No match: `No matches found` (not an error). An invalid pattern is an error carrying the SyntaxError message. Cut output ends with `[clodent: showing the first <limit> of <n> lines; raise head_limit to see more]`. |
 | `Glob` | read | `pattern`; `path` (directory, default cwd) | Paths whose path relative to `path` matches: `*` and `?` never cross `/`, `**` spans directories, `{a,b}` and `[abc]` / `[!abc]` are supported. Newest mtime first, at most 1000, followed by `[clodent: showing the 1000 newest of <n> matches; narrow the pattern]` when cut. No match: `No files matched` (not an error). |
 
-Grep and Glob list files with `git ls-files --cached --others --exclude-standard` inside a git work tree, so `.gitignore` is respected; elsewhere they walk the directory, skipping `.git` and `node_modules`. A `path` that is itself git-ignored (such as `node_modules/pkg` or `dist`) is walked instead, so its files are listed. Both git calls, `git ls-files` and `git check-ignore`, run with `-c core.fsmonitor=false`, so a repository's `.git/config` cannot make them run a program, and in clodent's environment minus `ANTHROPIC_API_KEY` and each deny `credentials.envVars` name, as a Bash command does. A malformed glob is an error, `Invalid glob <glob>: <message>`.
+Grep and Glob list files with `git ls-files --cached --others --exclude-standard` inside a git work tree, so `.gitignore` is respected; elsewhere they walk the directory, skipping `.git` and `node_modules`. A `path` that is itself git-ignored (such as `node_modules/pkg` or `dist`) is walked instead, so its files are listed. Both git calls, `git ls-files` and `git check-ignore`, run with `-c core.fsmonitor=` (empty, which every git with fsmonitor reads as off), so a repository's `.git/config` cannot make them run a program, and in clodent's environment minus `ANTHROPIC_API_KEY` and each deny `credentials.envVars` name, as a Bash command does. A malformed glob is an error, `Invalid glob <glob>: <message>`.
 
 A Bash command's environment is clodent's, with the settings `env` applied, minus `ANTHROPIC_API_KEY` and minus each deny `credentials.envVars` name (see [Permission rules](#permission-rules)); the key is removed from the Bash tool's environment also when it comes from settings `env`, but a command can still read clodent's own startup environment, for example with `ps eww $PPID` on macOS (see the `credentials.envVars` limit in [Permission rules](#permission-rules)). API requests still send the key, and hooks and the statusLine get the full environment.
 
@@ -487,18 +487,19 @@ These make the command not read-only wherever they appear outside single quotes,
 - a line continuation;
 - a control character: U+0000–U+001F other than tab and newline, and U+007F–U+009F.
 
-`/proc` is never read-only. An argument or redirection target that may name `/proc` or a path under it makes the command not read-only (`<word> may reach /proc`). clodent checks the word without its quotes, the part after each `=`, and for a word starting with a single `-`, each part after its option letters (`-f/proc/1/environ`). It resolves `.`, `..` and repeated `/` by name; the word may reach `/proc` when a segment that may sit at `/` may be `proc` or a glob or brace expansion matching it (`/p*`, `/[p]roc`, `{/,}proc`), or when it climbs out of `/dev/fd` (`/dev/fd/..` is `/proc/self` on Linux). A segment sits at `/` after a leading `/`, after a `..` that climbs out of the working directory, `~`, or an expanded variable, and after a `~user`, `~-` or `~+` prefix. A segment starting with `.` that may expand to `..` (`.*`) counts as `..`, and a brace expansion or expanded variable may be anything, `..` and `/` included. Once a `cd` may have reached `/` (`cd /`, `cd ..`, `cd -`, `cd "$HOME"`), relative words count from `/` for the rest of the command; the target of `cd name` counts from `/` itself, since `CDPATH` may hold `/`.
+`/proc` is never read-only. An argument or redirection target that may name `/proc` or a path under it makes the command not read-only (`<word> may reach /proc`). clodent checks the word without its quotes, the part after each `=`, and for a word starting with a single `-`, each part after its option letters (`-f/proc/1/environ`). It resolves `.`, `..` and repeated `/` by name; the word may reach `/proc` when a segment that may sit at `/` may be `proc` or a glob or brace expansion matching it (`/p*`, `/[p]roc`, `{/,}proc`), or when it climbs out of `/dev/fd` (`/dev/fd/..` is `/proc/self` on Linux). A segment sits at `/` after a leading `/`, after a `..` that climbs out of the working directory, `~`, or an expanded variable, and after a `~user`, `~-` or `~+` prefix. A segment starting with `.` that may expand to `..` (`.*`) counts as `..`, and a brace expansion or expanded variable may be anything, `..` and `/` included. Once a `cd` may have reached `/` (`cd /`, `cd ..`, `cd -`, `cd "$HOME"`), relative words count from `/` for the rest of the command, and from the start in a session whose working directory is `/`; the target of `cd name` counts from `/` itself, since `CDPATH` may hold `/`.
 
-These checks read the command text only, so a symlink into `/proc` gets past them.
+These checks read the command text only, so they cannot see a symlink into `/proc`, nor the file names a command reads from a file's contents. `--files0-from` on `sort`, `wc` and `du`, which reads them that way, is not read-only (see the table below).
 
-A search that may start at `/` also reads `/proc`. `rg`, `diff` with a short option cluster holding `r` or `--recursive`, and `grep`, `egrep` or `fgrep` with a short option cluster holding `r` or `R`, `--recursive`, `--dereference-recursive` or an argument holding `recurse`, are not read-only (`<command> may search /proc`) when an argument may be `/` itself (`/`, `..`, `~/..`) or such a `cd` came first.
+A search that may start at `/` also reads `/proc`. `rg`, `diff` with a short option cluster holding `r` or `--recursive`, and `grep`, `egrep` or `fgrep` with a short option cluster holding `r` or `R`, `--recursive`, `--dereference-recursive` or an argument holding `recurse`, are not read-only (`<command> may search /proc`) when an argument may be `/` itself (`/`, `..`, `~/..`), such a `cd` came first, or the session's working directory is `/`.
 
 Per-command rules. Any match makes the command not read-only. For every command in this table, so does an argument holding an expansion (`$NAME`), a glob (`*`, `?`, `[…]`) or a brace expansion (`{a,b}`, `{1..3}`), since its value cannot be checked. A long option `--name` in these rules also matches its abbreviations (`--outp`), its extensions (`--output-x`) and any of them with `=value`, unless the rule says exactly.
 
 | command | not read-only when an argument is |
 |---|---|
 | `find` | `-exec`, `-execdir`, `-ok`, `-okdir`, `-delete`, `-fprint`, `-fprint0`, `-fprintf` or `-fls` |
-| `sort` | a short option cluster holding `o`, `--output` or `--compress-program` |
+| `sort` | a short option cluster holding `o`, `--output`, `--compress-program` or `--files0-from` |
+| `wc`, `du` | `--files0-from` |
 | `tree` | a short option cluster holding `o` or `R` |
 | `rg` | `--pre` or `--hostname-bin`, exactly or with `=value` |
 | `date` | a short option cluster holding `s`, `--set`, or digits with an optional `.` and more digits (a time to set) |
@@ -518,7 +519,6 @@ Per-command rules. Any match makes the command not read-only. For every command 
 - `status` `diff` `log` `show` `blame` `grep` `ls-files` `cat-file` `shortlog` `rev-list` are not read-only: a repository or user config can make them run a program (`core.fsmonitor`, `diff.external`, a textconv or clean filter driver, `log.showSignature` with `gpg.program`, a `%G` format).
 - `branch`, `tag` and `remote` take only these flags and no operand: `branch` `-a` `-r` `-v` `-vv` `--list` `--show-current` `--contains` `--merged` `--no-merged`; `tag` `-l` `--list`; `remote` `-v`.
 - `config` needs `--get`, `--get-all`, `--list` or `-l`, and takes no other option.
-- Under every subcommand, an argument matching `--output` or `--ext-diff` is not read-only. Under `grep`, so is a short option cluster holding `O`, and `--open-files-in-pager`.
 - Any other subcommand is not read-only.
 
 ### Events
@@ -670,9 +670,9 @@ A rule's leading part, up to its first segment with a `*`, is resolved with `rea
 - `Bash(<prefix>:*)` matches a command whose trimmed text is `<prefix>` or starts with `<prefix>` followed by whitespace. `Bash(<text>)` without `*` matches that exact trimmed text, and any other `*` in the specifier matches any run of characters over the whole text.
 - Each rule is tried on the whole trimmed text and on each simple command in it, split at `;`, `&&`, `||`, `|`, `&`, a newline, `(`, `)` and a backtick outside quotes. So `Bash(git push:*)` matches `git push origin` and `ls && git push`, but not `git pushx`.
 - A command mentions a path rule when its text, with `\ ` read as a space, contains the rule's pattern, in any letter case, with each `*` or `**` standing for a run of characters other than whitespace and quotes. The mention may start anywhere in the text, so `cat ~/.SSH/id_rsa` and `cat /System/Volumes/Data/Users/<u>/.ssh/id_rsa` both mention `Read(~/.ssh)`. The mention must end at the end of the text or before whitespace, a quote, `;`, `|`, `&`, `<`, `>`, `)`, a backtick or `/`, so a rule for `~/.zshrc` does not match `~/.zshrc.bak`. A pattern under `$HOME` is also found written with `~/`, `$HOME/` or `${HOME}/` in place of the home directory.
-- A command also mentions a path rule when one of its words matches the rule the way a file tool's path does, without the `realpath` check of the word. The words are split at blanks, `;`, `&`, `|`, `(`, `)`, `<`, `>`, a newline, `$(` and a backtick, so a redirection target is a word too; quotes and backslashes are removed as bash removes them, `$'…'` is decoded as bash decodes it (`\n`, `\t`, `\xHH`, `\NNN` octal, `\uHHHH` and the other escapes, dropping the rest of the quote after a NUL) and `$"…"` reads as `"…"`; a leading `~`, `$HOME` or `${HOME}` followed by `/` or the end of the word becomes the home directory, and a leading `~<name>` becomes `<name>` in the home directory's parent; and the word is resolved against the working directory, which collapses `//`, `/./` and `x/..`. A word with an `=` is also tried on the text after its first `=`, as in `--file=<path>`. The match is in any letter case, and a word under `/System/Volumes/Data/` is also tried without that prefix. So `cat ~//.ssh/id_rsa`, `cat ~/x/../.ssh/id_rsa`, `cat ~/'.ssh'/id_rsa`, `cat ~/$'\x2essh'/id_rsa`, `tail -n+1 ~//.ssh/*`, with the home directory `/Users/<u>`, `cat ~<u>/.ssh/id_rsa` and, in the home directory, `cat .ssh/id_rsa` all mention `Read(~/.ssh)`, and `echo x >> ~/./.bashrc` mentions `Edit(~/.bashrc)`.
+- A command also mentions a path rule when one of its words matches the rule the way a file tool's path does, without the `realpath` check of the word. The words are split at blanks, `;`, `&`, `|`, `(`, `)`, `<`, `>`, a newline, `$(` and a backtick, so a redirection target is a word too; quotes and backslashes are removed as bash removes them, `$'…'` is decoded as bash decodes it (`\n`, `\t`, `\xHH`, `\NNN` octal, `\uHHHH` and the other escapes, dropping the rest of the quote after a NUL) and `$"…"` reads as `"…"`; a leading `~`, `$HOME` or `${HOME}` followed by `/` or the end of the word becomes the home directory, a leading `~+` or `~0` (also `~+0` or `~-0`, each with any number of zeros) followed by `/` or the end of the word becomes the working directory, and any other leading `~<name>` becomes `<name>` in the home directory's parent; and the word is resolved against the working directory, which collapses `//`, `/./` and `x/..`. A word with an `=` is also tried on the text after its first `=`, as in `--file=<path>`. The match is in any letter case, and a word under `/System/Volumes/Data/` is also tried without that prefix. So `cat ~//.ssh/id_rsa`, `cat ~/x/../.ssh/id_rsa`, `cat ~/'.ssh'/id_rsa`, `cat ~/$'\x2essh'/id_rsa`, `tail -n+1 ~//.ssh/*`, with the home directory `/Users/<u>`, `cat ~<u>/.ssh/id_rsa` and, in the home directory, `cat .ssh/id_rsa` all mention `Read(~/.ssh)`, and `echo x >> ~/./.bashrc` mentions `Edit(~/.bashrc)`.
 - A command that mentions a `Read` rule matches it. One that mentions an `Edit` or `Write` rule matches it unless it is read-only by the rules of [Read-only Bash](#read-only-bash): `cat ~/.clodex/messages/x` passes an `Edit` rule for that directory, `rm ~/.clodex/messages/x` does not.
-- It cannot see a path built at run time, through a variable other than `HOME`, a glob, brace expansion (`cat ~/{.ssh,}/id_rsa`), a relative path after a `cd` (`cd ~; cat .ssh/id_rsa`), a symlink the command names, a script or an alias, nor a command hidden by quoting from the split.
+- It cannot see a path built at run time, through a variable other than `HOME`, a glob, brace expansion (`cat ~/{.ssh,}/id_rsa`), a relative path after a `cd` (`cd ~; cat .ssh/id_rsa`), a symlink the command names, a `~-` (`$OLDPWD`) prefix, a script or an alias, nor a command hidden by quoting from the split, such as a `$(…)` or backtick inside double quotes.
 
 Deny rules come first: a call a deny rule matches is refused in every mode, `--yolo` included, whatever a `PreToolUse` hook decided apart from its own `deny`, and without an ask, so an interactive `y` never runs it. The model gets `denied by settings rule <rule as written>`, or `denied by built-in rule <rule>` for a built-in deny rule, as an error tool result, and the turn goes on. A call an ask rule matches asks in the REPL's default and `acceptEdits` modes, as a write tool does in the default mode (see [REPL](#repl)), even a read tool's call or one a hook allowed; `-p` and `--read-only` refuse it with `permission required: run clodent without -p to approve it, or pass --yolo`, and `--yolo` runs it. See [Hooks](#hooks) for the full order.
 
@@ -683,6 +683,8 @@ Limits:
 - The `Bash` guard is a string match on the command text, so a `cd` followed by a relative path evades it.
 - A hard link to a denied file is not detected.
 - The per-file check in `Grep` and `Glob` listings is lexical, except for entries that are symlinks.
+- In `acceptEdits`, a `Write` or `Edit` outside the working directory runs without asking, `~/.gitconfig` for example.
+- The text checks of [Read-only Bash](#read-only-bash) and the `.git` check of `acceptEdits` do not resolve symlinks, so a symlink into `/proc` or into a `.git` directory gets past them.
 
 Startup errors: each of these prints `clodent: settings <path>: <message>` and exits 2, before the `[clodent:session]` line, any hook, any request and the first `\x1b[?2004h`:
 
@@ -791,7 +793,7 @@ Running:
 
 Results, per command:
 
-- Exit 0 with stdout that is a JSON object: clodent reads `hookSpecificOutput.additionalContext` (a string, added to the model's context) on every event. On `PreToolUse` only it also reads `hookSpecificOutput.permissionDecision` (`allow`, `deny` or `ask`), `hookSpecificOutput.permissionDecisionReason` and `hookSpecificOutput.updatedInput` (an object that replaces the tool input), and a top-level `"decision": "block"`, Claude's older shape, is a deny whatever `permissionDecision` says, with the top-level `reason` as its reason (`blocked by hook` when that is missing or empty); `"decision": "approve"` is ignored.
+- Exit 0 with stdout that is a JSON object: clodent reads `hookSpecificOutput.additionalContext` (a string, added to the model's context) on every event. On `PreToolUse` only it also reads `hookSpecificOutput.permissionDecision` (`allow`, `deny` or `ask`), `hookSpecificOutput.permissionDecisionReason` and `hookSpecificOutput.updatedInput` (an object that replaces the tool input), and a top-level `"decision": "block"`, Claude's older shape, is a deny whatever `permissionDecision` says, with the top-level `reason` as its reason (`blocked by hook` when that is missing or empty), unless `permissionDecision` is already `deny`, which keeps its `permissionDecisionReason` (`blocked by hook` when that is missing or empty); `"decision": "approve"` is ignored.
 - Exit 0 with non-empty stdout that is not a JSON object: on `SessionStart` and `UserPromptSubmit` the text, without trailing whitespace, is added as context. On any other event it is ignored with the warning `invalid JSON ignored`; on `PreToolUse` it is also a failure (below).
 - Exit 2: on `PreToolUse` the tool call is denied, with stderr (trimmed) as the reason, or `blocked by hook` when stderr is empty. On any other event it is a warning.
 - Any other exit code, death by a signal, a timeout or a failure to start is a failure; on `PreToolUse`, so is exit 0 with stdout cut at 1 MiB, or non-empty and not a JSON object. On `PreToolUse`, an entry with `"onFailure": "block"` turns a failure into a deny with the reason `hook failed: <exit <n>|timeout|aborted|killed by <signal>|<error message>|stdout over 1 MiB truncated|invalid JSON>`. Otherwise a failure is a warning (for those exit-0 cases, the warnings above) and the turn continues. Only `PreToolUse` can block.
