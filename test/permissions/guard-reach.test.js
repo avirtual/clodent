@@ -126,7 +126,8 @@ test('an uncertain word asks for a deny rule and for an ask rule only where the 
   assert.equal(await ruling(asks, 'cat ~/.ss?/id_rsa'), 'ask Read(~/.ssh)');
   const guard = guardOf({ deny: ['Read(~/.ssh)', 'Edit(~/.bashrc)'] });
   assert.equal(await ruling(guard, 'cat ~/.s$X/id_rsa'), 'ask Read(~/.ssh)');
-  assert.equal(await ruling(guard, 'cat ~/x$X/../.ssh/id_rsa'), 'ask Read(~/.ssh)');
+  assert.equal(await ruling(guard, 'cat ~/x$X/../id_rsa'), 'ask Read(~/.ssh)');
+  assert.equal(await ruling(guard, 'cat ~/x$X/../.ssh/id_rsa'), SSH);
   assert.equal(await ruling(guard, 'cat ~/.ssh/$X'), SSH);
   assert.equal(await ruling(guard, 'cat ~/.x$X/id_rsa'), null);
   assert.equal(await ruling(guard, 'cat /work/$X'), null);
