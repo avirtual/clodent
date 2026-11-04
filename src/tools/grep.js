@@ -23,7 +23,8 @@ async function targetFiles(target, keep, ctx, execFile) {
   const info = await stat(target);
   if (!info.isDirectory()) return [target];
   const rels = await listFiles(target, { env: ctx.env, signal: ctx.signal, execFile });
-  return rels.filter(keep).map((rel) => join(target, rel)).sort();
+  const files = rels.filter(keep).map((rel) => join(target, rel));
+  return (ctx.hidden ? files.filter((file) => !ctx.hidden(file)) : files).sort();
 }
 
 export function createGrep(deps = {}) {
