@@ -280,3 +280,104 @@ Record kinds, in the order a turn writes them:
 | turn end | `type: "system"`, `subtype: "turn_duration"`, `durationMs` (the turn's duration in whole milliseconds), `messageCount` (the turn's user and assistant records, the interrupt record included); after the turn's last record |
 
 A turn the model ended has `stop_reason: "end_turn"` on its last assistant record.
+
+### Settings (hooks fire once wired in a later release)
+
+Not wired yet: this release reads no settings file, and `--settings` is parsed but not implemented (see Flags). This is the loader a later release wires in. Its file shape follows the settings files Clodex writes for Claude Code, so those load unchanged.
+
+Sources, in this order:
+
+1. `<CLAY_HOME>/settings.json`, where `CLAY_HOME` defaults to `~/.clay`. A missing file counts as empty.
+2. Each `--settings <file>`, in argv order. A missing one is an error: `settings file not found: <path>`.
+
+A file that is not valid JSON, or whose top level is not an object, is an error: `invalid settings file <path>: <reason>`. Any other read failure is `cannot read settings file <path>: <reason>`.
+
+Honored keys and how they merge across sources; later sources win unless the row says otherwise:
+
+| key | merge |
+|---|---|
+| `hooks` | per event name, the matcher-group arrays are concatenated in source order |
+| `statusLine` | `{"type": "command", "command": "<cmd>"}`; the last one wins |
+| `env` | shallow merge of string values; a non-string value is dropped with a warning |
+| `trustedDirectories`, `permissions.additionalDirectories` | concatenated in source order (within a file, `trustedDirectories` first) and deduplicated, as one list of extra directories |
+| `effortLevel` | `low`, `medium` or `high`; the last valid one wins; any other value, such as `xhigh`, is ignored with a warning |
+| `model` | the last one wins |
+
+Every other key, such as `voice`, `voiceEnabled` or `permissions.deny`, is ignored silently. A malformed value of an honored key is dropped with a warning `settings <path>: <what was dropped>`, and loading continues. A hook entry whose `type` is not `"command"` is dropped with such a warning.
+
+### Hooks (hooks fire once wired in a later release)
+
+Not wired yet: this release runs no hooks and no statusLine command. This is the runner a later release wires in. It follows the Claude Code hook convention, so hook scripts written for Claude Code run unchanged.
+
+Shape, under `hooks` in settings:
+
+```json
+{ "<Event>": [ { "matcher": "<regex>", "hooks": [ { "type": "command", "command": "<cmd>", "timeout": 15, "onFailure": "block" } ] } ] }
+```
+
+Events: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Notification`, `PreCompact`, `Stop`. Other event names in settings are kept but never fire.
+
+Matchers:
+
+- A missing, `""` or `"*"` matcher matches every firing of the event.
+- For `PreToolUse`, `PostToolUse` and `PostToolUseFailure` the matcher is a JavaScript regular expression tested whole against `tool_name`, as `^(?:<matcher>)$`: `Bash` does not match `BashOutput`, and `Agent|Task` matches `Task`.
+- For `SessionStart` it is tested the same way against `source`.
+- Every other event ignores the matcher.
+- An invalid regular expression never matches and adds the warning `hook <Event> matcher "<matcher>": invalid regex; never matches`.
+
+stdin is one JSON object followed by a newline, then closed. Every event sends `session_id`, `transcript_path`, `cwd`, `hook_event_name` and `permission_mode`, plus:
+
+| event | extra fields |
+|---|---|
+| `SessionStart` | `source`: `startup`, `resume`, `clear` or `compact` |
+| `UserPromptSubmit` | `prompt` |
+| `PreToolUse` | `tool_name`, `tool_input`, `tool_use_id` |
+| `PostToolUse` | `tool_name`, `tool_input`, `tool_use_id`, `tool_response` |
+| `PostToolUseFailure` | `tool_name`, `tool_input`, `tool_use_id`, `error` |
+| `Notification` | `notification_type`, `message`; a permission prompt sends `notification_type: "permission"`, `tool` and `id` |
+| `PreCompact` | `trigger` |
+| `Stop` | none |
+
+`agent_id` is never sent.
+
+Running:
+
+- Each matched command runs as `bash -c <command>` in the working directory, in its own process group. Its environment is clay's, then the settings `env` on top, then `CLAY_PROJECT_DIR` set to the working directory.
+- All matched commands of one firing run at the same time. Their results combine in config order (source order, then group order, then entry order), not in the order they finish.
+- `timeout` is in seconds, default 60. On expiry, or when the turn is interrupted, the process group gets SIGTERM, then SIGKILL 2 s later.
+- stdout and stderr are each read up to 64 KiB; the rest is discarded.
+
+Results, per command:
+
+- Exit 0 with stdout that is a JSON object: clay reads `hookSpecificOutput.additionalContext` (a string, added to the model's context) on every event. On `PreToolUse` only it also reads `hookSpecificOutput.permissionDecision` (`allow`, `deny` or `ask`), `hookSpecificOutput.permissionDecisionReason` and `hookSpecificOutput.updatedInput` (an object that replaces the tool input).
+- Exit 0 with non-empty stdout that is not a JSON object: on `SessionStart` and `UserPromptSubmit` the text, without trailing whitespace, is added as context. On any other event it is ignored with the warning `invalid JSON ignored`.
+- Exit 2: on `PreToolUse` the tool call is denied, with stderr (trimmed) as the reason, or `blocked by hook` when stderr is empty. On any other event it is a warning.
+- Any other exit code, death by a signal, a timeout or a failure to start is a failure. On `PreToolUse`, an entry with `"onFailure": "block"` turns it into a deny with the reason `hook failed: <exit <n>|timeout|aborted|killed by <signal>|<error message>>`. Otherwise it is a warning and the turn continues. Only `PreToolUse` can block.
+
+Combining: a deny beats an ask, and an ask beats an allow. The reason comes from the first command, in config order, that gave the winning decision; a JSON deny without a reason reads `blocked by hook`. The last `updatedInput` in config order wins. Context strings keep config order, and empty ones are dropped.
+
+Warnings are one line each:
+
+```
+hook <Event> "<first 60 characters of the command>": <exit <n>|timeout|aborted|killed by <signal>|<error message>|invalid JSON ignored>
+```
+
+statusLine: after each API request clay runs the `statusLine` command the same way, with a 5 s timeout, and this JSON on stdin:
+
+```json
+{
+  "session_id": "<uuid>",
+  "transcript_path": "<path>",
+  "cwd": "<working directory>",
+  "version": "<clay version>",
+  "model": { "id": "<model id>", "display_name": "<model id>" },
+  "workspace": { "current_dir": "<working directory>" },
+  "context_window": { "used_tokens": 0, "total_input_tokens": 0, "context_window_size": 200000, "used_percentage": 0 },
+  "cost": { "total_cost_usd": 0 }
+}
+```
+
+- `context_window_size` is 200000 for every model.
+- `used_percentage` is `used_tokens` over `context_window_size`, as a number from 0 to 100 with at most one decimal.
+- At most one statusLine command runs at a time. An update that arrives while one runs replaces any update already waiting, so only the latest runs next.
+- stdout is discarded. The first failure prints one warning, `statusLine "<first 60 characters of the command>": <reason>`; later failures are silent.

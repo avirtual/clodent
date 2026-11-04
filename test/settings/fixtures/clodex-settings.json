@@ -1,0 +1,72 @@
+{
+  "trustedDirectories": ["/Users/u/.clodex/messages", "/Users/u/.clodex/sessions/seat/messages"],
+  "statusLine": { "type": "command", "command": "/Users/u/.clodex/run/seat/statusline" },
+  "voice": { "enabled": false },
+  "voiceEnabled": false,
+  "effortLevel": "high",
+  "env": { "ANTHROPIC_BASE_URL": "http://127.0.0.1:8899" },
+  "hooks": {
+    "SessionStart": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "/Users/u/.clodex/run/seat/hook" }] }
+    ],
+    "Notification": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "/Users/u/.clodex/run/seat/attn" }] }
+    ],
+    "SubagentStart": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "/Users/u/.clodex/run/seat/ident" }] }
+    ],
+    "SubagentStop": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "/Users/u/.clodex/run/seat/subq" }] }
+    ],
+    "PreCompact": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "/Users/u/.clodex/run/seat/attn" }] }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          { "type": "command", "command": "/Users/u/.clodex/run/seat/ipcdelta" },
+          { "type": "command", "command": "/Users/u/.clodex/run/seat/ack" },
+          { "type": "command", "command": "/Users/u/.clodex/run/seat/pending" },
+          { "type": "command", "command": "/Users/u/.clodex/run/seat/selection" },
+          { "type": "command", "command": "/Users/u/.clodex/run/seat/notice" },
+          { "type": "command", "command": "/Users/u/.clodex/run/seat/ctxwarn" },
+          { "type": "command", "command": "/Users/u/.clodex/run/seat/pollguard" }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "/Users/u/.clodex/run/seat/live" },
+          { "type": "command", "command": "/Users/u/.clodex/run/seat/guard", "onFailure": "block", "timeout": 15 },
+          { "type": "command", "command": "/Users/u/.clodex/run/seat/ident" }
+        ]
+      },
+      {
+        "matcher": "mcp__clodex__term_exec|mcp__clodex__term_read|mcp__clodex__dm|mcp__clodex__exec",
+        "hooks": [{ "type": "command", "command": "/Users/u/.clodex/run/seat/ident" }]
+      },
+      {
+        "matcher": "",
+        "hooks": [{ "type": "command", "command": "/Users/u/.clodex/run/seat/pollguard", "onFailure": "block", "timeout": 15 }]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          { "type": "command", "command": "/Users/u/.clodex/run/seat/pending" },
+          { "type": "command", "command": "/Users/u/.clodex/run/seat/subq" }
+        ]
+      },
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "/Users/u/.clodex/run/seat/console" }] },
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "/Users/u/.clodex/run/seat/pollguard" }] },
+      { "matcher": "Agent|Task", "hooks": [{ "type": "command", "command": "/Users/u/.clodex/run/seat/pollguard" }] }
+    ],
+    "PostToolUseFailure": [
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "/Users/u/.clodex/run/seat/console" }] }
+    ]
+  }
+}
