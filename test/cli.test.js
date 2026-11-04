@@ -118,10 +118,10 @@ test('NOT_YET is empty: every flag is implemented', () => {
   assert.deepEqual([...NOT_YET], []);
 });
 
-test('valid arguments with nothing to run return 1 with a message on stderr', async () => {
+test('without -p clay starts the REPL, which exits 2 before reading stdin when ANTHROPIC_API_KEY is unset', async () => {
   const res = await run([]);
-  assert.deepEqual([res.code, res.stdout, res.stderr], [1, '', 'clay: not implemented yet\n']);
-  assert.equal((await run(['--model', 'x', '--yolo'])).stderr, 'clay: not implemented yet\n');
+  assert.deepEqual([res.code, res.stdout, res.stderr], [2, '', 'clay: ANTHROPIC_API_KEY is not set\n']);
+  assert.equal((await run(['--model', 'x', '--yolo'])).stderr, 'clay: ANTHROPIC_API_KEY is not set\n');
 });
 
 test('README ### Flags marks exactly the NOT_YET flags as parsed; not yet implemented', () => {
@@ -215,7 +215,7 @@ test('-p under the default ask mode denies Write and says why on stderr', async 
   });
   assert.equal(res.code, 0);
   assert.equal(res.stdout, 'could not\n');
-  assert.match(res.stderr, /^● Write x\.txt\n {2}✗ permission required: rerun with --yolo/m);
+  assert.match(res.stderr, /^● Write x\.txt\n {2}✗ permission required: run clay without -p to approve it, or pass --yolo$/m);
 });
 
 test('--budget below the first request cost stops before the second: exit 1 and the budget line', async (t) => {

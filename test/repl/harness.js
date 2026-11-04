@@ -22,8 +22,16 @@ export function fakeStdin({ isTTY = true } = {}) {
     stdin.paused = true;
     return stdin;
   };
-  stdin.type = (text) => stdin.emit('data', text);
-  stdin.close = () => stdin.emit('end');
+  const early = [];
+  const deliver = (event, value) => {
+    if (stdin.listenerCount(event) > 0) stdin.emit(event, value);
+    else early.push([event, value]);
+  };
+  stdin.on('newListener', (event) => {
+    if (event === 'data') process.nextTick(() => early.splice(0).forEach(([name, value]) => stdin.emit(name, value)));
+  });
+  stdin.type = (text) => deliver('data', text);
+  stdin.close = () => deliver('end');
   return stdin;
 }
 

@@ -17,11 +17,11 @@ test('read-only allows read tools and denies write and exec by name', () => {
   assert.deepEqual(decide(BASH, { command: 'ls' }, 'read-only'), { allow: false, reason: '--read-only: Bash is not allowed' });
 });
 
-test('ask allows read tools and denies write and exec with the rerun hint', () => {
+test('ask allows read tools and marks write and exec as an ask, with the rerun hint as the refusal', () => {
   assert.deepEqual(decide(READ, {}, 'ask'), { allow: true });
-  assert.deepEqual(decide(WRITE, {}, 'ask'), { allow: false, reason: ASK_DENIAL });
-  assert.deepEqual(decide(BASH, {}, 'ask'), { allow: false, reason: ASK_DENIAL });
-  assert.equal(ASK_DENIAL, 'permission required: rerun with --yolo (interactive approval lands in the REPL)');
+  assert.deepEqual(decide(WRITE, {}, 'ask'), { allow: false, ask: true, reason: ASK_DENIAL });
+  assert.deepEqual(decide(BASH, {}, 'ask'), { allow: false, ask: true, reason: ASK_DENIAL });
+  assert.equal(ASK_DENIAL, 'permission required: run clay without -p to approve it, or pass --yolo');
 });
 
 test('an unknown mode or kind is treated as deny, never allow', () => {
