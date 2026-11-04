@@ -123,7 +123,7 @@ test('identical commands run under the longest of their timeouts', async (t) => 
   const child = Object.assign(new EventEmitter(), { pid: 4242, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough() });
   const kills = [];
   const fake = { spawn: () => child, kill: (pid, signal) => kills.push([pid, signal]) };
-  const settings = settingsWith({ Stop: [group('', entry('hook', { timeout: 1 }), entry('hook', { timeout: 3 }), entry('hook'))] });
+  const settings = settingsWith({ Stop: [group('', entry('hook', { timeout: 1 }), entry('hook'), entry('hook', { timeout: 3 }))] });
   const pending = runHooks('Stop', {}, ctxFor('/w', settings), fake);
   t.mock.timers.tick(59999);
   assert.deepEqual(kills, []);
