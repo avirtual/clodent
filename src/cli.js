@@ -23,6 +23,7 @@ import { openSession } from './session/open.js';
 import { clodentHome } from './session/paths.js';
 import { gitBranch } from './session/git-branch.js';
 import { createRecorder } from './session/recorder.js';
+import { toolEnv } from './tools/env.js';
 import { createTools } from './tools/index.js';
 
 export const NOT_YET = new Set([]);
@@ -181,7 +182,7 @@ function createRuntime(prep, opts, deps, render) {
     { settings, env, cwd, version: version() },
     { ...procDeps, warn: (message) => render({ type: 'warning', message }) },
   );
-  const guard = createGuard(permissions);
+  const guard = createGuard(permissions, { env: toolEnv(env, settings.envDeny ?? []) });
   const tools = createTools({ ...procDeps, envDeny: settings.envDeny ?? [] }).filter((tool) => !guard.removes(tool.name));
   const current = { model: prep.model, system: prep.system };
   const statusOf = (session, usage) =>
