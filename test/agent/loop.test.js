@@ -212,6 +212,18 @@ test('under ask, Write is denied with the reason as an is_error result and no fi
   ]);
 });
 
+test('under accept-edits, a Write whose path resolves inside .git from the session cwd asks', async () => {
+  const log = [];
+  const h = harness([toolReply([{ name: 'Write', input: { file_path: 'config' } }]), textReply('ok')], {
+    tools: [fakeTool('Write', 'write', log)],
+    cwd: '/work/.git',
+    permission: 'accept-edits',
+  });
+  await h.agent.runTurn('write');
+  assert.deepEqual(log, []);
+  assert.deepEqual(h.of('permission'), [{ type: 'permission', id: 'toolu_1', name: 'Write', decision: 'deny', reason: ASK_DENIAL }]);
+});
+
 test('under yolo, Write creates the file', async (t) => {
   const dir = await useTempDir(t);
   const h = harness([toolReply([{ name: 'Write', input: { file_path: 'out.txt', content: 'x' } }]), textReply('ok')], {

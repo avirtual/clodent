@@ -112,7 +112,7 @@ export function createAgent(config, deps) {
     if (ruled?.decision === 'deny') return { allow: false, reason: denialReason(ruled.rule) };
     if (ruled?.decision === 'ask' && permission !== 'yolo') return { allow: false, ask: asksInMode(permission), reason: ASK_DENIAL };
     if (pre.decision === 'allow' && asksInMode(permission)) return ALLOWED;
-    return decide(tool, input, permission);
+    return decide(tool, input, permission, deps.cwd);
   }
 
   async function askUser(tool, use, input, signal) {
