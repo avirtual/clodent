@@ -147,6 +147,23 @@ test('an unknown permissionDecision holding a key of real length reads [redacted
   assert.equal((await fire(padded, 'block')).reason, `hook failed: unknown permissionDecision ${shown}`);
 });
 
+test('an unknown permissionDecision holding an envDeny value with a quote and a backslash reads [redacted]', GUARD, async (t) => {
+  const dir = await useTempDir(t);
+  const secret = 'pa"ss\\word-FAKE';
+  const odd = await script(dir, 'odd.sh', hookOutput({ hookEventName: 'PreToolUse', permissionDecision: secret }));
+  const settings = settingsWith({ PreToolUse: [group('', odd)] }, { env: { PW_FAKE: secret }, envDeny: ['PW_FAKE'] });
+  const res = await runHooks('PreToolUse', { tool_name: 'Bash' }, { settings, cwd: dir, env: cleanEnv() }, deps);
+  assert.deepEqual(res.warnings, [`hook PreToolUse "${label(odd)}": unknown permissionDecision "[redacted]" ignored`]);
+});
+
+test('an unknown permissionDecision is cut to 60 code points, so an emoji at the cut stays whole', GUARD, async (t) => {
+  const dir = await useTempDir(t);
+  const head = `"${'a'.repeat(58)}\u{1F600}`;
+  const odd = await script(dir, 'odd.sh', hookOutput({ hookEventName: 'PreToolUse', permissionDecision: `${head.slice(1)}tail` }));
+  const res = await runHooks('PreToolUse', { tool_name: 'Bash' }, { settings: settingsWith({ PreToolUse: [group('', odd)] }), cwd: dir, env: cleanEnv() }, deps);
+  assert.deepEqual(res.warnings, [`hook PreToolUse "${label(odd)}": unknown permissionDecision ${head} ignored`]);
+});
+
 test('an unknown permissionDecision warns and is ignored; under onFailure block it denies', GUARD, async (t) => {
   const dir = await useTempDir(t);
   const odd = await script(dir, 'odd.sh', hookOutput({ hookEventName: 'PreToolUse', permissionDecision: 'Deny', additionalContext: 'note' }));

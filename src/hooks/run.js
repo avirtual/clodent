@@ -75,7 +75,7 @@ function readJsonOutput(event, parsed) {
     result.decision = output.permissionDecision;
     result.reason = textOrNull(output.permissionDecisionReason) ?? (result.decision === 'deny' ? BLOCKED : null);
   } else if (output.permissionDecision !== undefined && output.permissionDecision !== null) {
-    result.unknownDecision = String(JSON.stringify(output.permissionDecision));
+    result.unknownDecision = output.permissionDecision;
   }
   if (parsed.decision === 'block' && result.decision !== 'deny') {
     result.decision = 'deny';
@@ -125,7 +125,8 @@ function interpretOutput(event, entry, res, label, redact) {
 function checkDecision(result, entry, label, redact) {
   if (result.unknownDecision === undefined) return result;
   const { unknownDecision, ...rest } = result;
-  const shown = `unknown permissionDecision ${redact(unknownDecision).slice(0, SHOWN_DECISION_CHARS)}`;
+  const json = redact(String(JSON.stringify(unknownDecision, (_, value) => redact(value))));
+  const shown = `unknown permissionDecision ${Array.from(json).slice(0, SHOWN_DECISION_CHARS).join('')}`;
   if (entry.onFailure === 'block') return { decision: 'deny', reason: `hook failed: ${shown}` };
   return { ...rest, warnings: [`${label}: ${shown} ignored`] };
 }

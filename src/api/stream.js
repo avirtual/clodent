@@ -14,8 +14,10 @@ function isAbort(err, signal) {
   return Boolean(signal?.aborted) || err?.name === 'AbortError';
 }
 
+const USERINFO = /\/\/[^/\s?#]*@/g;
+
 function networkError(err, requestId = null) {
-  return new ApiError({ type: 'network_error', message: err.message, requestId, cause: err });
+  return new ApiError({ type: 'network_error', message: String(err.message).replace(USERINFO, '//'), requestId, cause: err });
 }
 
 function mergeUsage(usage, delta) {

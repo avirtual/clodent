@@ -1,13 +1,14 @@
 import { resolve, sep } from 'node:path';
 import { shellWords } from '../permissions/guard.js';
 import { classifyBash } from '../tools/bash-readonly.js';
+import { toolEnv } from '../tools/env.js';
 
 const ALLOW = Object.freeze({ allow: true });
 export const ASK_DENIAL = 'permission required: run clodent without -p to approve it, or pass --yolo';
 
 const MODES = new Set(['ask', 'read-only', 'accept-edits']);
 const PROTECTED_PARTS = new Set(['.git', '.clodent', '.claude']);
-const LEADING_VAR = /^(?:~(?=\/|$)|\$(HOME|CLODENT_PROJECT_DIR|CLAUDE_PROJECT_DIR)(?![A-Za-z0-9_])|\$\{(HOME|CLODENT_PROJECT_DIR|CLAUDE_PROJECT_DIR)\})/;
+const LEADING_VAR = /^(?:~(?=\/|$)|\$(HOME|CLODENT_PROJECT_DIR|CLAUDE_PROJECT_DIR|PWD)(?![A-Za-z0-9_])|\$\{(HOME|CLODENT_PROJECT_DIR|CLAUDE_PROJECT_DIR|PWD)\})/;
 
 export function asksInMode(mode) {
   return mode === 'ask' || mode === 'accept-edits';
@@ -19,15 +20,18 @@ function hookCommands(settings) {
 }
 
 export function hookPaths(settings, { cwd, env = {}, home }) {
-  const vars = { ...env, ...settings?.env, CLODENT_PROJECT_DIR: cwd };
-  vars.HOME ||= home;
+  const vars = { ...toolEnv({ ...env, ...settings?.env }, settings?.envDeny), CLODENT_PROJECT_DIR: cwd, PWD: cwd };
   const expand = (word) => {
     const match = LEADING_VAR.exec(word);
-    return match ? (vars[match[1] ?? match[2] ?? 'HOME'] ?? '') + word.slice(match[0].length) : word;
+    if (!match) return word;
+    const name = match[1] ?? match[2];
+    return (name ? (vars[name] ?? '') : (vars.HOME ?? home)) + word.slice(match[0].length);
   };
   const words = hookCommands(settings).flatMap((command) => shellWords(command).map(expand));
-  return [...new Set(words.filter((word) => word.includes('/')).map((word) => resolve(cwd, word)))];
+  return [...new Set(words.map((word) => resolve(cwd, word)))];
 }
+
+const pathKey = (path) => path.normalize('NFC').toLowerCase();
 
 const within = (path, dir) => path === dir || path.startsWith(dir.endsWith(sep) ? dir : dir + sep);
 
@@ -36,7 +40,7 @@ function editsFreely(input, cwd, scope) {
   if (typeof file !== 'string' || typeof cwd !== 'string') return false;
   const path = resolve(cwd, file);
   if (path.split(sep).some((part) => PROTECTED_PARTS.has(part.toLowerCase()))) return false;
-  if ((scope?.protect ?? []).some((hook) => hook.toLowerCase() === path.toLowerCase())) return false;
+  if ((scope?.protect ?? []).some((hook) => pathKey(hook) === pathKey(path))) return false;
   return [cwd, ...(scope?.dirs ?? [])].some((dir) => within(path, resolve(cwd, dir)));
 }
 

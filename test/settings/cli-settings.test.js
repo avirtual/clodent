@@ -46,6 +46,15 @@ test('an ANTHROPIC_BASE_URL that is not an http or https URL exits 2 before any 
   assert.deepEqual([viaSettings.code, viaSettings.stderr], [2, 'clodent: invalid ANTHROPIC_BASE_URL\n']);
 });
 
+test('an ANTHROPIC_BASE_URL with a user name or password exits 2 before any request, without printing the URL', async (t) => {
+  const { home, cwd } = await setup(t);
+  for (const bad of ['https://user:FAKEPW@proxy.example', 'http://:FAKEPW@127.0.0.1:8787/seat/', 'https://FAKEPW@proxy.example']) {
+    const res = await runMain(['-p', 'hi'], { home, cwd, env: { ANTHROPIC_BASE_URL: bad } });
+    assert.deepEqual([res.code, res.stdout, res.stderr, res.calls.length], [2, '', 'clodent: ANTHROPIC_BASE_URL: credentials in the URL are not supported\n', 0], bad);
+    assert.doesNotMatch(res.stderr, /FAKEPW/);
+  }
+});
+
 test('settings env reaches the API key lookup, the Bash tool and hooks', GUARD, async (t) => {
   const { home, cwd, dir } = await setup(t);
   const log = join(dir, 'hook-env');
