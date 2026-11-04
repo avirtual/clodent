@@ -25,6 +25,7 @@ clodent was named clay up to 0.2.0.
 - Security: the `Bash` guard skips a `#` comment, so a quote inside one no longer hides the next line from `Bash` and path rules, and splits a `$(…)` or backtick inside double quotes into its commands, so `echo "$(rm x)"` meets `Bash(rm:*)`.
 - Security: a `Bash` command is also read conservatively, ignoring quotes, comments and grouping; a rule that matches only that reading asks, and a deny rule denies under `--yolo` with `, which may apply to a command that could not be parsed with certainty` after its reason, so `git commit -m "x; rm y"` now asks under a `Bash(rm:*)` deny.
 - Security: a `Bash` command no longer reaches a `Read`-denied path, the built-in settings-file deny included, through a glob or brace (matched on disk through the directory listing), `$PWD`, `$USER`, `$LOGNAME`, `$TMPDIR`, `$SHELL` or `$PATH`, or a relative path after `cd`/`pushd`; a word the guard cannot resolve and a recursive `grep`/`rg`/`diff -r` from a directory above a rule ask, and under `--yolo` a deny rule denies them unless the doubt is only another variable (avirtual/clodent #8).
+- Security: in `acceptEdits`, a `Write` or `Edit` also asks for a file a hook or `statusLine` command names only in the conservative reading of that command, such as one the shell-style split loses after an unmatched quote.
 
 ## 0.5.1 — 2026-11-04
 

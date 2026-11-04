@@ -389,6 +389,12 @@ test('Bash: ${…} is a brace frame where #, ( and ) are literal, so neither hid
   assert.equal(await bash(guard, 'echo "`echo ${x/(/y}`"; rm z'), 'deny Bash(rm:*)');
 });
 
+test("Bash: a ' inside a double-quoted ${…} pairs as a quote, as bash -c reads it outside POSIX mode", async () => {
+  const guard = guardOf({ deny: ['Read(~/.ssh)', 'Bash(rm:*)'] });
+  assert.equal(await bash(guard, `echo "\${x:-'}"'}"; rm x`), 'deny Bash(rm:*)');
+  assert.equal(await bash(guard, `echo "\${x:-'}"'}"; cat ~//.ssh/id_rsa`), 'deny Read(~/.ssh)');
+});
+
 test('Bash: a backtick closes through every frame opened inside it, as bash finds the closing backtick first', async () => {
   assert.equal(await bash(guardOf({ deny: ['Bash(rm:*)'] }), 'echo "`echo (`"; rm z'), 'deny Bash(rm:*)');
   assert.equal(await bash(guardOf({ deny: ['Read(~/.ssh)'] }), 'echo "`echo (`"; cat ~//.ssh/id_rsa'), 'deny Read(~/.ssh)');
