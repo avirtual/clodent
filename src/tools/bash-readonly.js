@@ -186,12 +186,7 @@ function gitRule(args) {
   const sub = args[k];
   if (sub === undefined) return 'git without a subcommand';
   const rest = args.slice(k + 1);
-  const unsafe = firstMatch(`git ${sub}`, rest, (arg) =>
-    longMatches(arg, 'output') ||
-    longMatches(arg, 'ext-diff') ||
-    (sub === 'grep' && (shortHas(arg, 'O') || longMatches(arg, 'open-files-in-pager'))) ||
-    (sub === 'describe' && (longMatches(arg, 'dirty') || longMatches(arg, 'broken'))),
-  );
+  const unsafe = firstMatch(`git ${sub}`, rest, (arg) => sub === 'describe' && (longMatches(arg, 'dirty') || longMatches(arg, 'broken')));
   if (unsafe) return unsafe;
   if (GIT_FREE.has(sub)) return null;
   const flags = GIT_FLAGS_ONLY[sub];
@@ -206,7 +201,9 @@ function gitRule(args) {
 
 const RULES = {
   find: (args) => firstMatch('find', args, (arg) => FIND_ACTIONS.has(arg)),
-  sort: (args) => firstMatch('sort', args, (arg) => shortHas(arg, 'o') || longMatches(arg, 'output') || longMatches(arg, 'compress-program')),
+  sort: (args) => firstMatch('sort', args, (arg) => shortHas(arg, 'o') || longMatches(arg, 'output') || longMatches(arg, 'compress-program') || longMatches(arg, 'files0-from')),
+  wc: (args) => firstMatch('wc', args, (arg) => longMatches(arg, 'files0-from')),
+  du: (args) => firstMatch('du', args, (arg) => longMatches(arg, 'files0-from')),
   tree: (args) => firstMatch('tree', args, (arg) => shortHas(arg, 'oR')),
   rg: (args) => firstMatch('rg', args, (arg) => ['--pre', '--hostname-bin'].some((name) => arg === name || arg.startsWith(`${name}=`))),
   date: (args) => firstMatch('date', args, (arg) => shortHas(arg, 's') || longMatches(arg, 'set') || /^\d+(\.\d+)?$/.test(arg)),
