@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { formatBudgetStop } from '../cost/format.js';
 import { PERMISSION_MODES } from '../hooks/fire.js';
+import { COMMAND_NAMES } from '../repl/slash.js';
 import { INTERRUPT_TEXT } from '../session/transcript.js';
 
 export const EMPTY_PROMPT = 'clodent: empty prompt (image input is not supported)';
@@ -33,6 +34,7 @@ export function createStreamOutput(ctx, deps) {
   const uuid = deps.uuid ?? randomUUID;
   let started = { model: null, cwd: null, tools: [], permission: null };
   let turn = null;
+  let command = null;
 
   const line = (record) => out.write(`${JSON.stringify(record)}\n`);
   const sessionId = () => ctx.sessionId();
@@ -41,10 +43,10 @@ export function createStreamOutput(ctx, deps) {
     line({ type, message: body, parent_tool_use_id: null, session_id: sessionId(), uuid: uuid() });
   }
 
-  function result({ isError, text, stopReason = null, durationMs = 0, apiMs = 0, requests = 0, tokens = NO_TOKENS }) {
+  function result({ isError, text, subtype = isError ? 'error_during_execution' : 'success', stopReason = null, durationMs = 0, apiMs = 0, requests = 0, tokens = NO_TOKENS }) {
     line({
       type: 'result',
-      subtype: isError ? 'error_during_execution' : 'success',
+      subtype,
       is_error: isError,
       duration_ms: durationMs,
       duration_api_ms: apiMs,
@@ -86,6 +88,16 @@ export function createStreamOutput(ctx, deps) {
     error({ message: text }) {
       if (turn) turn.error = text;
     },
+    compacted({ trigger, preTokens, postTokens, turn: spent }) {
+      if (command) command.tokens = spent.tokens;
+      line({
+        type: 'system',
+        subtype: 'compact_boundary',
+        session_id: sessionId(),
+        uuid: uuid(),
+        compact_metadata: { trigger, pre_tokens: preTokens, post_tokens: postTokens },
+      });
+    },
     budget_stop({ result: check }) {
       if (turn) turn.error = formatBudgetStop(check);
     },
@@ -123,7 +135,7 @@ export function createStreamOutput(ctx, deps) {
         model: started.model,
         tools: started.tools,
         permissionMode: PERMISSION_MODES[started.permission] ?? started.permission,
-        slash_commands: [],
+        slash_commands: [...COMMAND_NAMES],
         apiKeySource: 'ANTHROPIC_API_KEY',
         clodent_version: ctx.version,
         uuid: uuid(),
@@ -134,6 +146,20 @@ export function createStreamOutput(ctx, deps) {
     },
     emptyPrompt() {
       result({ isError: true, text: EMPTY_PROMPT });
+    },
+    beginCommand() {
+      command = { startedAt: now(), tokens: NO_TOKENS };
+    },
+    status(status, fields = {}) {
+      line({ type: 'system', subtype: 'status', status, ...fields, session_id: sessionId(), uuid: uuid() });
+    },
+    conversationReset(newId) {
+      line({ type: 'conversation_reset', new_conversation_id: newId, trigger: 'clear', session_id: sessionId(), uuid: uuid() });
+    },
+    endCommand({ isError, text, requests = 0 }) {
+      const current = command ?? { startedAt: now(), tokens: NO_TOKENS };
+      command = null;
+      result({ isError, text, subtype: 'success', durationMs: Math.round(now() - current.startedAt), requests, tokens: current.tokens });
     },
     controlRequest(requestId, request) {
       line({ type: 'control_request', request_id: requestId, request });

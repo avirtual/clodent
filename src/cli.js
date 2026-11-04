@@ -262,24 +262,25 @@ function headLines(opts, prep, stderr) {
 function streamRuntime(prep, opts, deps) {
   const plain = { write: (text) => deps.stderr.write(text) };
   const toStderr = createRenderer({ out: { write() {} }, err: plain, mode: 'print' });
+  let current = prep.session;
   const output = createStreamOutput(
-    { version: version(), sessionId: () => prep.session.sessionId },
+    { version: version(), sessionId: () => current.sessionId },
     { out: deps.stdout, now: deps.now, uuid: deps.uuid, totalUsd: () => runtime.ledger.session().usd },
   );
   const runtime = createRuntime(prep, opts, deps, (event) => {
     toStderr(event);
     output.event(event);
   });
-  return { runtime, output };
+  return { runtime, output, useSession: (session) => (current = session) };
 }
 
 async function runStreamInput(opts, deps) {
   const prep = await prepare(opts, deps);
   if (prep.code !== undefined) return prep.code;
   headLines(opts, prep, deps.stderr);
-  const { runtime, output } = streamRuntime(prep, opts, deps);
+  const { runtime, output, useSession } = streamRuntime(prep, opts, deps);
   return runStream(
-    { runtime, output, session: prep.session, resume: opts.resume !== undefined, stdioAsk: opts.permissionPromptTool === 'stdio', signalExit: SIGNAL_EXIT },
+    { runtime, output, useSession, session: prep.session, resume: opts.resume !== undefined, stdioAsk: opts.permissionPromptTool === 'stdio', signalExit: SIGNAL_EXIT },
     { stdin: deps.stdin, onSignal: deps.onSignal, uuid: deps.uuid, warn: (message) => deps.stderr.write(`clodent: ${message}\n`) },
   );
 }
