@@ -19,6 +19,9 @@ export function createRecorder(transcript, { now }) {
   }
 
   const handlers = {
+    tool_use(event) {
+      toolNames.set(event.id, event.name);
+    },
     message_append(event) {
       if (event.kind === 'prompt' && turnStart === null) turnStart = now();
       const record = messageRecord(event);
