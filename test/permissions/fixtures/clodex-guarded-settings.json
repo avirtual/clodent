@@ -1,0 +1,382 @@
+{
+ "permissions": {
+  "deny": [
+   "Read(//Users/<user>/.clodex/cli/contexts.json)",
+   "Edit(//Users/<user>/.clodex/cli/contexts.json)",
+   "Read(//Users/<user>/.clodex/teams/*/sandbox.json)",
+   "Edit(//Users/<user>/.clodex/teams/*/sandbox.json)",
+   "Read(//Users/<user>/.clodex/boxes/**)",
+   "Edit(//Users/<user>/.clodex/boxes/**)",
+   "Read(//Users/<user>/.clodex/run/*/mcp.json)",
+   "Edit(//Users/<user>/.clodex/run/*/mcp.json)",
+   "Read(//Users/<user>/.clodex/sessions/*/run/mcp.json)",
+   "Edit(//Users/<user>/.clodex/sessions/*/run/mcp.json)",
+   "Read(//Users/<user>/.clodex/peer-outbox/outbox-key)",
+   "Edit(//Users/<user>/.clodex/peer-outbox/outbox-key)",
+   "Read(//Users/<user>/.clodex/sessions/*/seat.json)",
+   "Edit(//Users/<user>/.clodex/sessions/*/seat.json)",
+   "Read(//Users/<user>/.clodex/sessions/*/.seat.json.tmp.*)",
+   "Edit(//Users/<user>/.clodex/sessions/*/.seat.json.tmp.*)",
+   "Read(//Users/<user>/.clodex/sessions/*/client-token)",
+   "Edit(//Users/<user>/.clodex/sessions/*/client-token)",
+   "Read(//Users/<user>/.clodex/accounts/*/.credentials.json)",
+   "Edit(//Users/<user>/.clodex/accounts/*/.credentials.json)",
+   "Read(//Users/<user>/.claude/.credentials.json)",
+   "Edit(//Users/<user>/.claude/.credentials.json)",
+   "Read(//Users/<user>/.claude.json)",
+   "Edit(//Users/<user>/.claude.json)",
+   "Read(~/.ssh)",
+   "Read(~/.ssh/**)",
+   "Edit(~/.ssh)",
+   "Edit(~/.ssh/**)",
+   "Read(~/.aws)",
+   "Read(~/.aws/**)",
+   "Edit(~/.aws)",
+   "Edit(~/.aws/**)",
+   "Read(//Users/<user>/Library/Application Support/Clodex/remote.env)",
+   "Edit(//Users/<user>/Library/Application Support/Clodex/remote.env)",
+   "Read(//Users/<user>/Library/Application Support/Clodex/ui-settings.json*)",
+   "Edit(//Users/<user>/Library/Application Support/Clodex/ui-settings.json*)",
+   "Read(//Users/<user>/Library/Application Support/Clodex/env-scopes.json*)",
+   "Edit(//Users/<user>/Library/Application Support/Clodex/env-scopes.json*)",
+   "Read(//Users/<user>/Library/Application Support/Clodex/sessions.json*)",
+   "Edit(//Users/<user>/Library/Application Support/Clodex/sessions.json*)",
+   "Read(//Users/<user>/Library/Application Support/Clodex/wire-hold-entries.json)",
+   "Edit(//Users/<user>/Library/Application Support/Clodex/wire-hold-entries.json)",
+   "Read(//Users/<user>/Library/Application Support/Clodex/env-override.env)",
+   "Edit(//Users/<user>/Library/Application Support/Clodex/env-override.env)",
+   "Read(//Users/<user>/Library/Application Support/Clodex/.ui-settings.json*)",
+   "Edit(//Users/<user>/Library/Application Support/Clodex/.ui-settings.json*)",
+   "Read(//Users/<user>/Library/Application Support/Clodex/.env-scopes.json*)",
+   "Edit(//Users/<user>/Library/Application Support/Clodex/.env-scopes.json*)",
+   "Read(//Users/<user>/Library/Application Support/Clodex/.sessions.json*)",
+   "Edit(//Users/<user>/Library/Application Support/Clodex/.sessions.json*)",
+   "Read(//Users/<user>/Library/Application Support/Clodex/.wire-hold-entries.json.tmp.*)",
+   "Edit(//Users/<user>/Library/Application Support/Clodex/.wire-hold-entries.json.tmp.*)",
+   "Read(//Users/<user>/Library/Application Support/Clodex/remote.env.tmp)",
+   "Edit(//Users/<user>/Library/Application Support/Clodex/remote.env.tmp)",
+   "Read(//Users/<user>/Library/Application Support/Clodex/sandbox*/auth.env)",
+   "Edit(//Users/<user>/Library/Application Support/Clodex/sandbox*/auth.env)",
+   "Edit(~/.claude)",
+   "Edit(~/.claude/**)",
+   "Edit(~/.claude.json)",
+   "Edit(~/.claude.json/**)",
+   "Edit(~/.zshrc)",
+   "Edit(~/.zshrc/**)",
+   "Edit(~/.zprofile)",
+   "Edit(~/.zprofile/**)",
+   "Edit(~/.zshenv)",
+   "Edit(~/.zshenv/**)",
+   "Edit(~/.zlogin)",
+   "Edit(~/.zlogin/**)",
+   "Edit(~/.zlogout)",
+   "Edit(~/.zlogout/**)",
+   "Edit(~/.bashrc)",
+   "Edit(~/.bashrc/**)",
+   "Edit(~/.bash_profile)",
+   "Edit(~/.bash_profile/**)",
+   "Edit(~/.bash_login)",
+   "Edit(~/.bash_login/**)",
+   "Edit(~/.profile)",
+   "Edit(~/.profile/**)",
+   "Edit(~/.gitconfig)",
+   "Edit(~/.gitconfig/**)",
+   "Edit(~/.config/git)",
+   "Edit(~/.config/git/**)",
+   "Edit(~/.config/fish)",
+   "Edit(~/.config/fish/**)",
+   "Edit(~/.codex)",
+   "Edit(~/.codex/**)",
+   "Edit(~/Library/LaunchAgents)",
+   "Edit(~/Library/LaunchAgents/**)",
+   "Edit(//Users/<user>/.clodex/.DS_Store)",
+   "Edit(//Users/<user>/.clodex/accounts/**)",
+   "Edit(//Users/<user>/.clodex/accounts.json)",
+   "Edit(//Users/<user>/.clodex/agent-plugins/**)",
+   "Edit(//Users/<user>/.clodex/agents/**)",
+   "Edit(//Users/<user>/.clodex/b.json)",
+   "Edit(//Users/<user>/.clodex/bashlog/**)",
+   "Edit(//Users/<user>/.clodex/bin/**)",
+   "Edit(//Users/<user>/.clodex/cli/**)",
+   "Edit(//Users/<user>/.clodex/clodex-hand-keep/**)",
+   "Edit(//Users/<user>/.clodex/clodex.log)",
+   "Edit(//Users/<user>/.clodex/clodex.log.1)",
+   "Edit(//Users/<user>/.clodex/codex-session-hook.sh)",
+   "Edit(//Users/<user>/.clodex/ctl-runs/**)",
+   "Edit(//Users/<user>/.clodex/exec-runs-inflight.json)",
+   "Edit(//Users/<user>/.clodex/heat/**)",
+   "Edit(//Users/<user>/.clodex/internal-docs/**)",
+   "Edit(//Users/<user>/.clodex/library/**)",
+   "Edit(//Users/<user>/.clodex/logs/**)",
+   "Edit(//Users/<user>/.clodex/memory-cleanup/**)",
+   "Edit(//Users/<user>/.clodex/messages/**)",
+   "Edit(//Users/<user>/.clodex/monitors/**)",
+   "Edit(//Users/<user>/.clodex/notes/**)",
+   "Edit(//Users/<user>/.clodex/notices/**)",
+   "Edit(//Users/<user>/.clodex/peer-outbox/**)",
+   "Edit(//Users/<user>/.clodex/pending/**)",
+   "Edit(//Users/<user>/.clodex/plugins/**)",
+   "Edit(//Users/<user>/.clodex/pot-baselines/**)",
+   "Edit(//Users/<user>/.clodex/promptcache/**)",
+   "Edit(//Users/<user>/.clodex/remote-token)",
+   "Edit(//Users/<user>/.clodex/run/**)",
+   "Edit(//Users/<user>/.clodex/scratch/**)",
+   "Edit(//Users/<user>/.clodex/sessions/**)",
+   "Edit(//Users/<user>/.clodex/setup.json)",
+   "Edit(//Users/<user>/.clodex/skill-plugins/**)",
+   "Edit(//Users/<user>/.clodex/skills/**)",
+   "Edit(//Users/<user>/.clodex/spill/**)",
+   "Edit(//Users/<user>/.clodex/teams/**)",
+   "Edit(//Users/<user>/.clodex/test-failures/**)",
+   "Edit(//Users/<user>/.clodex/wire-shadow-diag.jsonl)",
+   "Edit(//Users/<user>/.clodex/wire-shadow.jsonl)",
+   "Edit(//Users/<user>/.clodex/work-remote-token)",
+   "Edit(//Applications/Clodex.app/**)",
+   "Edit(//Users/<user>/Library/Application Support/Clodex/**)",
+   "Edit(//Users/<user>/projects/tmux/wb-wrap-ui/.git/config)",
+   "Edit(//Users/<user>/projects/tmux/wb-wrap-ui/.git/config.worktree)",
+   "Edit(//Users/<user>/projects/tmux/wb-wrap-ui/.git/commondir)",
+   "Edit(//Users/<user>/projects/tmux/wb-wrap-ui/.git/hooks/**)",
+   "Edit(//Users/<user>/projects/tmux/wb-wrap-ui/.git/info/attributes)",
+   "Edit(//Users/<user>/projects/tmux/wb-wrap-ui/.codex)",
+   "Edit(//Users/<user>/projects/tmux/wb-wrap-ui/.codex/**)",
+   "Edit(//Users/<user>/projects/tmux/wb-wrap-ui/.claude)",
+   "Edit(//Users/<user>/projects/tmux/wb-wrap-ui/.claude/**)"
+  ]
+ },
+ "sandbox": {
+  "enabled": true,
+  "allowUnsandboxedCommands": false,
+  "filesystem": {
+   "allowWrite": [
+    "/"
+   ],
+   "denyRead": [
+    "/Users/<user>/.clodex/cli/contexts.json",
+    "/Users/<user>/.clodex/teams/*/sandbox.json",
+    "/Users/<user>/.clodex/boxes",
+    "/Users/<user>/.clodex/run/*/mcp.json",
+    "/Users/<user>/.clodex/sessions/*/run/mcp.json",
+    "/Users/<user>/.clodex/peer-outbox/outbox-key",
+    "/Users/<user>/.clodex/sessions/*/seat.json",
+    "/Users/<user>/.clodex/sessions/*/.seat.json.tmp.*",
+    "/Users/<user>/.clodex/sessions/*/client-token",
+    "/Users/<user>/.clodex/accounts/*/.credentials.json",
+    "/Users/<user>/.claude/.credentials.json",
+    "/Users/<user>/.claude.json",
+    "~/.ssh",
+    "~/.aws",
+    "/Users/<user>/Library/Application Support/Clodex/remote.env",
+    "/Users/<user>/Library/Application Support/Clodex/ui-settings.json*",
+    "/Users/<user>/Library/Application Support/Clodex/env-scopes.json*",
+    "/Users/<user>/Library/Application Support/Clodex/sessions.json*",
+    "/Users/<user>/Library/Application Support/Clodex/wire-hold-entries.json",
+    "/Users/<user>/Library/Application Support/Clodex/env-override.env",
+    "/Users/<user>/Library/Application Support/Clodex/.ui-settings.json*",
+    "/Users/<user>/Library/Application Support/Clodex/.env-scopes.json*",
+    "/Users/<user>/Library/Application Support/Clodex/.sessions.json*",
+    "/Users/<user>/Library/Application Support/Clodex/.wire-hold-entries.json.tmp.*",
+    "/Users/<user>/Library/Application Support/Clodex/remote.env.tmp",
+    "/Users/<user>/Library/Application Support/Clodex/sandbox*/auth.env"
+   ],
+   "denyWrite": [
+    "~/.claude",
+    "~/.claude.json",
+    "~/.zshrc",
+    "~/.zprofile",
+    "~/.zshenv",
+    "~/.zlogin",
+    "~/.zlogout",
+    "~/.bashrc",
+    "~/.bash_profile",
+    "~/.bash_login",
+    "~/.profile",
+    "~/.gitconfig",
+    "~/.config/git",
+    "~/.config/fish",
+    "~/.codex",
+    "~/Library/LaunchAgents",
+    "~/.ssh",
+    "~/.aws",
+    "/Users/<user>/.clodex/.DS_Store",
+    "/Users/<user>/.clodex/accounts",
+    "/Users/<user>/.clodex/accounts.json",
+    "/Users/<user>/.clodex/agent-plugins",
+    "/Users/<user>/.clodex/agents",
+    "/Users/<user>/.clodex/b.json",
+    "/Users/<user>/.clodex/bashlog",
+    "/Users/<user>/.clodex/bin",
+    "/Users/<user>/.clodex/boxes",
+    "/Users/<user>/.clodex/cli",
+    "/Users/<user>/.clodex/clodex-hand-keep",
+    "/Users/<user>/.clodex/clodex.log",
+    "/Users/<user>/.clodex/clodex.log.1",
+    "/Users/<user>/.clodex/codex-session-hook.sh",
+    "/Users/<user>/.clodex/ctl-runs",
+    "/Users/<user>/.clodex/exec-runs-inflight.json",
+    "/Users/<user>/.clodex/heat",
+    "/Users/<user>/.clodex/internal-docs",
+    "/Users/<user>/.clodex/library",
+    "/Users/<user>/.clodex/logs",
+    "/Users/<user>/.clodex/memory-cleanup",
+    "/Users/<user>/.clodex/messages",
+    "/Users/<user>/.clodex/monitors",
+    "/Users/<user>/.clodex/notes",
+    "/Users/<user>/.clodex/notices",
+    "/Users/<user>/.clodex/peer-outbox",
+    "/Users/<user>/.clodex/pending",
+    "/Users/<user>/.clodex/plugins",
+    "/Users/<user>/.clodex/pot-baselines",
+    "/Users/<user>/.clodex/promptcache",
+    "/Users/<user>/.clodex/remote-token",
+    "/Users/<user>/.clodex/run",
+    "/Users/<user>/.clodex/scratch",
+    "/Users/<user>/.clodex/sessions",
+    "/Users/<user>/.clodex/setup.json",
+    "/Users/<user>/.clodex/skill-plugins",
+    "/Users/<user>/.clodex/skills",
+    "/Users/<user>/.clodex/spill",
+    "/Users/<user>/.clodex/teams",
+    "/Users/<user>/.clodex/test-failures",
+    "/Users/<user>/.clodex/wire-shadow-diag.jsonl",
+    "/Users/<user>/.clodex/wire-shadow.jsonl",
+    "/Users/<user>/.clodex/work-remote-token",
+    "/Applications/Clodex.app",
+    "/Users/<user>/Library/Application Support/Clodex",
+    "/Users/<user>/projects/tmux/wb-wrap-ui/.git/config",
+    "/Users/<user>/projects/tmux/wb-wrap-ui/.git/config.worktree",
+    "/Users/<user>/projects/tmux/wb-wrap-ui/.git/commondir",
+    "/Users/<user>/projects/tmux/wb-wrap-ui/.git/hooks",
+    "/Users/<user>/projects/tmux/wb-wrap-ui/.git/info/attributes",
+    "/Users/<user>/projects/tmux/wb-wrap-ui/.codex",
+    "/Users/<user>/projects/tmux/wb-wrap-ui/.claude"
+   ]
+  },
+  "credentials": {
+   "files": [
+    {
+     "path": "/Users/<user>/.clodex/cli/contexts.json",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/.clodex/teams/*/sandbox.json",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/.clodex/boxes",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/.clodex/run/*/mcp.json",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/.clodex/sessions/*/run/mcp.json",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/.clodex/peer-outbox/outbox-key",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/.clodex/sessions/*/seat.json",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/.clodex/sessions/*/.seat.json.tmp.*",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/.clodex/sessions/*/client-token",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/.clodex/accounts/*/.credentials.json",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/.claude/.credentials.json",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/.claude.json",
+     "mode": "deny"
+    },
+    {
+     "path": "~/.ssh",
+     "mode": "deny"
+    },
+    {
+     "path": "~/.aws",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/Library/Application Support/Clodex/remote.env",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/Library/Application Support/Clodex/ui-settings.json*",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/Library/Application Support/Clodex/env-scopes.json*",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/Library/Application Support/Clodex/sessions.json*",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/Library/Application Support/Clodex/wire-hold-entries.json",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/Library/Application Support/Clodex/env-override.env",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/Library/Application Support/Clodex/.ui-settings.json*",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/Library/Application Support/Clodex/.env-scopes.json*",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/Library/Application Support/Clodex/.sessions.json*",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/Library/Application Support/Clodex/.wire-hold-entries.json.tmp.*",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/Library/Application Support/Clodex/remote.env.tmp",
+     "mode": "deny"
+    },
+    {
+     "path": "/Users/<user>/Library/Application Support/Clodex/sandbox*/auth.env",
+     "mode": "deny"
+    }
+   ],
+   "envVars": [
+    {
+     "name": "AWS_ACCESS_KEY_ID",
+     "mode": "deny"
+    },
+    {
+     "name": "AWS_SECRET_ACCESS_KEY",
+     "mode": "deny"
+    },
+    {
+     "name": "AWS_SESSION_TOKEN",
+     "mode": "deny"
+    },
+    {
+     "name": "GITHUB_TOKEN",
+     "mode": "deny"
+    }
+   ]
+  }
+ }
+}
