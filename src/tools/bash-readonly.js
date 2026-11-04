@@ -67,6 +67,10 @@ function oneOperand(cmd) {
   return (args) => (operandCount(args) > 1 ? `${cmd} with an output file` : null);
 }
 
+function noVariableTest(cmd) {
+  return (args) => firstMatch(cmd, args, (arg) => arg === '-v' || arg === '-R');
+}
+
 function sedScriptOk(script) {
   let i = 0;
   const skip = () => {
@@ -202,6 +206,9 @@ const RULES = {
   rg: (args) => firstMatch('rg', args, (arg) => ['--pre', '--hostname-bin'].some((name) => arg === name || arg.startsWith(`${name}=`))),
   date: (args) => firstMatch('date', args, (arg) => shortHas(arg, 's') || longMatches(arg, 'set') || /^\d+(\.\d+)?$/.test(arg)),
   file: (args) => firstMatch('file', args, (arg) => shortHas(arg, 'C') || longMatches(arg, 'compile')),
+  printf: (args) => firstMatch('printf', args, (arg) => arg.startsWith('-v')),
+  test: noVariableTest('test'),
+  '[': noVariableTest('['),
   uniq: oneOperand('uniq'),
   xxd: oneOperand('xxd'),
   sed: sedRule,
@@ -300,6 +307,7 @@ function lex(src) {
     }
   };
   const redirect = (j) => {
+    if (word && /^\{.*\}$/s.test(src.slice(word.start, j))) refuse('variable redirection');
     if (word && DIGITS.test(src.slice(word.start, j))) word = null;
     else end();
     const next = src[j + 1];

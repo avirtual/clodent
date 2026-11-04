@@ -234,6 +234,7 @@ These make the command not read-only wherever they appear outside single quotes,
 - a lone `&`; `(` or `)`; `{` or `}` as a word;
 - `<<`, `<<<`, `<>` and `<&`;
 - a leading `NAME=value` assignment;
+- a word in braces right before `<` or `>`, such as `{fd}>/dev/null` (bash assigns the fd to that variable);
 - an unterminated quote or a trailing backslash;
 - a control character: U+0000–U+001F other than tab and newline, and U+007F–U+009F.
 
@@ -247,6 +248,8 @@ Per-command rules. Any match makes the command not read-only. For every command 
 | `rg` | `--pre` or `--hostname-bin`, exactly or with `=value` |
 | `date` | a short option cluster holding `s`, `--set`, or digits with an optional `.` and more digits (a time to set) |
 | `file` | a short option cluster holding `C`, or `--compile` |
+| `printf` | `-v`, or `-v` with a name attached (`-vNAME`) |
+| `test`, `[` | `-v` or `-R`, exactly |
 | `uniq`, `xxd` | a second operand (an output file); `-`, every argument after `--` and every argument after the first operand count as operands |
 | `sed` | see below |
 | `git` | see below |
