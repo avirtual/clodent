@@ -58,6 +58,9 @@ export function createRenderer({ out, err, mode }) {
     tool_use({ name, summary }) {
       line(summary ? `● ${name} ${summary}` : `● ${name}`);
     },
+    permission_request({ id, name, summary }) {
+      line(`[clay:permit ${name} ${id}] ${summary}`);
+    },
     permission({ id, decision, reason }) {
       if (decision !== 'deny') return;
       denied.add(id);

@@ -7,6 +7,7 @@ import { decide } from './permission.js';
 
 export const INTERRUPT_MARKER = '[clay: previous turn interrupted by the user]';
 export const INTERRUPTED_RESULT = 'interrupted by user';
+export const USER_DENIAL = 'denied by the user';
 export const MID_STREAM_DELAYS_MS = Object.freeze([2000, 4000]);
 const MID_STREAM_RETRYABLE = new Set(['overloaded_error', 'api_error']);
 const ALLOWED = Object.freeze({ allow: true });
@@ -24,7 +25,8 @@ function resultBlock({ id, content, isError }) {
 }
 
 export function createAgent(config, deps) {
-  const { model, effort, system, permission, baseUrl } = config;
+  const { effort, permission, baseUrl } = config;
+  let { model, system } = config;
   const tools = config.tools ?? [];
   const { emit, ledger, now } = deps;
   const hooks = deps.hooks ?? NO_HOOKS;
@@ -60,17 +62,17 @@ export function createAgent(config, deps) {
     append('user', blocks, 'prompt');
   }
 
-  async function finish(stopReason, ok) {
+  async function finish(stopReason, ok, stopSignal) {
     emit({ type: 'turn_end', stopReason, turn: ledger.endTurn() });
-    await fireHook('Stop', { stop_hook_active: false });
+    await fireHook('Stop', { stop_hook_active: false }, stopSignal);
     return { stopReason, ok };
   }
 
-  async function interrupt(partial) {
+  async function interrupt(partial, stopSignal) {
     if (partial.length > 0) append('assistant', partial.map((block) => ({ ...block })), 'partial');
     interruptedBefore = true;
     emit({ type: 'interrupted' });
-    return finish('interrupted', false);
+    return finish('interrupted', false, stopSignal);
   }
 
   async function request(signal, partial) {
@@ -104,8 +106,20 @@ export function createAgent(config, deps) {
     return decide(tool, input, permission);
   }
 
+  async function askUser(tool, use, input, signal) {
+    const request = { id: use.id, name: use.name, input, summary: tool.summary?.(input) ?? '' };
+    emit({ type: 'permission_request', ...request });
+    const notice = { notification_type: 'permission', tool: use.name, id: use.id, message: `clay needs permission to use ${use.name}` };
+    await fireHook('Notification', notice, signal);
+    if (signal?.aborted) return { allow: false, reason: INTERRUPTED_RESULT };
+    const answer = await config.ask(request, signal);
+    if (signal?.aborted) return { allow: false, reason: INTERRUPTED_RESULT };
+    return answer?.allow ? ALLOWED : { allow: false, reason: answer?.reason ?? USER_DENIAL };
+  }
+
   async function execute(tool, use, input, pre, signal) {
-    const verdict = verdictFor(tool, input, pre);
+    let verdict = verdictFor(tool, input, pre);
+    if (verdict.ask && config.ask) verdict = await askUser(tool, use, input, signal);
     emit({
       type: 'permission',
       id: use.id,
@@ -188,18 +202,18 @@ export function createAgent(config, deps) {
     interruptedBefore = true;
   }
 
-  async function runTurn(userText, { signal } = {}) {
+  async function runTurn(userText, { signal, stopSignal } = {}) {
     closeDanglingUses();
     const submit = await fireHook('UserPromptSubmit', { prompt: userText }, signal);
     addUserText(userText, submit.additionalContext);
     const partial = [];
     try {
       for (;;) {
-        if (signal?.aborted) return interrupt(partial);
+        if (signal?.aborted) return interrupt(partial, stopSignal);
         const check = ledger.check();
         if (!check.ok) {
           emit({ type: 'budget_stop', result: check });
-          return finish('budget', false);
+          return finish('budget', false, stopSignal);
         }
         const { message, requestId, durationMs } = await request(signal, partial);
         partial.length = 0;
@@ -216,26 +230,26 @@ export function createAgent(config, deps) {
         if (stop === 'pause_turn') {
           continue;
         } else if (stop === 'end_turn' || stop === 'stop_sequence') {
-          return finish(stop, true);
+          return finish(stop, true, stopSignal);
         } else if (stop === 'max_tokens') {
           emit({ type: 'warning', message: 'response hit max_tokens' });
-          return finish(stop, false);
+          return finish(stop, false, stopSignal);
         } else if (stop === 'refusal') {
-          return finish(stop, false);
+          return finish(stop, false, stopSignal);
         } else {
           emit({ type: 'warning', message: `unexpected stop_reason ${stop}` });
-          return finish(stop ?? 'unknown', false);
+          return finish(stop ?? 'unknown', false, stopSignal);
         }
       }
     } catch (err) {
-      if (signal?.aborted) return interrupt(partial);
+      if (signal?.aborted) return interrupt(partial, stopSignal);
       emit({
         type: 'error',
         message: err?.message ?? String(err),
         errorType: err?.type ?? err?.name ?? 'error',
         status: err?.status ?? null,
       });
-      return finish('error', false);
+      return finish('error', false, stopSignal);
     }
   }
 
@@ -250,6 +264,10 @@ export function createAgent(config, deps) {
       return fireHook('Notification', fields, signal);
     },
     messages: () => structuredClone(history),
+    setModel(nextModel, nextSystem) {
+      model = nextModel;
+      system = nextSystem;
+    },
     endSession() {
       const session = ledger.session();
       emit({ type: 'session_end', session });

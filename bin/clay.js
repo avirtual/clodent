@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import { setTimeout as delay } from 'node:timers/promises';
-import { main } from '../src/cli.js';
+import { ignoreBrokenPipes, main } from '../src/cli.js';
+
+ignoreBrokenPipes(process.stdout);
+ignoreBrokenPipes(process.stderr);
 
 process.exitCode = await main(process.argv.slice(2), {
   stdout: process.stdout,
