@@ -153,6 +153,9 @@ export function createStreamOutput(ctx, deps) {
     beginTurn() {
       turn = fresh();
     },
+    turnOpen() {
+      return turn !== null;
+    },
     emptyPrompt() {
       result({ isError: true, text: EMPTY_PROMPT });
     },
@@ -176,6 +179,9 @@ export function createStreamOutput(ctx, deps) {
     },
     controlResponse(response) {
       line({ type: 'control_response', response });
+    },
+    controlCancelRequest(requestId) {
+      line({ type: 'control_cancel_request', request_id: requestId });
     },
     permissionDenied({ toolName, toolUseId, message: text }) {
       line({ type: 'system', subtype: 'permission_denied', tool_name: toolName, tool_use_id: toolUseId, message: text, session_id: sessionId(), uuid: uuid() });

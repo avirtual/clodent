@@ -13,6 +13,11 @@ clodent was named clay up to 0.2.0.
 - Security: an `ANTHROPIC_BASE_URL` with a user name or password exits 2 with `clodent: ANTHROPIC_BASE_URL: credentials in the URL are not supported`, which does not print the URL, and a network error's message no longer shows a URL's `<user>:<password>@`.
 - Security: an unknown `permissionDecision` is redacted in each string before it is written as JSON, so a secret holding `"` or `\` still reads `[redacted]`, and its 60-character cut counts code points, so it no longer splits an emoji.
 - Security: in `acceptEdits`, every word of a hook or statusLine command is protected, not only the words holding a `/` (`bash pre.sh` protects `pre.sh`); `$PWD` and `${PWD}` expand to the working directory, `$HOME` and the other variables expand from the environment the hook runs in, so a deny `credentials.envVars` name is empty, and paths are compared after NFC normalisation.
+- Stream JSON: an `interrupt` that arrives after a turn's `result`, while its `Stop` hooks run, follows the idle rule: it interrupts the first waiting prompt or command, and is ignored when none waits. It used to be lost.
+- Stream JSON: a prompt that arrives during a turn while an older prompt waits now waits behind it instead of joining the turn, so waiting prompts start in arrival order.
+- Stream JSON: stdin lines are split in linear time, and a line over 64 MiB is dropped up to its newline with `clodent: stdin: ignoring a line over 67108864 bytes`.
+- Stream JSON: a `control_request` or `control_response` without a string `request_id` is ignored with a `stdin:` warning; a `control_request` no longer gets a reply without one.
+- Stream JSON: an ask abandoned by an interrupt, a signal or stdin closing writes `{"type":"control_cancel_request","request_id":<id>}`, so the host can dismiss its prompt.
 
 ## 0.5.1 — 2026-11-04
 
