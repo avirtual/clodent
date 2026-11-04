@@ -13,7 +13,7 @@ import { useTempDir } from '../tools/tmp-dir.js';
 const ID = '123e4567-e89b-42d3-a456-426614174000';
 const OTHER = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 const SESSION_LINE = /^\[clodent:session\] ([0-9a-f-]{36})$/;
-const COMMON = ['type', 'uuid', 'parentUuid', 'sessionId', 'timestamp', 'cwd', 'isSidechain', 'version', 'entrypoint'];
+const COMMON = ['type', 'uuid', 'parentUuid', 'sessionId', 'timestamp', 'cwd', 'isSidechain', 'version', 'entrypoint', 'userType', 'gitBranch'];
 
 const textReply = (text) => ({ body: sse({ blocks: [{ type: 'text', text }] }) });
 const toolReply = () => ({
@@ -158,8 +158,13 @@ test('a resume after an interrupt carries INTERRUPT_MARKER in the next request',
   const onFetch = ({ signals }) => signals.SIGINT?.();
   const first = await run(['-p', 'first', '--session-id', ID], { home, cwd, responses: [textReply('never')], onFetch });
   assert.equal(first.code, 130, first.stderr);
-  const interrupts = records(transcriptPath(home, cwd, ID)).filter(clodexIsInterruptEntry);
+  const written = records(transcriptPath(home, cwd, ID));
+  const interrupts = written.filter(clodexIsInterruptEntry);
   assert.deepEqual(interrupts.map((r) => r.message.content), [[{ type: 'text', text: '[Request interrupted by user]' }]]);
+  for (const r of written) {
+    for (const key of COMMON) assert.ok(key in r, `${r.type} record lacks ${key}`);
+    assert.deepEqual([r.isSidechain, r.cwd, r.sessionId, r.userType, typeof r.gitBranch], [false, cwd, ID, 'external', 'string']);
+  }
   const second = await run(['-p', 'second', '--resume', ID], { home, cwd, responses: [textReply('ok')] });
   assert.equal(second.code, 0, second.stderr);
   assert.deepEqual(strip(second.calls[0].body.messages), [

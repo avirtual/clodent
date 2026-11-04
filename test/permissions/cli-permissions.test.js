@@ -4,7 +4,7 @@ import { existsSync, readFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { ASK_DENIAL } from '../../src/agent/permission.js';
 import { ASK_LINE, PASTE_ON } from '../../src/repl/repl.js';
-import { SANDBOX_REFUSAL } from '../../src/settings/load.js';
+import { SANDBOX_NOTICE } from '../../src/settings/sandbox.js';
 import { hookGroup, runMain, strip, textReply, toolsReply, writeSettings } from '../helpers/run-main.js';
 import { hookOutput, script } from '../hooks/scripts.js';
 import { startRepl } from '../repl/harness.js';
@@ -159,33 +159,38 @@ test('Bash under --yolo: a Read path mention and a Bash(prefix:*) rule deny; an 
   assert.equal(existsSync(join(user, 'notes/n.txt')), true);
 });
 
-test('sandbox.enabled: true and a malformed rule exit 2 with clodent: settings <path>: <message>, before SessionStart and any request', GUARD, async (t) => {
+test('a malformed rule, sandbox shape or --disallowedTools entry exits 2 with its message, before SessionStart and any request', GUARD, async (t) => {
   const { home, cwd, dir } = await setup(t);
   const marker = join(dir, 'session-started');
   const hooks = { SessionStart: [hookGroup('', `touch ${JSON.stringify(marker)}`)] };
-  const fixture = writeSettings(dir, { ...JSON.parse(readFileSync(FIXTURE, 'utf8')), hooks }, 'guarded.json');
   const malformed = writeSettings(dir, { hooks, permissions: { deny: ['Read(x'] } }, 'malformed.json');
+  const badSandbox = writeSettings(dir, { hooks, sandbox: { enabled: true, filesystem: { denyRead: '~/.ssh' } } }, 'sandbox.json');
   const exits = async (argv, stderr) => {
     const res = await runMain(['-p', 'go', ...argv], { home, cwd, responses: [textReply('never')] });
     assert.deepEqual([res.code, res.stdout, res.stderr, res.calls.length], [2, '', stderr, 0], argv.join(' '));
   };
-  await exits(['--settings', fixture], `clodent: settings ${fixture}: ${SANDBOX_REFUSAL}\n`);
   await exits(['--settings', malformed], `clodent: settings ${malformed}: permissions.deny[0] "Read(x": unbalanced parenthesis\n`);
-  const homeSandbox = writeSettings(home, { hooks, sandbox: { enabled: true } });
-  await exits([], `clodent: settings ${homeSandbox}: ${SANDBOX_REFUSAL}\n`);
+  await exits(['--settings', badSandbox], `clodent: settings ${badSandbox}: sandbox.filesystem.denyRead is not an array\n`);
+  const plain = writeSettings(dir, { hooks }, 'plain.json');
+  await exits(['--settings', plain, '--disallowedTools', 'Bash Edit()'], 'clodent: --disallowedTools: "Edit()": empty () on Edit\n');
+  const homeSandbox = writeSettings(home, { hooks, sandbox: { enabled: true, credentials: { envVars: [{ mode: 'deny' }] } } });
+  await exits([], `clodent: settings ${homeSandbox}: sandbox.credentials.envVars[0].name is not a string\n`);
   const repl = startRepl([], { home, cwd });
   assert.equal(await repl.done, 2);
   assert.equal(repl.out.text.includes(PASTE_ON), false);
-  assert.equal(repl.err.text, `clodent: settings ${homeSandbox}: ${SANDBOX_REFUSAL}\n`);
+  assert.equal(repl.err.text, `clodent: settings ${homeSandbox}: sandbox.credentials.envVars[0].name is not a string\n`);
   assert.equal(repl.fetch.calls.length, 0);
   assert.equal(existsSync(marker), false);
 });
 
-test('the Clodex guarded-hand settings, sandbox stripped, guard the seat secrets and leave its work dirs usable', GUARD, async (t) => {
+function guardedFixture(user) {
+  return JSON.parse(readFileSync(FIXTURE, 'utf8').replaceAll('/Users/<user>', user));
+}
+
+test('the Clodex guarded-hand settings, sandbox block included, boot with the sandbox notice, guard the seat secrets and leave its work dirs usable', GUARD, async (t) => {
   const { home, cwd, dir, user } = await setup(t);
-  const guarded = JSON.parse(readFileSync(FIXTURE, 'utf8').replaceAll('/Users/<user>', user));
+  const guarded = guardedFixture(user);
   assert.equal(guarded.sandbox.enabled, true);
-  delete guarded.sandbox;
   const settings = writeSettings(dir, guarded);
   await plant(user, { '.ssh/id_rsa': 'KEY', '.clodex/messages/m.txt': 'msg' });
   const uses = [
@@ -199,6 +204,7 @@ test('the Clodex guarded-hand settings, sandbox stripped, guard the seat secrets
   ];
   const res = await runMain(['-p', 'go', '--yolo', '--settings', settings], { home, cwd, env: { HOME: user }, responses: [toolsReply(uses), textReply('done')] });
   assert.equal(res.code, 0, res.stderr);
+  assert.equal(res.stderr.split('\n')[1], `clodent: settings ${settings}: ${SANDBOX_NOTICE}`);
   assert.deepEqual(results(res), [
     denied('Read(~/.ssh)'),
     denied(`Edit(/${user}/.clodex/sessions/**)`),
@@ -209,4 +215,52 @@ test('the Clodex guarded-hand settings, sandbox stripped, guard the seat secrets
     denied(`Edit(/${user}/.clodex/messages/**)`),
   ]);
   assert.equal(existsSync(join(user, '.clodex/sessions/x')), false);
+});
+
+test('a path only the sandbox denyRead names is refused to Read and to a Bash cat, under --dangerously-skip-permissions', GUARD, async (t) => {
+  const { home, cwd, dir, user } = await setup(t);
+  const guarded = guardedFixture(user);
+  guarded.sandbox.filesystem.denyRead.push(join(user, 'vault'));
+  const settings = writeSettings(dir, guarded);
+  await plant(user, { 'vault/k.txt': 'KEY', 'open/o.txt': 'open' });
+  const uses = [
+    ['Read', { file_path: join(user, 'vault/k.txt') }],
+    ['Bash', { command: 'cat ~/vault/k.txt' }],
+    ['Bash', { command: 'cat ~/open/o.txt' }],
+  ];
+  const res = await runMain(['-p', 'go', '--dangerously-skip-permissions', '--settings', settings], { home, cwd, env: { HOME: user }, responses: [toolsReply(uses), textReply('done')] });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(results(res), [denied(`Read(/${user}/vault)`), denied(`Read(/${user}/vault)`), 'open\n[exit 0]']);
+});
+
+test('sandbox credentials envVars are absent from Bash env, while hooks keep the full environment', GUARD, async (t) => {
+  const { home, cwd, dir, user } = await setup(t);
+  const seen = join(dir, 'hook-env.txt');
+  const hook = await script(dir, 'pre.sh', `cat > /dev/null\nprintf '%s %s' "$GITHUB_TOKEN" "$AWS_ACCESS_KEY_ID" > ${JSON.stringify(seen)}`);
+  const settings = writeSettings(dir, { ...guardedFixture(user), hooks: { PreToolUse: [hookGroup('Bash', hook)] } });
+  const uses = [['Bash', { command: "env | grep -E '^(GITHUB_TOKEN|AWS_ACCESS_KEY_ID|KEEP_ME)='" }]];
+  const env = { HOME: user, GITHUB_TOKEN: 'ghp_secret', AWS_ACCESS_KEY_ID: 'AKIA', KEEP_ME: 'kept' };
+  const res = await runMain(['-p', 'go', '--yolo', '--settings', settings], { home, cwd, env, responses: [toolsReply(uses), textReply('done')] });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(results(res), ['KEEP_ME=kept\n[exit 0]']);
+  assert.equal(readFileSync(seen, 'utf8'), 'ghp_secret AKIA');
+});
+
+test('--disallowedTools and --disallowed-tools add deny rules after the settings ones, enforced under --dangerously-skip-permissions', GUARD, async (t) => {
+  const { home, cwd, dir } = await setup(t);
+  await plant(cwd, { 'a.txt': 'alpha', 'b.txt': 'beta' });
+  const settings = writeSettings(dir, { permissions: { deny: ['Read(./a.txt)'] } });
+  const uses = [
+    ['Read', { file_path: 'a.txt' }],
+    ['Read', { file_path: 'b.txt' }],
+    ['Bash', { command: 'git push origin' }],
+    ['Bash', { command: 'echo ok' }],
+    ['Write', { file_path: 'c.txt', content: 'c' }],
+  ];
+  const argv = ['-p', 'go', '--dangerously-skip-permissions', '--settings', settings, '--disallowedTools', 'Read(./a.txt),Read(./b.txt) WebFetch', '--disallowed-tools', 'Bash(git push:*), Write'];
+  const res = await runMain(argv, { home, cwd, responses: [toolsReply(uses), textReply('done')] });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(res.calls[0].body.tools.map((tool) => tool.name), ['Read', 'Edit', 'Bash', 'Grep', 'Glob']);
+  assert.deepEqual(results(res), [denied('Read(./a.txt)'), denied('Read(./b.txt)'), denied('Bash(git push:*)'), 'ok\n[exit 0]', 'unknown tool Write']);
+  assert.equal(existsSync(join(cwd, 'c.txt')), false);
 });

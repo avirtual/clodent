@@ -13,7 +13,7 @@ import { useTempDir } from '../tools/tmp-dir.js';
 
 function capture() {
   const records = [];
-  return { records, append: (record) => records.push(record) };
+  return { records, refreshes: [], append: (record) => records.push(record), refreshBranch() { this.refreshes.push(records.length); } };
 }
 
 const MESSAGE = { id: 'msg_1', model: 'm', role: 'assistant', content: [{ type: 'tool_use', id: 'tu1', name: 'Read', input: {} }], stop_reason: 'tool_use', stop_sequence: null, usage: { input_tokens: 1 } };
@@ -131,4 +131,19 @@ test('an interrupt mid-stream writes the partial assistant and the interrupt rec
   ]);
   assert.deepEqual(records.map((r) => r.parentUuid), [null, 'u1', 'u2', 'u3']);
   assert.equal(records[3].messageCount, 3);
+});
+
+test('the recorder re-reads the git branch before the first record of each turn, and only then', () => {
+  const transcript = capture();
+  const record = createRecorder(transcript, { now: () => 0 });
+  const prompt = { type: 'message_append', role: 'user', content: [{ type: 'text', text: 'go' }], kind: 'prompt', meta: {} };
+  const reply = { type: 'message_append', role: 'assistant', content: [{ type: 'text', text: 'ok' }], kind: 'partial', meta: {} };
+  const dangling = { type: 'message_append', role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'x', is_error: true }], kind: 'tool_results', meta: {} };
+  record(prompt);
+  record(reply);
+  record({ type: 'turn_end', stopReason: 'end_turn' });
+  record(dangling);
+  record(prompt);
+  record(reply);
+  assert.deepEqual(transcript.refreshes, [0, 3, 4]);
 });

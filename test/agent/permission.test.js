@@ -43,3 +43,11 @@ test('an unknown mode or kind is treated as deny, never allow', () => {
   assert.equal(decide(READ, {}, 'sometimes').allow, false);
   assert.equal(decide(tool('X', 'weird'), {}, 'read-only').allow, false);
 });
+
+test('accept-edits allows read and write tools and a read-only Bash command, and asks for any other Bash command', () => {
+  const EDIT = tool('Edit', 'write');
+  for (const t of [READ, WRITE, EDIT]) assert.deepEqual(decide(t, { file_path: 'x' }, 'accept-edits'), { allow: true }, t.name);
+  assert.deepEqual(decide(BASH, { command: 'ls' }, 'accept-edits'), { allow: true });
+  assert.deepEqual(decide(BASH, { command: 'rm x' }, 'accept-edits'), { allow: false, ask: true, reason: ASK_DENIAL });
+  assert.deepEqual(decide(tool('Other', 'exec'), { command: 'ls' }, 'accept-edits'), { allow: false, ask: true, reason: ASK_DENIAL });
+});

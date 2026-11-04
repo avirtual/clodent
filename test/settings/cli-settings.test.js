@@ -77,14 +77,14 @@ test('settings model, effortLevel and extra directories apply when the flags are
 
 test('$CLODENT_HOME/settings.json loads first, --settings paths resolve against cwd, and warnings follow the session line', async (t) => {
   const { home, cwd } = await setup(t);
-  writeFileSync(join(home, 'settings.json'), JSON.stringify({ model: 'claude-haiku-5-5', effortLevel: 'xhigh' }));
+  writeFileSync(join(home, 'settings.json'), JSON.stringify({ model: 'claude-haiku-5-5', effortLevel: 'ultra' }));
   writeFileSync(join(cwd, 'local.json'), JSON.stringify({ model: 'claude-sonnet-5-5' }));
   const res = await runMain(['-p', 'hi', '--settings', 'local.json'], { home, cwd, responses: [textReply('ok')] });
   assert.equal(res.code, 0, res.stderr);
   assert.equal(res.calls[0].body.model, 'claude-sonnet-5-5');
   const lines = res.stderr.split('\n');
   assert.match(lines[0], /^\[clodent:session\] /);
-  assert.equal(lines[1], `clodent: settings ${join(home, 'settings.json')}: effortLevel "xhigh" is not low, medium or high; ignored`);
+  assert.equal(lines[1], `clodent: settings ${join(home, 'settings.json')}: effortLevel "ultra" is not low, medium, high, xhigh or max; ignored`);
 });
 
 test('an invalid settings file exits 2 with the loader error before any request', async (t) => {
