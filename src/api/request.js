@@ -28,6 +28,30 @@ function markEphemeral(block) {
   return { ...block, cache_control: { type: 'ephemeral' } };
 }
 
+function isRealUserTurn(message) {
+  if (message.role !== 'user') return false;
+  if (typeof message.content === 'string') return message.content.trim() !== '';
+  return Array.isArray(message.content) && message.content.some((block) => block.type === 'text');
+}
+
+function lastRealUserTurn(messages, before) {
+  for (let i = before - 1; i >= 0; i--) {
+    if (isRealUserTurn(messages[i])) return i;
+  }
+  return -1;
+}
+
+function settledAnchor(messages) {
+  const boundary = lastRealUserTurn(messages, messages.length);
+  if (boundary <= 0) return -1;
+  if (messages.slice(boundary + 1).some((message) => message.role === 'assistant')) return boundary;
+  return lastRealUserTurn(messages, boundary);
+}
+
+function toBlocks(message) {
+  if (typeof message.content === 'string') message.content = [{ type: 'text', text: message.content }];
+}
+
 function copyMessages(messages) {
   const copies = messages.map((message) => ({
     ...message,
@@ -35,9 +59,15 @@ function copyMessages(messages) {
       ? message.content.map(withoutCacheControl)
       : message.content,
   }));
+  const anchor = settledAnchor(copies);
+  if (anchor >= 0) {
+    const pinned = copies[anchor];
+    toBlocks(pinned);
+    pinned.content[pinned.content.length - 1] = markEphemeral(pinned.content.at(-1));
+  }
   const last = copies.at(-1);
   if (!last) return copies;
-  if (typeof last.content === 'string') last.content = [{ type: 'text', text: last.content }];
+  toBlocks(last);
   if (!Array.isArray(last.content)) return copies;
   for (let i = last.content.length - 1; i >= 0; i--) {
     if (!SKIP_FOR_CACHE.has(last.content[i].type)) {
