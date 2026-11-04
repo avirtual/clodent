@@ -3,8 +3,12 @@ import { join } from 'node:path';
 import { MAX_RELOAD_FILES } from '../agent/compact.js';
 import { CACHE_TTLS, EFFORTS } from '../api/request.js';
 import { stripModelSuffix } from '../args.js';
+import { HOOK_CONTEXT_DEFAULTS, HOOK_CONTEXT_MAX_BYTES, HOOK_CONTEXT_MIN_BYTES } from '../hooks/context-cap.js';
+import { HOOK_EVENTS } from '../hooks/run.js';
 import { parseRules, RuleError, ruleHome } from '../permissions/rules.js';
 import { sandboxGuard } from './sandbox.js';
+
+const ON_FAILURE = Object.freeze(['block', 'warn']);
 
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -51,8 +55,11 @@ function normalizeEntry(entry, where, warn) {
   }
   let onFailure = null;
   if (entry.onFailure !== undefined && entry.onFailure !== null) {
-    if (typeof entry.onFailure === 'string') onFailure = entry.onFailure;
-    else warn(`${where}.onFailure is not a string; ignored`);
+    if (ON_FAILURE.includes(entry.onFailure)) onFailure = entry.onFailure;
+    else {
+      onFailure = 'warn';
+      warn(`${where}.onFailure ${JSON.stringify(entry.onFailure)} is not "block" or "warn"; treated as "warn"`);
+    }
   }
   return { type: 'command', command: entry.command, timeout, onFailure };
 }
@@ -81,6 +88,7 @@ function mergeHooks(acc, hooks, warn) {
     return;
   }
   for (const [event, groups] of Object.entries(hooks)) {
+    if (!HOOK_EVENTS.includes(event)) warn(`hooks.${event} is not a known event; it never fires`);
     if (!Array.isArray(groups)) {
       warn(`hooks.${event} is not an array; ignored`);
       continue;
@@ -137,6 +145,22 @@ function mergeReloadFiles(acc, source, path) {
   acc.compactReloadFiles = value;
 }
 
+function mergeContextCaps(acc, source, path) {
+  const value = source.hookContextMaxBytes;
+  if (value === undefined) return;
+  const fail = (message) => {
+    throw new Error(`settings ${path}: hookContextMaxBytes${message}`);
+  };
+  if (!isObject(value)) fail(` ${JSON.stringify(value)} is not an object {perHook, perEvent}`);
+  for (const [key, bytes] of Object.entries(value)) {
+    if (!Object.hasOwn(HOOK_CONTEXT_DEFAULTS, key)) fail(`.${key} is not perHook or perEvent`);
+    if (!Number.isInteger(bytes) || bytes < HOOK_CONTEXT_MIN_BYTES || bytes > HOOK_CONTEXT_MAX_BYTES) {
+      fail(`.${key} ${JSON.stringify(bytes)} is not an integer from ${HOOK_CONTEXT_MIN_BYTES} to ${HOOK_CONTEXT_MAX_BYTES}`);
+    }
+  }
+  acc.hookContextMaxBytes = { ...(acc.hookContextMaxBytes ?? HOOK_CONTEXT_DEFAULTS), ...value };
+}
+
 function mergeSource(acc, source, warn) {
   if (source.hooks !== undefined) mergeHooks(acc, source.hooks, warn);
   if (source.statusLine !== undefined) {
@@ -169,7 +193,7 @@ export async function loadSettings({ clodentHome, files = [], cwd = process.cwd(
   const sources = [];
   if (clodentHome) sources.push({ path: join(clodentHome, 'settings.json'), optional: true });
   for (const path of files) sources.push({ path, optional: false });
-  const acc = { hooks: new Map(), statusLine: null, env: new Map(), extraDirs: new Set(), effortLevel: null, cacheTtl: null, model: null, compactReloadFiles: null, deny: [], ask: [], envDeny: new Set() };
+  const acc = { hooks: new Map(), statusLine: null, env: new Map(), extraDirs: new Set(), effortLevel: null, cacheTtl: null, model: null, compactReloadFiles: null, hookContextMaxBytes: null, deny: [], ask: [], envDeny: new Set() };
   const warnings = [];
   for (const { path, optional } of sources) {
     const source = await readSource(path, optional, readFile);
@@ -182,6 +206,7 @@ export async function loadSettings({ clodentHome, files = [], cwd = process.cwd(
       throw err;
     }
     mergeReloadFiles(acc, source, path);
+    mergeContextCaps(acc, source, path);
     mergeSource(acc, source, warn);
   }
   const settings = {
@@ -194,6 +219,7 @@ export async function loadSettings({ clodentHome, files = [], cwd = process.cwd(
   if (acc.cacheTtl) settings.cacheTtl = acc.cacheTtl;
   if (acc.model) settings.model = acc.model;
   if (acc.compactReloadFiles !== null) settings.compactReloadFiles = acc.compactReloadFiles;
+  if (acc.hookContextMaxBytes !== null) settings.hookContextMaxBytes = acc.hookContextMaxBytes;
   if (acc.deny.length > 0 || acc.ask.length > 0) settings.permissions = { deny: acc.deny, ask: acc.ask };
   if (acc.envDeny.size > 0) settings.envDeny = [...acc.envDeny];
   return { settings, warnings };

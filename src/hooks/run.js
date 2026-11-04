@@ -1,4 +1,6 @@
+import { toolEnv } from '../tools/env.js';
 import { commandLabel, failureOf, runCommand } from './command.js';
+import { capContext, HOOK_CONTEXT_DEFAULTS } from './context-cap.js';
 
 export const HOOK_EVENTS = Object.freeze([
   'SessionStart',
@@ -17,6 +19,9 @@ const PLAIN_TEXT_EVENTS = new Set(['SessionStart', 'UserPromptSubmit']);
 const DECISIONS = new Set(['allow', 'deny', 'ask']);
 const BLOCKED = 'blocked by hook';
 const TRUNCATED = 'stdout over 1 MiB truncated';
+const REDACTED = '[redacted]';
+const REDACT_MIN_CHARS = 8;
+const PER_EVENT_EXEMPT = new Set(['SessionStart']);
 
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -67,6 +72,8 @@ function readJsonOutput(event, parsed) {
   if (DECISIONS.has(output.permissionDecision)) {
     result.decision = output.permissionDecision;
     result.reason = textOrNull(output.permissionDecisionReason) ?? (result.decision === 'deny' ? BLOCKED : null);
+  } else if (output.permissionDecision !== undefined && output.permissionDecision !== null) {
+    result.unknownDecision = `unknown permissionDecision ${String(JSON.stringify(output.permissionDecision)).slice(0, 60)}`;
   }
   if (parsed.decision === 'block' && result.decision !== 'deny') {
     result.decision = 'deny';
@@ -108,9 +115,36 @@ function interpretOutput(event, entry, res, label) {
     return { decision: 'deny', reason: `hook failed: ${res.truncated ? TRUNCATED : 'invalid JSON'}` };
   }
   if (text === '') return {};
-  if (parsed) return readJsonOutput(event, parsed);
+  if (parsed) return checkDecision(readJsonOutput(event, parsed), entry, label);
   if (PLAIN_TEXT_EVENTS.has(event)) return { context: res.stdout.trimEnd() };
   return { warnings: [`${label}: invalid JSON ignored`] };
+}
+
+function checkDecision(result, entry, label) {
+  if (result.unknownDecision === undefined) return result;
+  const { unknownDecision, ...rest } = result;
+  if (entry.onFailure === 'block') return { decision: 'deny', reason: `hook failed: ${unknownDecision}` };
+  return { ...rest, warnings: [`${label}: ${unknownDecision} ignored`] };
+}
+
+function redactorFor(env, names = []) {
+  const secrets = [...new Set([env.ANTHROPIC_API_KEY, ...names.map((name) => env[name])])]
+    .filter((value) => typeof value === 'string' && value.length >= REDACT_MIN_CHARS)
+    .sort((a, b) => b.length - a.length);
+  return (text) => (typeof text === 'string' ? secrets.reduce((acc, secret) => acc.split(secret).join(REDACTED), text) : text);
+}
+
+function capContexts(event, labelled, caps, truncations) {
+  const texts = labelled.map(({ label, text }) => {
+    const cut = capContext(text, caps.perHook);
+    if (cut.bytes !== null) truncations.push({ message: `${label}: context of ${cut.bytes} bytes truncated to ${caps.perHook}`, event, scope: 'hook', bytes: cut.bytes, limit: caps.perHook });
+    return cut.text;
+  });
+  if (texts.length === 0 || PER_EVENT_EXEMPT.has(event)) return texts;
+  const joined = capContext(texts.join('\n\n'), caps.perEvent);
+  if (joined.bytes === null) return texts;
+  truncations.push({ message: `hook ${event}: context of ${joined.bytes} bytes truncated to ${caps.perEvent}`, event, scope: 'event', bytes: joined.bytes, limit: caps.perEvent });
+  return [joined.text];
 }
 
 function timeoutMsFor(entry) {
@@ -139,22 +173,36 @@ export async function runHooks(event, input, ctx, deps = {}) {
       entries.set(entry.command, seen ? mergeDuplicate(seen, entry) : entry);
     }
   }
-  const env = { ...ctx.env, ...settings.env, CLODENT_PROJECT_DIR: ctx.cwd };
+  const merged = { ...ctx.env, ...settings.env };
+  const env = { ...toolEnv(merged, settings.envDeny), CLODENT_PROJECT_DIR: ctx.cwd };
+  const redact = redactorFor(merged, settings.envDeny);
   const stdin = `${JSON.stringify(input)}\n`;
+  const list = [...entries.values()];
   const results = await Promise.all(
-    [...entries.values()].map(async (entry) => {
+    list.map(async (entry) => {
       const res = await runCommand(entry.command, { cwd: ctx.cwd, env, stdin, timeoutMs: timeoutMsFor(entry), signal: ctx.signal }, deps);
       return interpret(event, entry, res);
     }),
   );
-  const outcome = { additionalContext: [], decision: null, reason: null, updatedInput: null, warnings };
   const firstReason = new Map();
-  for (const result of results) {
-    if (result.context) outcome.additionalContext.push(result.context);
-    if (result.decision && !firstReason.has(result.decision)) firstReason.set(result.decision, result.reason ?? null);
-    if (result.updatedInput) outcome.updatedInput = result.updatedInput;
+  const contexts = [];
+  let updatedInput = null;
+  results.forEach((result, i) => {
+    if (result.context) contexts.push({ label: `hook ${event} "${commandLabel(list[i].command)}"`, text: redact(result.context) });
+    if (result.decision && !firstReason.has(result.decision)) firstReason.set(result.decision, redact(result.reason ?? null));
+    if (result.updatedInput) updatedInput = result.updatedInput;
     if (result.warnings) warnings.push(...result.warnings);
-  }
+  });
+  const truncations = [];
+  const additionalContext = capContexts(event, contexts, { ...HOOK_CONTEXT_DEFAULTS, ...settings.hookContextMaxBytes }, truncations);
+  const outcome = {
+    additionalContext,
+    decision: null,
+    reason: null,
+    updatedInput,
+    warnings: warnings.map(redact),
+    truncations: truncations.map((truncation) => ({ ...truncation, message: redact(truncation.message) })),
+  };
   for (const decision of ['deny', 'ask', 'allow']) {
     if (firstReason.has(decision)) {
       outcome.decision = decision;

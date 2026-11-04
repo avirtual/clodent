@@ -50,6 +50,7 @@ test('no matching hooks gives an empty outcome', async (t) => {
     reason: null,
     updatedInput: null,
     warnings: [],
+    truncations: [],
   });
 });
 
@@ -167,7 +168,7 @@ test('permissionDecision and updatedInput count only on PreToolUse', GUARD, asyn
   const dir = await useTempDir(t);
   const deny = await script(dir, 'deny.sh', hookOutput({ hookEventName: 'PostToolUse', permissionDecision: 'deny', updatedInput: { x: 1 }, additionalContext: 'ctx' }));
   const outcome = await runHooks('PostToolUse', { tool_name: 'Bash' }, ctxFor(dir, settingsWith({ PostToolUse: [group('', deny)] })), deps);
-  assert.deepEqual(outcome, { additionalContext: ['ctx'], decision: null, reason: null, updatedInput: null, warnings: [] });
+  assert.deepEqual(outcome, { additionalContext: ['ctx'], decision: null, reason: null, updatedInput: null, warnings: [], truncations: [] });
 });
 
 test('exit 2 denies on PreToolUse with stderr as the reason, and warns on UserPromptSubmit', GUARD, async (t) => {
@@ -192,6 +193,7 @@ test('exit 1 warns and the outcome carries no decision', GUARD, async (t) => {
     reason: null,
     updatedInput: null,
     warnings: [`hook PreToolUse "${label(fail)}": exit 1`],
+    truncations: [],
   });
 });
 
@@ -279,6 +281,7 @@ test('deny beats ask and allow, the first deny gives the reason, and the last up
     reason: 'first',
     updatedInput: { command: 'ls -l' },
     warnings: [],
+    truncations: [],
   });
   const askOnly = await runHooks('PreToolUse', { tool_name: 'Bash' }, ctxFor(dir, settingsWith({ PreToolUse: [group('', allow, ask)] })), deps);
   assert.deepEqual([askOnly.decision, askOnly.reason, askOnly.updatedInput], ['ask', 'asking', { command: 'ls -a' }]);

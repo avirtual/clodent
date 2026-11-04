@@ -35,6 +35,7 @@ export function createStreamOutput(ctx, deps) {
   let started = { model: null, cwd: null, tools: [], permission: null };
   let turn = null;
   let command = null;
+  let held = [];
 
   const line = (record) => out.write(`${JSON.stringify(record)}\n`);
   const sessionId = () => ctx.sessionId();
@@ -97,6 +98,13 @@ export function createStreamOutput(ctx, deps) {
         compact_metadata: { trigger, pre_tokens: preTokens, post_tokens: postTokens },
       });
     },
+    warning({ hookContext }) {
+      if (!hookContext) return;
+      const { event, scope, bytes, limit } = hookContext;
+      const record = { type: 'system', subtype: 'hook_context_truncated', hook_event: event, scope, bytes, limit, session_id: sessionId(), uuid: uuid() };
+      if (held) held.push(record);
+      else line(record);
+    },
     budget_stop({ result: check }) {
       if (turn) turn.error = formatBudgetStop(check);
     },
@@ -139,6 +147,8 @@ export function createStreamOutput(ctx, deps) {
         clodent_version: ctx.version,
         uuid: uuid(),
       });
+      for (const record of held ?? []) line(record);
+      held = null;
     },
     beginTurn() {
       turn = fresh();
