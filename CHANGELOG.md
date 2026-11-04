@@ -10,6 +10,11 @@ clodent was named clay up to 0.2.0.
 - A `SessionStart` that fires again before the next prompt, such as after two `/compact`s, replaces the held `SessionStart` context instead of adding to it.
 - An unknown `permissionDecision` warns, and denies under `onFailure: "block"`; an `onFailure` other than `"block"` or `"warn"` and a hook event name clodent does not know warn at startup.
 - Security: in `acceptEdits`, a `Write` or `Edit` runs without asking only inside the working directory and the `--add-dir`/`trustedDirectories`/`additionalDirectories` dirs; it asks, or is refused under `-p`, for a path under `.git`, `.clodent` or `.claude` and for a file a hook or statusLine command names (avirtual/clodent #6, #7).
+- Stream JSON: an `interrupt` that arrives after a turn's `result`, while its `Stop` hooks run, follows the idle rule: it interrupts the first waiting prompt or command, and is ignored when none waits. It used to be lost.
+- Stream JSON: a prompt that arrives during a turn while an older prompt waits now waits behind it instead of joining the turn, so waiting prompts start in arrival order.
+- Stream JSON: stdin lines are split in linear time, and a line over 64 MiB is dropped up to its newline with `clodent: stdin: ignoring a line over 67108864 bytes`.
+- Stream JSON: a `control_request` or `control_response` without a string `request_id` is ignored with a `stdin:` warning; a `control_request` no longer gets a reply without one.
+- Stream JSON: an ask abandoned by an interrupt, a signal or stdin closing writes `{"type":"control_cancel_request","request_id":<id>}`, so the host can dismiss its prompt.
 
 ## 0.5.1 — 2026-11-04
 
