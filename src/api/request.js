@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 export const API_URL = 'https://api.anthropic.com/v1/messages';
 export const API_VERSION = '2026-10-21';
 export const DEFAULT_MAX_TOKENS = 32000;
-export const EFFORTS = Object.freeze(['low', 'medium', 'high']);
+export const EFFORTS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
 
 const PACKAGE_VERSION = JSON.parse(
   readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),

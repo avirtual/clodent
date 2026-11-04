@@ -1,6 +1,6 @@
 import { buildHookInput, runHooks } from './run.js';
 
-export const PERMISSION_MODES = Object.freeze({ ask: 'default', yolo: 'bypassPermissions', 'read-only': 'plan' });
+export const PERMISSION_MODES = Object.freeze({ ask: 'default', yolo: 'bypassPermissions', 'read-only': 'plan', 'accept-edits': 'acceptEdits' });
 
 export function emptyOutcome() {
   return { additionalContext: [], decision: null, reason: null, updatedInput: null, warnings: [] };

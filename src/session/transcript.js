@@ -6,8 +6,10 @@ export const FILE_MODE = 0o600;
 
 export function createTranscript({ path, sessionId, cwd, version, parentUuid = null }, deps) {
   const { appendFileSync, mkdirSync, clock, uuid } = deps;
+  const readBranch = deps.gitBranch ?? (() => '');
   mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE });
   let last = parentUuid;
+  let branch = readBranch();
 
   function write(entry) {
     appendFileSync(path, `${JSON.stringify(entry)}\n`, { mode: FILE_MODE });
@@ -29,7 +31,12 @@ export function createTranscript({ path, sessionId, cwd, version, parentUuid = n
         sessionId,
         version,
         entrypoint: 'clodent',
+        userType: 'external',
+        gitBranch: branch,
       });
+    },
+    refreshBranch() {
+      branch = readBranch();
     },
     copy(records) {
       for (const record of records) write({ ...record, sessionId });

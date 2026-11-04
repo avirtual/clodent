@@ -13,6 +13,13 @@ export function clampTimeout(value) {
   return Math.min(Math.ceil(n), MAX_TIMEOUT_MS);
 }
 
+function withoutNames(env, names) {
+  if (names.length === 0) return env;
+  const kept = { ...(env ?? process.env) };
+  for (const name of names) delete kept[name];
+  return kept;
+}
+
 function trailerFor({ timedOut, timeoutMs, code, signal }) {
   if (timedOut) return `[timed out after ${timeoutMs} ms]`;
   if (signal) return `[killed by ${signal}]`;
@@ -50,6 +57,7 @@ async function execute(command, timeoutMs, ctx, deps) {
 
 export function createBash(deps = {}) {
   const options = { spawn: deps.spawn, kill: deps.kill, killGraceMs: deps.killGraceMs };
+  const envDeny = deps.envDeny ?? [];
   return {
     name: 'Bash',
     kind: 'exec',
@@ -69,7 +77,7 @@ export function createBash(deps = {}) {
       const bad = checkInput(input, ['command'], ['description']);
       if (bad) return bad;
       if (ctx.signal?.aborted) return fail('Command not run: aborted');
-      return execute(input.command, clampTimeout(input.timeout), ctx, options);
+      return execute(input.command, clampTimeout(input.timeout), { ...ctx, env: withoutNames(ctx.env, envDeny) }, options);
     },
   };
 }
