@@ -12,3 +12,4 @@
 - Sessions: JSONL transcripts under `$CLAY_HOME`, `--session-id`, `--resume` and `--fork-session`.
 - Settings files and hooks: `--settings`, `$CLAY_HOME/settings.json`, SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/PostToolUseFailure/Stop hooks with context injection, statusLine, and `ANTHROPIC_BASE_URL`.
 - Interactive REPL: bracketed paste, Ctrl-C/Ctrl-D, /help /cost /model /clear /quit, and a y/n permission ask with a Notification hook.
+- `/compact [instructions]` summarises the conversation into one message; the session stays resumable, and PreCompact and SessionStart (source compact) hooks fire.
