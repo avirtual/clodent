@@ -136,7 +136,7 @@ test('README ### Flags marks exactly the NOT_YET flags as parsed; not yet implem
   const status = new Map(
     rows.map((row) => {
       const cells = row.split('|').map((cell) => cell.trim());
-      return [cells[1].match(/`--([a-z-]+)/)[1], cells[2]];
+      return [cells[1].match(/`--([A-Za-z-]+)/)[1], cells[2]];
     }),
   );
   assert.deepEqual([...status.keys()].sort(), FLAGS.map((flag) => flag.long).sort());

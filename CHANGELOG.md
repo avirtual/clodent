@@ -5,6 +5,14 @@ clodent was named clay up to 0.2.0.
 ## Unreleased
 
 - Renamed clay to clodent: the clodent command, CLODENT_HOME (default ~/.clodent), CLODENT_PROJECT_DIR, [clodent:*] output lines, clodent: message prefix, user agent clodent/<version>, transcript entrypoint clodent; no aliases for the old names.
+- Claude flag spellings: `--dangerously-skip-permissions` (as `--yolo`) and `--permission-mode default|plan|acceptEdits|bypassPermissions`; permission flags that name different modes are an argument error.
+- `--plugin-dir`, `--agents`, `--mcp-config`, `--strict-mcp-config`, `--allowedTools`/`--allowed-tools` and `--dangerously-bypass-hook-trust` are accepted and ignored, each with one `clodent: ignoring --<name>: not supported` line on stderr.
+- `--disallowedTools`/`--disallowed-tools <list>` adds deny rules in the settings rule syntax, after the settings ones; a malformed entry exits 2.
+- `--permission-mode acceptEdits`: write tools and read-only Bash commands run without asking; any other Bash command asks (refused in `-p`); hooks see `permission_mode: "acceptEdits"`.
+- `--effort` and settings `effortLevel` accept `xhigh` and `max`, sent as `output_config.effort` unchanged.
+- One trailing bracketed model suffix such as `[1m]` is dropped from `--model`, settings `model` and `/model <id>` before the id reaches the wire, the price table, the prompt, hooks or the statusLine.
+- Settings `sandbox.enabled: true` is no longer a startup error: `filesystem.denyRead`/`denyWrite` and deny `credentials.files` become deny rules, deny `credentials.envVars` are removed from the Bash tool's environment, other sandbox keys are ignored with one warning, and a malformed block exits 2.
+- Hook and transcript shapes: a permission `Notification` sends `notification_type: "permission_prompt"` with `title` and `message: "clodent needs your permission to use <Tool>"`; `SessionStart` stdin carries `model`; every transcript record carries `userType: "external"` and `gitBranch`.
 
 ## 0.2.0 — 2026-11-04
 
