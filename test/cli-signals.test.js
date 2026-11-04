@@ -116,3 +116,35 @@ test('SIGTERM and SIGHUP abort the turn, then Stop fires and the statusLine flus
   assert.ok(existsSync(status));
   assert.equal(readFileSync(status, 'utf8').trimEnd().split('\n').length, 2);
 });
+
+test('a TERM-ignoring background child of an interrupted -p Bash call is SIGKILLed before main resolves', GUARD, async (t) => {
+  const home = await useTempDir(t);
+  const cwd = await useTempDir(t);
+  const pidFile = join(cwd, 'pid');
+  const command = "(trap '' TERM; exec sleep 30) >/dev/null 2>&1 & echo $! > pid.tmp; mv pid.tmp pid; wait";
+  const until = async (ready, ms) => {
+    const deadline = Date.now() + ms;
+    while (!ready() && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
+    return ready();
+  };
+  let signals = null;
+  const run = runMain(['-p', 'go', '--yolo'], {
+    home,
+    cwd,
+    responses: [toolsReply([['Bash', { command }]]), textReply('never')],
+    onFetch: (state) => {
+      signals = state.signals;
+    },
+  });
+  assert.ok(await until(() => existsSync(pidFile), 5000), 'the child never started');
+  const pid = Number(readFileSync(pidFile, 'utf8'));
+  t.after(() => {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {}
+  });
+  signals.SIGINT();
+  const res = await run;
+  assert.equal(res.code, 130, res.stderr);
+  assert.ok(await until(() => isGone(pid), 1000), `child ${pid} outlived clay`);
+});

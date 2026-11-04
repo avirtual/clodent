@@ -2,6 +2,14 @@ import { spawn as nodeSpawn } from 'node:child_process';
 
 export const KILL_GRACE_MS = 2000;
 const MAX_TIMER_MS = 2147483647;
+const pendingKills = new Map();
+
+export function killPendingGroups() {
+  for (const [timer, killNow] of pendingKills) {
+    clearTimeout(timer);
+    killNow();
+  }
+}
 
 export function runProcess(command, { cwd, env, stdin, timeoutMs, signal, onStdout, onStderr }, deps = {}) {
   const spawn = deps.spawn ?? nodeSpawn;
@@ -44,12 +52,15 @@ export function runProcess(command, { cwd, env, stdin, timeoutMs, signal, onStdo
     const terminate = () => {
       if (killTimer) return;
       killGroup('SIGTERM');
-      killTimer = setTimeout(() => {
+      const killNow = () => {
+        pendingKills.delete(killTimer);
         killGroup('SIGKILL');
         graceOver = true;
         if (exited) setImmediate(releasePipes);
-      }, killGraceMs);
+      };
+      killTimer = setTimeout(killNow, killGraceMs);
       killTimer.unref();
+      pendingKills.set(killTimer, killNow);
     };
     const timer = setTimeout(() => {
       if (aborted) return;
