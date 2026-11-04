@@ -1,8 +1,8 @@
 # clodent
 
-clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.2.0 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), six built-in tools, cost accounting, JSONL session transcripts, settings files and hooks. clodent was named clay up to 0.2.0.
+clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.3.0 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), six built-in tools, cost accounting, JSONL session transcripts, settings files and hooks. clodent was named clay up to 0.2.0.
 
-Non-goals for v0.2: MCP, plugins, skills, subagents, web tools, image input, Windows, telemetry, the stream-json io (v0.3).
+Non-goals for v0.3: MCP, plugins, skills, subagents, web tools, image input, Windows, telemetry, the stream-json io (v0.4).
 
 ## Install
 
@@ -10,7 +10,7 @@ Requires Node.js 22 or later. clodent has no dependencies. From a checkout:
 
 ```sh
 npm link
-clodent --version   # clodent 0.2.0
+clodent --version   # clodent 0.3.0
 ```
 
 ## Usage
@@ -48,7 +48,7 @@ An opt-in check against the real Messages API; the suite only runs it without a 
 
 ## Contract
 
-This section is the contract a host integrates against. It describes clodent 0.2.0.
+This section is the contract a host integrates against. It describes clodent 0.3.0.
 
 ### Hosting clodent
 
@@ -67,7 +67,7 @@ A summary for a host adapter; each point links to the section that pins it down.
 - statusLine: the settings `statusLine` command gets `context_window.used_tokens`, `context_window.context_window_size`, `context_window.used_percentage`, `model.id` and `cost.total_cost_usd` on stdin after each API response, after `/clear` (zero usage) and after `/compact` (`used_tokens` is the summary's size). See [Hooks](#hooks).
 - Signals: SIGINT acts as Ctrl-C: it interrupts a turn, and two in a row at an empty prompt exit 0. SIGTERM exits 143 and SIGHUP 129, after interrupting a running turn, whose `Stop` hook still fires. Ctrl-D, `/quit` and stdin closing exit 0. See [REPL](#repl).
 - Settings guard: `permissions.deny`/`ask` are enforced (see [Permission rules](#permission-rules)). A `sandbox` block with `enabled: true` is never fatal: its `filesystem.denyRead`, `filesystem.denyWrite` and deny `credentials.files` entries are enforced as deny rules, its deny `credentials.envVars` are removed from the Bash tool's environment, and its other keys are ignored with one warning; clodent does not sandbox Bash. A malformed sandbox shape is a startup error (exit 2).
-- Absent in 0.2.0: the stream-json io (`--input-format`/`--output-format stream-json`, planned for v0.3), MCP and subagents, so hooks never get `agent_id`.
+- Absent in 0.3.0: the stream-json io (`--input-format`/`--output-format stream-json`, planned for v0.4), MCP and subagents, so hooks never get `agent_id`.
 
 ### Flags
 
@@ -160,7 +160,7 @@ Permissions in `-p` go by the tool's kind (see [Tools](#tools)), and for `Bash` 
 | `--yolo`, `--dangerously-skip-permissions`, `--permission-mode bypassPermissions` | runs | runs | runs |
 | `--read-only`, `--permission-mode plan` | runs | refused: `--read-only: <Tool> is not allowed` | a read-only command runs; any other is refused: `--read-only: Bash command is not read-only (<reason>)` |
 
-A `PreToolUse` hook can refuse any call or let a call run in the default mode; see [Hooks](#hooks) for the order. A call a settings deny rule matches is refused in every mode, and one an ask rule matches is refused unless the mode is `--yolo`'s; see [Permission rules](#permission-rules).
+A `PreToolUse` hook can refuse any call or let a call run in the default or `acceptEdits` mode; see [Hooks](#hooks) for the order. A call a settings deny rule matches is refused in every mode, and one an ask rule matches is refused unless the mode is `--yolo`'s; see [Permission rules](#permission-rules).
 
 ### REPL
 
@@ -539,7 +539,7 @@ A rule's leading part, up to its first segment with a `*`, is resolved with `rea
 - A command that mentions a `Read` rule matches it. One that mentions an `Edit` or `Write` rule matches it unless it is read-only by the rules of [Read-only Bash](#read-only-bash): `cat ~/.clodex/messages/x` passes an `Edit` rule for that directory, `rm ~/.clodex/messages/x` does not.
 - It cannot see a path built at run time, through a variable other than `HOME`, a glob, a relative spelling (`cd ~; cat .ssh/id_rsa`), split quoting, a script or an alias, nor a command hidden by quoting from the split.
 
-Deny rules come first: a call a deny rule matches is refused in every mode, `--yolo` included, whatever a `PreToolUse` hook decided apart from its own `deny`, and without an ask, so an interactive `y` never runs it. The model gets `denied by settings rule <rule as written>` as an error tool result, and the turn goes on. A call an ask rule matches asks in the REPL's default mode as a write tool does (see [REPL](#repl)), even a read tool's call or one a hook allowed; `-p` and `--read-only` refuse it with `permission required: run clodent without -p to approve it, or pass --yolo`, and `--yolo` runs it. See [Hooks](#hooks) for the full order.
+Deny rules come first: a call a deny rule matches is refused in every mode, `--yolo` included, whatever a `PreToolUse` hook decided apart from its own `deny`, and without an ask, so an interactive `y` never runs it. The model gets `denied by settings rule <rule as written>` as an error tool result, and the turn goes on. A call an ask rule matches asks in the REPL's default and `acceptEdits` modes, as a write tool does in the default mode (see [REPL](#repl)), even a read tool's call or one a hook allowed; `-p` and `--read-only` refuse it with `permission required: run clodent without -p to approve it, or pass --yolo`, and `--yolo` runs it. See [Hooks](#hooks) for the full order.
 
 A bare-name deny of a clodent tool also removes the tool from the request's `tools`, so a call of it is an unknown tool (`unknown tool <name>`), and clodent's own system prompt does not name it.
 
@@ -562,7 +562,7 @@ Sandbox block: clodent does not sandbox Bash. A settings source with `sandbox.en
 
 - Each `filesystem.denyRead` path becomes a `Read(<path>)` rule and each `filesystem.denyWrite` path an `Edit(<path>)` rule. Each `credentials.files` entry `{path, mode: "deny"}` becomes both.
 - A path `/abs` becomes `//abs`, `~` and `~/x` stay home-relative, and any other path is relative to the working directory; `*` and `**` work as above.
-- Each `credentials.envVars` entry `{name, mode: "deny"}` removes that variable from the environment of the Bash tool's commands only. Hooks and the statusLine keep it, and so does clodent's own process.
+- Each `credentials.envVars` entry `{name, mode: "deny"}` removes that variable from the environment of the Bash tool's commands only. Hooks and the statusLine keep it, and so does clodent's own process. A Bash command can still read clodent's startup environment, for example with `ps eww $PPID` on macOS or `/proc/$PPID/environ` on Linux, so a credential that must stay hidden must not be in clodent's environment at all.
 - A `credentials` entry whose `mode` is not `"deny"` is ignored with the warning `settings <path>: sandbox: ignored entry <entry as JSON>`.
 - Every other key (`allowWrite`, `network`, `allowUnsandboxedCommands`, `excludedCommands`, …) is ignored. Every source with `enabled: true` prints one warning, `settings <path>: sandbox: clodent does not sandbox Bash; filesystem and credentials entries are enforced as permission rules, other keys ignored`.
 - These rules are path rules: they never remove a tool from the request's `tools` or the system prompt.
@@ -602,7 +602,7 @@ The permission decision for a tool call goes in this order:
 3. A settings ask rule asks in the REPL's default and `acceptEdits` modes; `-p` and `--read-only` refuse the call instead, and `--yolo` runs it. A hook `allow` does not skip the ask.
 4. `--read-only` refuses write tools and any Bash command that is not read-only; a hook `allow` does not override it.
 5. A hook `allow` runs the call without the default or `acceptEdits` mode's ask or refusal.
-6. A hook `ask`, or no decision, leaves it to the mode (see [Print mode](#print-mode)); in the REPL the default mode asks (see [REPL](#repl)).
+6. A hook `ask`, or no decision, leaves it to the mode (see [Print mode](#print-mode)); in the REPL the default and `acceptEdits` modes ask (see [REPL](#repl)).
 
 A hook `updatedInput` replaces the input before the decision and the run, and the `tool_use` event and the `● <Tool> <summary>` line show it. The history sent to the API keeps the model's own `tool_use` block; the transcript's `toolUseResult.input` records the input that ran.
 

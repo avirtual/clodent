@@ -4,8 +4,10 @@ clodent was named clay up to 0.2.0.
 
 ## Unreleased
 
+## 0.3.0 — 2026-11-04
+
 - Renamed clay to clodent: the clodent command, CLODENT_HOME (default ~/.clodent), CLODENT_PROJECT_DIR, [clodent:*] output lines, clodent: message prefix, user agent clodent/<version>, transcript entrypoint clodent; no aliases for the old names.
-- Permission rules are harder to evade: Grep and Glob hide files an ask rule matches unless `--yolo`, and symlink entries whose target a rule matches; a rule also matches the realpath of its leading part (macOS `/private/etc`, a symlinked `$HOME`); on macOS `/System/Volumes/Data/…` paths are checked without that prefix; Bash mentions match in any letter case; a rule name that differs from a clodent tool only in case or spaces (`read(x)`, `Read (x)`, `BASH`) is a startup error; and clodent's system prompt no longer names a tool a bare deny removed.
+- Permission rules are harder to evade: Grep and Glob hide files an ask rule matches unless `--yolo`, or the REPL user allowed the call and the rule matches the call's `path`, and symlink entries whose target a rule matches; a rule also matches the realpath of its leading part (macOS `/private/etc`, a symlinked `$HOME`); on macOS `/System/Volumes/Data/…` paths are checked without that prefix; Bash mentions match in any letter case; a rule name that differs from a clodent tool only in case or spaces (`read(x)`, `Read (x)`, `BASH`) is a startup error; and clodent's system prompt no longer names a tool a bare deny removed.
 - Claude flag spellings: `--dangerously-skip-permissions` (as `--yolo`) and `--permission-mode default|plan|acceptEdits|bypassPermissions`; permission flags that name different modes are an argument error.
 - `--plugin-dir`, `--agents`, `--mcp-config`, `--strict-mcp-config`, `--allowedTools`/`--allowed-tools` and `--dangerously-bypass-hook-trust` are accepted and ignored, each with one `clodent: ignoring --<name>: not supported` line on stderr.
 - `--disallowedTools`/`--disallowed-tools <list>` adds deny rules in the settings rule syntax, after the settings ones; a malformed entry exits 2.

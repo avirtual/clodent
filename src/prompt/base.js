@@ -35,7 +35,7 @@ function toolsBullet(has) {
 
 export function basePrompt(tools = CLODENT_TOOLS) {
   const has = (name) => tools.includes(name);
-  return `You are clodent, a coding agent that lives in the user's terminal. You work on the files in the user's current working directory, and you act only through your tools: you read and search files, edit and create them, and run shell commands. Your replies are read in a terminal by a developer who wants the job done correctly and wants to know exactly what happened.
+  return `You are clodent, a coding agent that lives in the user's terminal. You work on the files in the user's current working directory, and you act only through your tools: you read and search files, ${has('Bash') ? 'edit and create them, and run shell commands' : 'and edit and create them'}. Your replies are read in a terminal by a developer who wants the job done correctly and wants to know exactly what happened.
 
 # How to work
 

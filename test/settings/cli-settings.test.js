@@ -7,8 +7,10 @@ import { hookGroup, runMain, strip, textReply, toolsReply, writeSettings } from 
 import { script } from '../hooks/scripts.js';
 import { useTempDir } from '../tools/tmp-dir.js';
 
+const VERSION = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
+
 const GUARD = { timeout: 10000 };
-const HEADERS = { 'x-api-key': 'sk-test', 'anthropic-version': API_VERSION, 'content-type': 'application/json', 'user-agent': 'clodent/0.2.0' };
+const HEADERS = { 'x-api-key': 'sk-test', 'anthropic-version': API_VERSION, 'content-type': 'application/json', 'user-agent': `clodent/${VERSION}` };
 
 async function setup(t) {
   return { home: await useTempDir(t), cwd: await useTempDir(t), dir: await useTempDir(t) };

@@ -10,6 +10,8 @@ import { sse } from '../helpers/sse-builder.js';
 import { assertValidHistory } from '../helpers/valid-history.js';
 import { useTempDir } from '../tools/tmp-dir.js';
 
+const VERSION = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
+
 const ID = '123e4567-e89b-42d3-a456-426614174000';
 const OTHER = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 const SESSION_LINE = /^\[clodent:session\] ([0-9a-f-]{36})$/;
@@ -98,7 +100,7 @@ test('-p with a tool round writes prompt, assistant, tool results, assistant and
     assert.equal(r.sessionId, res.id);
     assert.equal(r.cwd, cwd);
     assert.equal(r.isSidechain, false);
-    assert.equal(r.version, '0.2.0');
+    assert.equal(r.version, VERSION);
     assert.equal(r.entrypoint, 'clodent');
     assert.equal(r.timestamp, '2026-11-04T00:00:00.000Z');
   });
