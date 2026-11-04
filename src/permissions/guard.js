@@ -682,11 +682,12 @@ async function reachOf(command, cwd, scope) {
     let at = 0;
     while (at < words.length && (LEADING_WORDS.has(words[at]) || ASSIGNMENT.test(words[at]))) at += 1;
     const [head, ...args] = words.slice(at);
+    if (open.length === 0) loop = null;
     for (const word of words.slice(0, at)) {
       if (word === 'do' && open.at(-1) === 'while') open[open.length - 1] = 'do';
       else if (LOOP_WORDS.has(word)) open.push(word === 'do' ? 'do' : 'while');
     }
-    loop = open.length === 0 ? null : (loop ?? { end: Infinity });
+    if (open.length > 0) loop ??= { end: Infinity };
     everyWord ||= head === 'trap' || loop !== null;
     if (head === 'done' && open.pop() && open.length === 0) loop.end = index;
     if (words.some((word) => CDPATH_SET.test(word))) cdpathAt ??= index;

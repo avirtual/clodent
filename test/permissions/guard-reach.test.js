@@ -297,7 +297,13 @@ test('only a cd inside a loop resolves out of order, against the directories add
     assert.equal(await ruling(plain, command, '/work', 'yolo'), null, command);
   }
   assert.equal(await ruling(plain, 'cd backend && npm test; cd ../frontend && npm test; for f in dist/*; do echo $f; done', '/work', 'yolo'), 'ask Read(~/.ssh)');
-  assert.equal(await ruling(guardOf({ deny: ['Read(~/.ssh/id_rsa)'] }), 'for i in 1 2; do cat id_rsa; cd .ssh; done; cd ~', '/work', 'yolo'), null);
+  const key = guardOf({ deny: ['Read(~/.ssh/id_rsa)'] });
+  for (const command of ['for i in 1 2; do cat id_rsa; cd .ssh; done; cd ~', 'for i in 1 2; do cat id_rsa; cd .ssh; done; while true; do cd ~; break; done']) {
+    assert.equal(await ruling(key, command, '/work', 'yolo'), null, command);
+  }
+  for (const command of ['while cd .ssh; do cat id_rsa; cd ~; done', 'for a in 1; do for b in 1; do cd .ssh; done; cat id_rsa; cd ~; done']) {
+    assert.equal(await ruling(key, command, '/work', 'yolo'), 'deny Read(~/.ssh/id_rsa)', command);
+  }
 });
 
 test('a glob part not starting with . matches no dot-name, on disk or past the visit cap, unless the command sets dotglob or GLOBIGNORE', async () => {
