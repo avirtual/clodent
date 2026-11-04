@@ -385,8 +385,8 @@ Internal; serialized by a later stream-json mode. The agent loop reports everyth
 | `assistant_message` | `message` (the assembled API message), `requestId`, `durationMs`, `usd`, `priced` | when a response completes |
 | `message_append` | `role`, `content` (the blocks just added to the history), `kind` (`prompt`, `tool_results`, `assistant` or `partial`), `meta` (`message`, `requestId`, `durationMs`, `usd` for `assistant`; `{}` otherwise) | each time blocks join the history; for a response, just before `assistant_message`, even when its content is empty |
 | `tool_use` | `id`, `name`, `input`, `summary` | before each tool call, and before the result made up for a call that never ran |
-| `permission_request` | `id`, `name`, `input`, `summary` | after `tool_use`, when the mode would refuse the call and the agent has an asker (the REPL); before the `Notification` hook and the ask |
-| `permission` | `id`, `name`, `decision` (`allow` or `deny`), `reason` (on deny) | after `tool_use`, for a known tool |
+| `permission_request` | `id`, `name`, `input`, `summary` | after `tool_use`, when the default mode would refuse the call and the agent has an asker (the REPL); before the `Notification` hook and the ask |
+| `permission` | `id`, `name`, `decision` (`allow` or `deny`), `reason` (on deny) | after `tool_use`, for a known tool, unless the turn was interrupted before the decision |
 | `tool_result` | `id`, `name`, `content`, `isError`, `durationMs` | after each tool call, including refused, unknown and interrupted calls |
 | `turn_end` | `stopReason`, `turn` (the turn's cost aggregate) | last, once per turn |
 | `budget_stop` | `result` (the budget check that failed) | instead of a request the budget does not cover |
@@ -413,7 +413,7 @@ Session id:
 - `[clay:session] <session-id>` is printed at start, once the arguments, the API key and the session check out. In print mode it is the first line on stderr; in the REPL, the first line on stdout, and `/clear` prints a new one.
 - Without `--session-id`, clay mints a random UUID.
 - `--session-id <uuid>` uses that id, lowercased. When a transcript with that id exists under any project dir, as `--resume` would find it, clay prints `clay: session <id> already exists; use --resume` and exits 2.
-- `--resume <id>` looks for `$CLAY_HOME/projects/<slug of cwd>/<id>.jsonl`, then for `$CLAY_HOME/projects/*/<id>.jsonl` in sorted dir order. With no such file, or an id that is not made of letters, digits, `_` and `-`, clay prints `clay: no session <id>` and exits 2. Otherwise it loads the history and appends to that same file under the same id; the first new record's `parentUuid` is the `uuid` of the file's last record.
+- `--resume <id>` lowercases a UUID-shaped id and keeps any other id as given. It looks for `$CLAY_HOME/projects/<slug of cwd>/<id>.jsonl`, then for `$CLAY_HOME/projects/*/<id>.jsonl` in sorted dir order. With no such file, or an id that is not made of letters, digits, `_` and `-`, clay prints `clay: no session <id>` and exits 2. Otherwise it loads the history and appends to that same file under the same id; the first new record's `parentUuid` is the `uuid` of the file's last record.
 - `--fork-session` (with `--resume`) records into a new file under a new id: the `--session-id` if given, else a minted one; an existing `--session-id` transcript exits 2 as above. It first copies every record of the source with `sessionId` set to the new id and every other field, `uuid` and `parentUuid` included, unchanged; then it continues. The source file is never written.
 - `-p` with `--resume` loads the session, then runs the one prompt.
 
@@ -451,7 +451,7 @@ Record kinds, in the order a turn writes them:
 | interrupt | `type: "user"`, `message: {role: "user", content: [{type: "text", text: "[Request interrupted by user]"}]}`, `isVisibleInTranscriptOnly: true`; no `isMeta` |
 | compact boundary | `type: "system"`, `subtype: "compact_boundary"`, `content: "Conversation compacted"`, `level: "info"`, `parentUuid: null`, `logicalParentUuid` (the previous record's `uuid`), `compactMetadata: {trigger, preTokens, postTokens}`; written by `/compact` (see [REPL](#repl)), outside any turn |
 | compact summary | `type: "user"`, `message: {role: "user", content: [{type: "text", text: "This session continues an earlier conversation that was compacted. Summary of it:\n\n<summary>"}]}`, `isVisibleInTranscriptOnly: true`, `isCompactSummary: true`; right after the boundary. The summary request's own response is not recorded |
-| turn end | `type: "system"`, `subtype: "turn_duration"`, `durationMs` (the turn's duration in whole milliseconds), `messageCount` (the turn's user and assistant records, the interrupt record included); after the turn's last record |
+| turn end | `type: "system"`, `subtype: "turn_duration"`, `durationMs` (the turn's duration in whole milliseconds), `messageCount` (the user and assistant records written since the previous `turn_duration` record, the interrupt record included and the compact records not); after the turn's last record |
 
 A turn the model ended has `stop_reason: "end_turn"` on its last assistant record.
 
@@ -576,7 +576,7 @@ Warnings are one line each:
 hook <Event> "<first 60 characters of the command>": <exit <n>|timeout|aborted|killed by <signal>|<error message>|invalid JSON ignored|stdout over 1 MiB truncated>
 ```
 
-statusLine: after each API response clay runs the `statusLine` command the same way, with a 5 s timeout, and this JSON on stdin:
+statusLine: after each API response other than a compact's summary request, and in the REPL after `/clear` and a successful `/compact` (see [REPL](#repl)), clay runs the `statusLine` command the same way, with a 5 s timeout, and this JSON on stdin:
 
 ```json
 {
