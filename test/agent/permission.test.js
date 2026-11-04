@@ -30,6 +30,12 @@ test('ask runs a read-only Bash command without asking', () => {
   }
 });
 
+test('the Bash command is classified against the working directory, so a recursive search with no path from / is not read-only', () => {
+  assert.deepEqual(decide(BASH, { command: 'grep -r KEY' }, 'read-only', '/'), { allow: false, reason: '--read-only: Bash command is not read-only (grep may search /proc)' });
+  assert.deepEqual(decide(BASH, { command: 'grep -r KEY' }, 'ask', '/'), { allow: false, ask: true, reason: ASK_DENIAL });
+  assert.deepEqual(decide(BASH, { command: 'grep -r KEY' }, 'read-only', '/work'), { allow: true });
+});
+
 test('ask allows read tools and marks write and exec as an ask, with the rerun hint as the refusal', () => {
   assert.deepEqual(decide(READ, {}, 'ask'), { allow: true });
   assert.deepEqual(decide(WRITE, {}, 'ask'), { allow: false, ask: true, reason: ASK_DENIAL });

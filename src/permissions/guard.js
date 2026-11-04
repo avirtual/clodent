@@ -51,9 +51,12 @@ export function simpleCommands(text) {
     const c = text[i];
     if (quote) {
       current += c;
-      if (c === '\\' && quote === '"' && i + 1 < text.length) current += text[++i];
-      else if (c === quote) quote = null;
+      if (c === '\\' && quote !== "'" && i + 1 < text.length) current += text[++i];
+      else if (c === quote.at(-1)) quote = null;
     } else if (c === '\\' && i + 1 < text.length) {
+      current += c + text[++i];
+    } else if (c === '$' && text[i + 1] === "'") {
+      quote = "$'";
       current += c + text[++i];
     } else if (c === "'" || c === '"') {
       quote = c;
@@ -143,13 +146,15 @@ export function shellWords(text) {
 
 const HOME_PREFIX = /^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/;
 const USER_PREFIX = /^~([^/]+)/;
+const CWD_TILDES = new Set(['+', '0', '+0']);
 const DATA_PREFIX = /^\/System\/Volumes\/Data(?=\/)/i;
 
 function expandHome(word, home) {
+  const user = USER_PREFIX.exec(word);
+  if (user && CWD_TILDES.has(user[1])) return `.${word.slice(user[0].length)}`;
   if (!home) return word;
   const prefix = HOME_PREFIX.exec(word);
   if (prefix) return home + word.slice(prefix[0].length);
-  const user = USER_PREFIX.exec(word);
   return user ? join(dirname(home), user[1]) + word.slice(user[0].length) : word;
 }
 
@@ -241,7 +246,7 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
     if (tool === 'Bash') {
       const command = input?.command;
       let classified;
-      const readOnly = () => (classified ??= classifyBash(command)).readOnly;
+      const readOnly = () => (classified ??= classifyBash(command, cwd)).readOnly;
       match = (rules) => bare(rules) ?? (typeof command === 'string' ? bashMatch(rules, command, cwd, readOnly, ruleForms) : undefined);
     } else if (Object.hasOwn(PATH_FIELDS, tool)) {
       match = (rules) => bare(rules) ?? pathMatch(rules, tool, paths, ruleForms);

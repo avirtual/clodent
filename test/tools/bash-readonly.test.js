@@ -223,6 +223,12 @@ test('the first offending segment wins over a later construct', () => {
   assert.deepEqual(classifyBash('rm x; echo $(y)'), { readOnly: false, reason: 'rm is not a read-only command' });
 });
 
+test('in a session whose working directory is /, a relative word and a recursive search with no path may reach /proc', () => {
+  assert.deepEqual(classifyBash('grep -r KEY', '/'), { readOnly: false, reason: 'grep may search /proc' });
+  assert.deepEqual(classifyBash('cat proc/1/environ', '/'), { readOnly: false, reason: 'proc/1/environ may reach /proc' });
+  for (const command of ['grep -r KEY', 'cat proc/1/environ']) assert.deepEqual(classifyBash(command, '/work'), { readOnly: true }, command);
+});
+
 test('a command that is not a string is not read-only', () => {
   assert.deepEqual(classifyBash(undefined), { readOnly: false, reason: 'command is not a string' });
   assert.deepEqual(classifyBash(['ls']), { readOnly: false, reason: 'command is not a string' });

@@ -502,12 +502,12 @@ function checkSegment(items, state) {
   if (reason) refuse(reason);
 }
 
-export function classifyBash(command) {
+export function classifyBash(command, cwd) {
   if (typeof command !== 'string') return { readOnly: false, reason: 'command is not a string' };
   let segment = [];
   let pending = null;
   let commands = 0;
-  const state = { anywhere: false };
+  const state = { anywhere: cwd === '/' };
   try {
     for (const token of lex(command)) {
       if (token.type === 'error') refuse(token.reason);

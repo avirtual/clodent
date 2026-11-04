@@ -63,6 +63,13 @@ test('Bash: an Edit rule path passes a read-only command and denies any other', 
   assert.equal(await bash(guard, 'touch /work/out'), 'deny Write(./out)');
 });
 
+test('Bash: an Edit rule path passes a command only when it is read-only from the working directory, so not a recursive search from /', async () => {
+  const guard = guardOf({ deny: ['Edit(//notes)', 'Edit(//work/notes)'] });
+  const ruled = await guard.check('Bash', { command: 'grep -r KEY notes' }, '/');
+  assert.equal(ruled && `${ruled.decision} ${ruled.rule.text}`, 'deny Edit(//notes)');
+  assert.equal(await bash(guard, 'grep -r KEY notes'), null);
+});
+
 test('Bash(prefix:*) denies the prefix as a whole word, also inside a compound command', async () => {
   const guard = guardOf({ deny: ['Bash(git push:*)'] });
   for (const command of ['git push', 'git push origin', '  git push origin  ', 'ls && git push', 'ls; git push -f', 'ls | git push', 'ls || git push', 'ls & git push', 'ls\ngit push', 'echo $(git push)']) {
@@ -308,6 +315,21 @@ test(`Bash: $'…' and $"…" quoting is decoded and ~<user> is a sibling of the
   for (const command of ["cat ~/$'.sshx'/id_rsa", `echo "$'.ssh'"`, 'cat ~x/.ssh/id_rsa', 'cat ~uu/.ssh/id_rsa']) {
     assert.equal(await bash(guard, command), null, command);
   }
+});
+
+test('Bash: ~+, ~0 and ~+0 are the working directory, so ~+/.. from a directory under the home directory names the home directory', async () => {
+  const guard = guardOf({ deny: ['Read(~/.ssh)'] });
+  for (const tilde of ['~+', '~0', '~+0']) {
+    const ruled = await guard.check('Bash', { command: `cat ${tilde}/../.ssh/id_rsa` }, `${HOME}/proj`);
+    assert.equal(ruled && `${ruled.decision} ${ruled.rule.text}`, 'deny Read(~/.ssh)', tilde);
+  }
+  assert.equal(await bash(guard, 'cat ~+/../.ssh/id_rsa'), null);
+});
+
+test(`simpleCommands reads $'…' as bash does, a backslash escaping the next character, so an escaped quote hides no command from a Bash rule`, async () => {
+  assert.deepEqual(simpleCommands("echo $'\\''; rm x"), ["echo $'\\''", 'rm x']);
+  assert.deepEqual(simpleCommands("echo $'a;b'"), ["echo $'a;b'"]);
+  assert.equal(await bash(guardOf({ deny: ['Bash(rm:*)'] }), "echo $'\\''; rm x"), 'deny Bash(rm:*)');
 });
 
 test('shellWords dequotes words and splits at blanks, operators, redirections and substitutions', () => {
