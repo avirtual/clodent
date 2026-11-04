@@ -231,3 +231,15 @@ test('statusLine gets the request usage, window, cost and ids after each request
   assert.ok(Math.abs(lines[0].cost.total_cost_usd - costs[0]) < 1e-9);
   assert.ok(Math.abs(lines[1].cost.total_cost_usd - (costs[0] + costs[1])) < 1e-9);
 });
+
+test('PreToolUse and Stop context never reaches the model, in this turn or the next', GUARD, async (t) => {
+  const { home, cwd, dir } = await setup(t);
+  const pre = await contextHook(dir, 'pre.sh', 'PreToolUse', 'pre context');
+  const stop = await contextHook(dir, 'stop.sh', 'Stop', 'stop context');
+  const settings = writeSettings(dir, { hooks: { PreToolUse: [hookGroup('', pre)], Stop: [hookGroup('', stop)] } });
+  const first = await runMain(['-p', 'read it', '--settings', settings], { home, cwd, responses: [toolsReply([['Read', { file_path: 'notes.md' }]]), textReply('done')] });
+  assert.equal(first.code, 0, first.stderr);
+  const next = await runMain(['-p', 'next', '--resume', first.id, '--settings', settings], { home, cwd, responses: [textReply('ok')] });
+  assert.equal(next.code, 0, next.stderr);
+  assert.equal(JSON.stringify([first.calls[1].body.messages, next.calls[0].body.messages]).includes('hook-context'), false);
+});
