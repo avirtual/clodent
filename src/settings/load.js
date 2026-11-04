@@ -9,6 +9,7 @@ import { parseRules, RuleError, ruleHome } from '../permissions/rules.js';
 import { sandboxGuard } from './sandbox.js';
 
 const ON_FAILURE = Object.freeze(['block', 'warn']);
+const CLAUDE_ONLY_EVENTS = Object.freeze(['SubagentStart', 'SubagentStop', 'SessionEnd', 'PermissionRequest']);
 
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -88,7 +89,7 @@ function mergeHooks(acc, hooks, warn) {
     return;
   }
   for (const [event, groups] of Object.entries(hooks)) {
-    if (!HOOK_EVENTS.includes(event)) warn(`hooks.${event} is not a known event; it never fires`);
+    if (!HOOK_EVENTS.includes(event) && !CLAUDE_ONLY_EVENTS.includes(event)) warn(`hooks.${event} is not a known event; it never fires`);
     if (!Array.isArray(groups)) {
       warn(`hooks.${event} is not an array; ignored`);
       continue;

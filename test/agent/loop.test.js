@@ -543,3 +543,28 @@ test('createAgent starts from a given history and interrupted flag without mutat
     { role: 'user', content: [{ type: 'text', text: 'before' }, { type: 'text', text: INTERRUPT_MARKER }, { type: 'text', text: 'next' }] },
   ]);
 });
+
+test('a second SessionStart before a prompt replaces the held context instead of adding to it', async () => {
+  const contexts = [['first start'], ['second start']];
+  const hooks = { fire: async (event) => ({ ...emptyOutcome(), additionalContext: event === 'SessionStart' ? contexts.shift() : [] }) };
+  const h = harness([textReply('ok')], { hooks });
+  await h.agent.fireSessionStart('startup');
+  await h.agent.fireSessionStart('compact');
+  await h.agent.runTurn('hi');
+  assert.deepEqual(h.fetch.calls[0].body.messages[0].content.map((block) => block.text), [
+    '<hook-context event="SessionStart">\nsecond start\n</hook-context>',
+    'hi',
+  ]);
+});
+
+test('each hook context cut is a warning event carrying hookContext, after the hook warnings', async () => {
+  const cut = { message: 'hook UserPromptSubmit: context of 300000 bytes truncated to 262144', event: 'UserPromptSubmit', scope: 'event', bytes: 300000, limit: 262144 };
+  const hooks = { fire: async (event) => ({ ...emptyOutcome(), ...(event === 'UserPromptSubmit' ? { warnings: ['plain'], truncations: [cut] } : {}) }) };
+  const h = harness([textReply('ok')], { hooks });
+  await h.agent.runTurn('hi');
+  const { message, ...hookContext } = cut;
+  assert.deepEqual(h.of('warning'), [
+    { type: 'warning', message: 'plain' },
+    { type: 'warning', message, hookContext },
+  ]);
+});
