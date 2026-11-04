@@ -96,7 +96,7 @@ A summary for a host adapter; each point links to the section that pins it down.
 | `--yolo` | works | run every tool without asking |
 | `--read-only` | works | refuse write tools and any Bash command that is not read-only (see [Read-only Bash](#read-only-bash)) |
 | `--dangerously-skip-permissions` | works | same as `--yolo` |
-| `--permission-mode <mode>` | works | `default` (ask, as with no permission flag), `plan` (as `--read-only`), `acceptEdits` (run write tools and read-only Bash commands without asking, ask for any other Bash command and for a `Write` or `Edit` inside a `.git` directory; see [Print mode](#print-mode)) or `bypassPermissions` (as `--yolo`) |
+| `--permission-mode <mode>` | works | `default` (ask, as with no permission flag), `plan` (as `--read-only`), `acceptEdits` (run read-only Bash commands without asking, and write tools only inside the working directory and the `--add-dir`/`trustedDirectories`/`additionalDirectories` dirs; ask for any other Bash command, for a `Write` or `Edit` outside those dirs or under a `.git`, `.clodent` or `.claude` directory, and for a file a hook or statusLine command names; see [Print mode](#print-mode)) or `bypassPermissions` (as `--yolo`) |
 | `--disallowedTools <list>`, `--disallowed-tools <list>` | works | deny rules, see below; repeatable |
 | `--session-id <uuid>` | works | use this session id instead of minting one; see [Sessions](#sessions) |
 | `--resume <id>` | works | resume the session with this id |
@@ -174,7 +174,7 @@ Permissions in `-p` go by the tool's kind (see [Tools](#tools)), and for `Bash` 
 | mode | read | write | exec (`Bash`) |
 |---|---|---|---|
 | default, `--permission-mode default` | runs | refused: `permission required: run clodent without -p to approve it, or pass --yolo` | a read-only command runs; any other is refused, same reason |
-| `--permission-mode acceptEdits` | runs | runs, except a `Write` or `Edit` inside a `.git` directory (see [Read-only Bash](#read-only-bash)), refused: `permission required: run clodent without -p to approve it, or pass --yolo` | a read-only command runs; any other is refused, same reason |
+| `--permission-mode acceptEdits` | runs | runs inside the working directory and the `--add-dir`/`trustedDirectories`/`additionalDirectories` dirs, except under a `.git`, `.clodent` or `.claude` directory or to a file a hook or statusLine command names (see [Read-only Bash](#read-only-bash)); any other `Write` or `Edit` is refused: `permission required: run clodent without -p to approve it, or pass --yolo` | a read-only command runs; any other is refused, same reason |
 | `--yolo`, `--dangerously-skip-permissions`, `--permission-mode bypassPermissions` | runs | runs | runs |
 | `--read-only`, `--permission-mode plan` | runs | refused: `--read-only: <Tool> is not allowed` | a read-only command runs; any other is refused: `--read-only: Bash command is not read-only (<reason>)` |
 
@@ -337,7 +337,7 @@ Reloading files after a compact, unless `compactReloadFiles` is 0 or the `Read` 
 
 A compact is not a turn: it fires no `Stop` hook and writes no `turn_duration` record. Print mode has no compact.
 
-Permission ask: in the default mode, a write or exec tool call that no hook allowed or denied waits for an answer, unless it is a read-only `Bash` command (see [Read-only Bash](#read-only-bash)). In `--permission-mode acceptEdits` write tools run, so only a `Bash` command that is not read-only waits, and so does a `Write` or `Edit` inside a `.git` directory (see [Read-only Bash](#read-only-bash)). So does any call a settings ask rule matches, even one a hook allowed, and any call a hook asks about, a read included; a call a deny rule matches is refused without asking (see [Permission rules](#permission-rules)). The `--yolo` and `--read-only` modes, whichever flag names them, never ask, and print mode refuses the call instead.
+Permission ask: in the default mode, a write or exec tool call that no hook allowed or denied waits for an answer, unless it is a read-only `Bash` command (see [Read-only Bash](#read-only-bash)). In `--permission-mode acceptEdits` write tools run inside the working directory and the `--add-dir`/`trustedDirectories`/`additionalDirectories` dirs, so only a `Bash` command that is not read-only waits, and so does a `Write` or `Edit` outside those dirs, under a `.git`, `.clodent` or `.claude` directory, or to a file a hook or statusLine command names (see [Read-only Bash](#read-only-bash)). So does any call a settings ask rule matches, even one a hook allowed, and any call a hook asks about, a read included; a call a deny rule matches is refused without asking (see [Permission rules](#permission-rules)). The `--yolo` and `--read-only` modes, whichever flag names them, never ask, and print mode refuses the call instead.
 
 1. clodent prints `[clodent:permit <Tool> <tool_use id>] <summary>` on its own line, with the summary of the `● <Tool> <summary>` line; with an empty summary the line ends at `]`.
 2. It writes `Allow? [y/n] ` and starts reading one line.
@@ -462,7 +462,7 @@ Under the default and `acceptEdits` modes and `--read-only`, a `Bash` call whose
 
 `<reason>` names the first offending part, such as `rm is not a read-only command`, `output redirection`, `command substitution`, `find -delete` or `git -c`.
 
-In `acceptEdits`, a `Write` or `Edit` whose `file_path`, resolved against the working directory, has a `.git` component in any case (`.git/config`, `sub/.GIT/hooks/x`, `.git` itself) asks as in the default mode, and `-p` refuses it: a repository's config and hooks name programs that git commands run. The check is by name only, so a path through a symlink into a `.git` directory gets past it. Any other `Write` or `Edit` runs without asking, outside the working directory too, such as `~/.gitconfig`.
+In `acceptEdits`, a `Write` or `Edit` runs without asking only when its `file_path`, resolved against the working directory, is the working directory, an `--add-dir`, `trustedDirectories` or `permissions.additionalDirectories` dir, or below one of them, compared on whole path segments (`/work-other` is not below `/work`). Otherwise it asks as in the default mode, and `-p` refuses it: a path outside those dirs (`../x`), a path with a `.git`, `.clodent` or `.claude` component in any case (`.git/config`, `sub/.GIT/hooks/x`, `.claude/settings.json`, `.git` itself), and, in any case, a file a hook or `statusLine` command names. Those files are the words of each command, split as a shell would, that hold a `/` once a leading `~`, `$HOME`, `$CLODENT_PROJECT_DIR` or `$CLAUDE_PROJECT_DIR` (or its `${…}` form) is expanded as the hook's environment has it, resolved against the working directory. A repository's config and hooks name programs that git commands run, and settings and hook scripts name programs clodent runs. The checks are by name only, so a path through a symlink gets past them.
 
 clodent splits the command into simple commands on `|`, `||`, `&&`, `;` and newlines, honouring single quotes, double quotes, backslash escapes and `#` comments. The command is read-only when every simple command is. Blank lines, a trailing `;` and a newline right after `|`, `||` or `&&` are fine; any other empty command (`;;`, a leading `|`, a trailing `&&`, an empty or comment-only string), and a simple command made only of redirections, is not read-only.
 
@@ -683,8 +683,7 @@ Limits:
 - The `Bash` guard is a string match on the command text, so a `cd` followed by a relative path evades it.
 - A hard link to a denied file is not detected.
 - The per-file check in `Grep` and `Glob` listings is lexical, except for entries that are symlinks.
-- In `acceptEdits`, a `Write` or `Edit` outside the working directory runs without asking, `~/.gitconfig` for example.
-- The text checks of [Read-only Bash](#read-only-bash) and the `.git` check of `acceptEdits` do not resolve symlinks, so a symlink into `/proc` or into a `.git` directory gets past them.
+- The text checks of [Read-only Bash](#read-only-bash) and the path checks of `acceptEdits` do not resolve symlinks, so a symlink into `/proc`, into a `.git` directory or out of the working directory gets past them.
 
 Startup errors: each of these prints `clodent: settings <path>: <message>` and exits 2, before the `[clodent:session]` line, any hook, any request and the first `\x1b[?2004h`:
 
@@ -786,6 +785,7 @@ stdin is one JSON object followed by a newline, then closed. Every event sends `
 Running:
 
 - Each matched command runs as `bash -c <command>` in the working directory, in its own process group. Its environment is clodent's, then the settings `env` on top, then `CLODENT_PROJECT_DIR` set to the working directory.
+- A hook that runs a file the model can write gives the model that hook's power: `acceptEdits` asks before a `Write` or `Edit` to a file a hook or statusLine command names (see [Read-only Bash](#read-only-bash)), but not to a script that file calls in turn.
 - All matched commands of one firing run at the same time. Their results combine in config order (source order, then group order, then entry order), not in the order they finish.
 - A command string matched more than once in one firing runs once, at its first config position, with the longest of the entries' timeouts (an unset `timeout` counts as the default) and with `onFailure: "block"` when any of the entries sets it.
 - `timeout` is in seconds, default 60. On expiry, or when the turn is interrupted, the process group gets SIGTERM, then SIGKILL 2 s later.

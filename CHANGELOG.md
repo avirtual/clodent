@@ -4,6 +4,8 @@ clodent was named clay up to 0.2.0.
 
 ## Unreleased
 
+- Security: in `acceptEdits`, a `Write` or `Edit` runs without asking only inside the working directory and the `--add-dir`/`trustedDirectories`/`additionalDirectories` dirs; it asks, or is refused under `-p`, for a path under `.git`, `.clodent` or `.claude` and for a file a hook or statusLine command names (avirtual/clodent #6, #7).
+
 ## 0.5.1 — 2026-11-04
 
 Security release. Fixes from a cloud security review of 0.5.0 (avirtual/clodent issues #1–#5).

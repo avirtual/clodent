@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ASK_DENIAL, decide } from '../../src/agent/permission.js';
+import { ASK_DENIAL, decide, hookPaths } from '../../src/agent/permission.js';
 
 const tool = (name, kind) => ({ name, kind });
 const READ = tool('Read', 'read');
@@ -52,7 +52,7 @@ test('an unknown mode or kind is treated as deny, never allow', () => {
 
 test('accept-edits allows read and write tools and a read-only Bash command, and asks for any other Bash command', () => {
   const EDIT = tool('Edit', 'write');
-  for (const t of [READ, WRITE, EDIT]) assert.deepEqual(decide(t, { file_path: 'x' }, 'accept-edits'), { allow: true }, t.name);
+  for (const t of [READ, WRITE, EDIT]) assert.deepEqual(decide(t, { file_path: 'x' }, 'accept-edits', '/work'), { allow: true }, t.name);
   assert.deepEqual(decide(BASH, { command: 'ls' }, 'accept-edits'), { allow: true });
   assert.deepEqual(decide(BASH, { command: 'rm x' }, 'accept-edits'), { allow: false, ask: true, reason: ASK_DENIAL });
   assert.deepEqual(decide(tool('Other', 'exec'), { command: 'ls' }, 'accept-edits'), { allow: false, ask: true, reason: ASK_DENIAL });
@@ -76,4 +76,58 @@ test('accept-edits asks for a Write or Edit whose path, resolved against the cwd
     assert.deepEqual(decide(WRITE, { file_path }, 'accept-edits', '/repo'), { allow: true }, file_path);
   }
   assert.deepEqual(decide(WRITE, { file_path: '.git/config' }, 'yolo', '/repo'), { allow: true });
+});
+
+const HOOKED = {
+  hooks: { PreToolUse: [{ matcher: '', hooks: [{ type: 'command', command: 'bash "$CLODENT_PROJECT_DIR/scripts/pre.sh"' }] }] },
+  statusLine: { type: 'command', command: '~/bin/status.sh' },
+};
+const SCOPE = { dirs: ['/extra'], protect: hookPaths(HOOKED, { cwd: '/work', env: {}, home: '/home/u' }) };
+const ASKED = { allow: false, ask: true, reason: ASK_DENIAL };
+
+test('hookPaths keeps the path words of every hook and statusLine command, expanded as the hook runner expands them', () => {
+  assert.deepEqual(hookPaths(HOOKED, { cwd: '/work', env: {}, home: '/home/u' }), ['/work/scripts/pre.sh', '/home/u/bin/status.sh']);
+  const forms = { hooks: { Stop: [{ matcher: '', hooks: [{ type: 'command', command: 'sh ${HOME}/a.sh $CLAUDE_PROJECT_DIR/b.sh ${CLODENT_PROJECT_DIR}/c.sh $HOMER/d.sh' }] }] } };
+  assert.deepEqual(hookPaths(forms, { cwd: '/work', env: { HOME: '/home/v', CLAUDE_PROJECT_DIR: '/proj' }, home: '/home/u' }), [
+    '/home/v/a.sh',
+    '/proj/b.sh',
+    '/work/c.sh',
+    '/work/$HOMER/d.sh',
+  ]);
+});
+
+test('accept-edits allows a Write inside the cwd or an extra dir', () => {
+  for (const file_path of ['/work/a.js', 'src/b.js', '/extra/c.txt']) {
+    assert.deepEqual(decide(WRITE, { file_path }, 'accept-edits', '/work', SCOPE), { allow: true }, file_path);
+  }
+});
+
+test('accept-edits asks for a Write outside the cwd and the extra dirs, compared on whole path segments, or with no file_path', () => {
+  for (const file_path of ['/work-other/x', '../x', '/home/u/.bashrc']) {
+    assert.deepEqual(decide(WRITE, { file_path }, 'accept-edits', '/work', SCOPE), ASKED, file_path);
+  }
+  assert.deepEqual(decide(WRITE, {}, 'accept-edits', '/work', SCOPE), ASKED);
+});
+
+test('accept-edits asks for a Write with a .git, .clodent or .claude component in any case', () => {
+  for (const file_path of ['/work/.clodent/hooks/pre.sh', '/work/.CLAUDE/settings.json', '/work/.git/config']) {
+    assert.deepEqual(decide(WRITE, { file_path }, 'accept-edits', '/work', SCOPE), ASKED, file_path);
+  }
+});
+
+test('accept-edits asks for a Write or Edit to a file a hook or statusLine command names, in any case', () => {
+  for (const file_path of ['/work/scripts/pre.sh', '/home/u/bin/status.sh', '/work/SCRIPTS/pre.sh']) {
+    assert.deepEqual(decide(WRITE, { file_path }, 'accept-edits', '/work', SCOPE), ASKED, file_path);
+  }
+  assert.deepEqual(decide(tool('Edit', 'write'), { file_path: 'scripts/pre.sh' }, 'accept-edits', '/work', SCOPE), ASKED);
+  assert.deepEqual(decide(WRITE, { file_path: '/home/u/bin/status.sh' }, 'accept-edits', '/work', { ...SCOPE, dirs: ['/home/u'] }), ASKED);
+});
+
+test('accept-edits with no scope allows a Write inside the cwd only', () => {
+  assert.deepEqual(decide(WRITE, { file_path: '/work/a.js' }, 'accept-edits', '/work'), { allow: true });
+  assert.deepEqual(decide(WRITE, { file_path: '/extra/c.txt' }, 'accept-edits', '/work'), ASKED);
+});
+
+test('accept-edits with no cwd asks for every Write', () => {
+  assert.deepEqual(decide(WRITE, { file_path: '/work/a.js' }, 'accept-edits', undefined, SCOPE), ASKED);
 });
