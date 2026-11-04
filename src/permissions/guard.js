@@ -71,6 +71,21 @@ export function simpleCommands(text) {
 
 const WORD_BREAK = ' \t\n;&|()<>';
 const DOUBLE_ESCAPES = '$`"\\\n';
+const ANSI_ESCAPE = /\\(?:([abeEfnrtv\\'"?])|([0-7]{1,3})|x([0-9a-fA-F]{1,2})|u([0-9a-fA-F]{1,4})|U([0-9a-fA-F]{1,8})|c([^]))/g;
+const ANSI_SIMPLE = { a: '\x07', b: '\b', e: '\x1b', E: '\x1b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v' };
+
+function ansiChar(whole, simple, octal, hex, short, long, ctrl) {
+  if (simple) return ANSI_SIMPLE[simple] ?? simple;
+  if (ctrl) return String.fromCharCode(ctrl === '?' ? 0x7f : ctrl.charCodeAt(0) & 0x1f);
+  const code = octal ? Number.parseInt(octal, 8) & 0xff : Number.parseInt(hex ?? short ?? long, 16);
+  return code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+}
+
+function ansiQuoted(text, start) {
+  let close = start;
+  while (close < text.length && text[close] !== "'") close += text[close] === '\\' ? 2 : 1;
+  return [text.slice(start, close).replace(ANSI_ESCAPE, ansiChar).split('\0')[0], close];
+}
 
 export function shellWords(text) {
   const words = [];
@@ -104,6 +119,13 @@ export function shellWords(text) {
     } else if (quote === '"') {
       if (c === '"') quote = null;
       else add(c);
+    } else if (c === '$' && text[i + 1] === "'") {
+      const [chars, close] = ansiQuoted(text, i + 2);
+      add(chars);
+      i = close;
+    } else if (c === '$' && text[i + 1] === '"') {
+      quote = '"';
+      i += 1;
     } else if (c === "'" || c === '"') {
       quote = c;
     } else if (c === ')' && frames.at(-1)?.close === ')') {
@@ -120,11 +142,15 @@ export function shellWords(text) {
 }
 
 const HOME_PREFIX = /^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/;
+const USER_PREFIX = /^~([^/]+)/;
 const DATA_PREFIX = /^\/System\/Volumes\/Data(?=\/)/i;
 
 function expandHome(word, home) {
-  const prefix = home ? HOME_PREFIX.exec(word) : null;
-  return prefix ? home + word.slice(prefix[0].length) : word;
+  if (!home) return word;
+  const prefix = HOME_PREFIX.exec(word);
+  if (prefix) return home + word.slice(prefix[0].length);
+  const user = USER_PREFIX.exec(word);
+  return user ? join(dirname(home), user[1]) + word.slice(user[0].length) : word;
 }
 
 function wordPaths(command, cwd) {

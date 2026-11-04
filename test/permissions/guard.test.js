@@ -293,10 +293,28 @@ test('Bash: each word is also matched dequoted, with ~ and $HOME expanded and re
   }
 });
 
+test(`Bash: $'…' and $"…" quoting is decoded and ~<user> is a sibling of the home directory, so neither hides a Read rule path`, async () => {
+  const guard = guardOf({ deny: ['Read(~/.ssh)'] });
+  const denied = [
+    "cat ~/$'.ssh'/id_rsa",
+    "cat ~/$'\\x2essh'/id_rsa",
+    'cat ~/$".ssh"/id_rsa',
+    "cat ~/$'\\056ssh'/id_rsa",
+    "cat ~/$'.ssh\\0junk'/id_rsa",
+    'cat ~u/.ssh/id_rsa',
+    'cat ~u//.ssh/id_rsa',
+  ];
+  for (const command of denied) assert.equal(await bash(guard, command), 'deny Read(~/.ssh)', command);
+  for (const command of ["cat ~/$'.sshx'/id_rsa", `echo "$'.ssh'"`, 'cat ~x/.ssh/id_rsa', 'cat ~uu/.ssh/id_rsa']) {
+    assert.equal(await bash(guard, command), null, command);
+  }
+});
+
 test('shellWords dequotes words and splits at blanks, operators, redirections and substitutions', () => {
   assert.deepEqual(shellWords(`a "b c" 'd e' f\\ g "x\\y\\$z" '' h;i&&j|k<l>>m`), ['a', 'b c', 'd e', 'f g', 'x\\y$z', 'h', 'i', 'j', 'k', 'l', 'm']);
   assert.deepEqual(shellWords('echo "a $(cat "b c") d" `e f` (g) $((1+2))'), ['echo', 'a ', 'cat', 'b c', ' d', 'e', 'f', 'g', '1+2']);
   assert.deepEqual(shellWords("echo '$(x)' \"it's\"\\\nz"), ['echo', '$(x)', "it'sz"]);
+  assert.deepEqual(shellWords(`a $'b\\tc\\'d;e' $"f g" "$'h'" $'\\x41\\101\\u0042\\0z'i $'\\q\\cA'`), ['a', "b\tc'd;e", 'f g', "$'h'", 'AABi', '\\q\x01']);
 });
 
 test('built-in denies cover Read and Edit of each settings file and Read of /proc/*/environ, and the reason names the built-in rule', async () => {

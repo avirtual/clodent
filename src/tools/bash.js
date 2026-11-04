@@ -1,23 +1,17 @@
 import { StringDecoder } from 'node:string_decoder';
 import { KILL_GRACE_MS, runProcess } from '../proc/run.js';
 import { createCapSink } from './cap.js';
+import { toolEnv } from './env.js';
 import { checkInput, fail, oneLine } from './util.js';
 
 export const DEFAULT_TIMEOUT_MS = 120000;
 export const MAX_TIMEOUT_MS = 600000;
-const HIDDEN_ENV = Object.freeze(['ANTHROPIC_API_KEY']);
 export { KILL_GRACE_MS };
 
 export function clampTimeout(value) {
   const n = Number(value);
   if (value === undefined || value === null || !Number.isFinite(n) || n <= 0) return DEFAULT_TIMEOUT_MS;
   return Math.min(Math.ceil(n), MAX_TIMEOUT_MS);
-}
-
-function withoutNames(env, names) {
-  const kept = { ...(env ?? process.env) };
-  for (const name of names) delete kept[name];
-  return kept;
 }
 
 function trailerFor({ timedOut, timeoutMs, code, signal }) {
@@ -57,7 +51,7 @@ async function execute(command, timeoutMs, ctx, deps) {
 
 export function createBash(deps = {}) {
   const options = { spawn: deps.spawn, kill: deps.kill, killGraceMs: deps.killGraceMs };
-  const envDeny = [...HIDDEN_ENV, ...(deps.envDeny ?? [])];
+  const envDeny = deps.envDeny ?? [];
   return {
     name: 'Bash',
     kind: 'exec',
@@ -77,7 +71,7 @@ export function createBash(deps = {}) {
       const bad = checkInput(input, ['command'], ['description']);
       if (bad) return bad;
       if (ctx.signal?.aborted) return fail('Command not run: aborted');
-      return execute(input.command, clampTimeout(input.timeout), { ...ctx, env: withoutNames(ctx.env, envDeny) }, options);
+      return execute(input.command, clampTimeout(input.timeout), { ...ctx, env: toolEnv(ctx.env, envDeny) }, options);
     },
   };
 }
