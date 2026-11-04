@@ -4,6 +4,8 @@ clodent was named clay up to 0.2.0.
 
 ## Unreleased
 
+- Requests carry `metadata.user_id` = `{"session_id":"<id>"}` so a proxy such as wirescope can group requests by session.
+
 ## 0.3.0 — 2026-11-04
 
 - Renamed clay to clodent: the clodent command, CLODENT_HOME (default ~/.clodent), CLODENT_PROJECT_DIR, [clodent:*] output lines, clodent: message prefix, user agent clodent/<version>, transcript entrypoint clodent; no aliases for the old names.
