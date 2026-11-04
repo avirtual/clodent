@@ -4,6 +4,10 @@ clodent was named clay up to 0.2.0.
 
 ## Unreleased
 
+- The Bash permission guard also matches each word of a command with its quotes removed, a leading `~`, `$HOME` or `${HOME}` expanded and the path resolved against the working directory (also after `=` and in redirections), so `~//.ssh`, `~/./.ssh`, `~/x/../.ssh`, `~/'.ssh'` and relative spellings no longer slip past a `Read` or `Edit` rule.
+- Built-in deny rules, in every mode including `--yolo`: `Read` and `Edit` of every settings file clodent loaded (`$CLODENT_HOME/settings.json`, whether or not it exists, and each `--settings` file) and `Read` of `/proc/*/environ` and `/proc/*/task/*/environ`; the model gets `denied by built-in rule <rule>`.
+- The Bash tool's environment never contains `ANTHROPIC_API_KEY`, also when the key comes from settings `env`; requests, hooks and the statusLine still get it.
+
 ## 0.5.0 — 2026-11-04
 
 - `/compact` re-reads the files the summary names under `Files to reload:`, on that line or the lines after it (or else the last files read, edited or written), into the summary message, through the permission screen and within 64 KiB; a Markdown-wrapped heading and a backticked `none` are understood; the settings key `compactReloadFiles` (0–20, default 5) sets how many, and 0 or a bare `Read` deny turns it off.
