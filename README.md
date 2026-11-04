@@ -1,8 +1,8 @@
 # clodent
 
-clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.3.0 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), six built-in tools, cost accounting, JSONL session transcripts, settings files and hooks. clodent was named clay up to 0.2.0.
+clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.4.0 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), a stream-json mode for hosts, six built-in tools, cost accounting, JSONL session transcripts, settings files and hooks. clodent was named clay up to 0.2.0.
 
-Non-goals for v0.3: MCP, plugins, skills, subagents, web tools, image input, Windows, telemetry, the stream-json io (v0.4).
+Non-goals for v0.4: MCP, plugins, skills, subagents, web tools, image input, Windows, telemetry.
 
 ## Install
 
@@ -10,7 +10,7 @@ Requires Node.js 22 or later. clodent has no dependencies. From a checkout:
 
 ```sh
 npm link
-clodent --version   # clodent 0.3.0
+clodent --version   # clodent 0.4.0
 ```
 
 ## Usage
@@ -48,15 +48,17 @@ An opt-in check against the real Messages API; the suite only runs it without a 
 
 ## Contract
 
-This section is the contract a host integrates against. It describes clodent 0.3.0.
+This section is the contract a host integrates against. It describes clodent 0.4.0.
 
 ### Hosting clodent
 
 A summary for a host adapter; each point links to the section that pins it down.
 
 - Launch: `clodent` without `-p`, in a PTY, in the seat's working directory. Pass `--session-id <uuid>` for a new session, or `--resume <id>`, with `--fork-session` to continue under a new id (the `--session-id` if given). Add `--settings <file>` for the host's hooks and statusLine, one `--add-dir <path>` per extra directory, `--system-prompt-file <path>` and `--append-system-prompt-file <path>` for the prompt, `--model <id>` (one trailing `[…]` suffix such as `[1m]` is dropped), `--effort low|medium|high|xhigh|max`, and a permission mode: `--dangerously-skip-permissions` or `--yolo`, `--permission-mode default|plan|acceptEdits|bypassPermissions`, or `--read-only` (default: ask). Permission flags that name different modes exit 2. `--disallowedTools <list>` (or `--disallowed-tools`) adds deny rules. See [Flags](#flags) and [System prompt](#system-prompt).
+- Stream seats: `clodent -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio` with the same session, settings, prompt, model, effort and permission flags as Launch. stdin takes one JSON message per line and stdout writes one JSON record per line: `system/init` first (again after each `/clear`), then each turn's records ending in exactly one `result`, and one `result` per empty prompt and per slash command but `/quit` and `/exit`; a prompt that joins a running turn gets none. Permission asks arrive as `control_request` `can_use_tool`. See [Stream JSON](#stream-json).
 - Accepted and ignored: `--plugin-dir <dir>`, `--agents <json>`, `--mcp-config <path>`, `--strict-mcp-config`, `--allowedTools <list>` (or `--allowed-tools`) and `--dangerously-bypass-hook-trust`. Each one given prints `clodent: ignoring --<name>: not supported` once on stderr and changes nothing. See [Flags](#flags).
 - Env: `ANTHROPIC_API_KEY` (required), `CLODENT_HOME` as the per-account config dir (`settings.json` and `projects/`; default `~/.clodent`), and optionally `ANTHROPIC_BASE_URL` to send requests to another origin, such as a proxy. See [Environment](#environment).
+- Cache TTL: settings `cacheTtl: "1h"` (or `--cache-ttl 1h`) caches the system block, the last tool and the settled pin for an hour while the tail stays 5 minutes, which pays off for seats that idle between turns. The default `5m` suits short-lived seats. See [API wire](#api-wire).
 - Transcript: `$CLODENT_HOME/projects/<slug>/<session-id>.jsonl`, where `<slug>` is the working directory with every `/` and `.` replaced by `-`. `SessionStart` hooks get the path as `transcript_path`. See [Sessions](#sessions).
 - Boot-ready: the first `\x1b[?2004h` on stdout. It follows the `[clodent:session] <id>` line and the `SessionStart` hook. A startup error exits 2 before it. See [REPL](#repl).
 - Inject: write `\x1b[200~<text>\x1b[201~`, then `\r`. The paste is one prompt with its newlines kept, and the `\r` submits it. A prompt submitted during a turn is queued. See [REPL](#repl).
@@ -67,7 +69,7 @@ A summary for a host adapter; each point links to the section that pins it down.
 - statusLine: the settings `statusLine` command gets `context_window.used_tokens`, `context_window.context_window_size`, `context_window.used_percentage`, `model.id` and `cost.total_cost_usd` on stdin after each API response, after `/clear` (zero usage) and after `/compact` (`used_tokens` is the summary's size). See [Hooks](#hooks).
 - Signals: SIGINT acts as Ctrl-C: it interrupts a turn, and two in a row at an empty prompt exit 0. SIGTERM exits 143 and SIGHUP 129, after interrupting a running turn, whose `Stop` hook still fires. Ctrl-D, `/quit` and stdin closing exit 0. See [REPL](#repl).
 - Settings guard: `permissions.deny`/`ask` are enforced (see [Permission rules](#permission-rules)). A `sandbox` block with `enabled: true` is never fatal: its `filesystem.denyRead`, `filesystem.denyWrite` and deny `credentials.files` entries are enforced as deny rules, its deny `credentials.envVars` are removed from the Bash tool's environment, and its other keys are ignored with one warning; clodent does not sandbox Bash. A malformed sandbox shape is a startup error (exit 2).
-- Absent in 0.3.0: the stream-json io (`--input-format`/`--output-format stream-json`, planned for v0.4), MCP and subagents, so hooks never get `agent_id`.
+- Absent in 0.4.0: MCP and subagents, so hooks never get `agent_id`.
 
 ### Flags
 
@@ -223,7 +225,7 @@ Input lines, with `--input-format stream-json`: one JSON object per line, UTF-8;
 | `{"type":"user","message":{"role":"user","content":<text or blocks>}}` | a prompt: the string, or the `text` blocks' `text` joined with `\n\n`. Each `image` block is dropped with `clodent: stdin: dropped an image block: image input is not supported`, any other block with `clodent: stdin: dropped a "<type>" block: only text blocks are read`, and content that is neither with `clodent: stdin: a user message without string or array content`. A prompt with no non-whitespace text left is empty: it gets an `is_error` result and sends no request. `session_id`, `uuid`, `parent_tool_use_id` and other fields are ignored |
 | `{"type":"control_response","response":{"subtype":"success","request_id":<id>,"response":{"behavior":"allow",…}}}` | answers the ask with that `request_id`: the call runs with the `input` of its `control_request`. `updatedInput` and `updatedPermissions` are ignored |
 | any other `control_response` for a waiting ask, such as `"behavior":"deny","message":<text>` | refuses the call with the reason `message`, or `denied by the user` when it is missing or empty: the `permission_denied` line, then the model gets the reason as the error tool result, and the turn goes on |
-| `{"type":"control_request","request_id":<id>,"request":{"subtype":"interrupt"}}` | the `success` reply, then, if a turn is running, the REPL's Ctrl-C: the request, tool or hooks are aborted, the transcript gets the interrupt records, the turn's cost line goes to stderr, and its result follows. When idle, only the reply, unless a prompt read before it in the same stdin chunk has not started yet: that prompt's turn is then interrupted before its first request |
+| `{"type":"control_request","request_id":<id>,"request":{"subtype":"interrupt"}}` | the `success` reply, then, if a turn is running, the REPL's Ctrl-C: the request, tool or hooks are aborted, the transcript gets the interrupt records, the turn's cost line goes to stderr, and its result follows. When idle, only the reply, unless a prompt or command read before it has not started yet: a prompt's turn is then interrupted before its first request, and a command takes it instead (a `/compact` on a non-empty history then fails as `interrupted`) |
 | `{"type":"control_request","request_id":<id>,"request":{"subtype":"set_model","model":<id>}}` | the REPL's `/model <id>`: the id less one trailing `[…]` suffix is used from the next request and the system prompt is rebuilt; then the `success` reply. A missing model replies `error` with `set_model needs a model id`, and a failed rebuild with its message, keeping the model |
 | a `control_request` of any other subtype | the reply `{"subtype":"error","request_id":<id>,"error":"unsupported control request: <subtype>"}` |
 
@@ -403,7 +405,7 @@ Line formats. Each is one line. Amounts have exactly four decimals, rounded half
 
 ### Tools
 
-clodent gives the model six built-in tools, in this order; a bare-name deny rule in settings or `--disallowedTools` removes one (see [Permission rules](#permission-rules)). `kind` decides how permissions treat a tool. Input names follow the common agent-tool convention, so a hook reading `tool_input` sees the same fields. Relative paths resolve against the working directory, and every path in a result is absolute.
+clodent has six built-in tools, in this order (the request sends them sorted by name, see [API wire](#api-wire)); a bare-name deny rule in settings or `--disallowedTools` removes one (see [Permission rules](#permission-rules)). `kind` decides how permissions treat a tool. Input names follow the common agent-tool convention, so a hook reading `tool_input` sees the same fields. Relative paths resolve against the working directory, and every path in a result is absolute.
 
 | Tool | Kind | Inputs | Result |
 |---|---|---|---|
@@ -430,7 +432,7 @@ where `<n>` is the exact number of bytes removed.
 
 ### Read-only Bash
 
-Under the default mode and `--read-only`, a `Bash` call whose command is read-only runs without asking. Any other command gets the default mode's refusal, or under `--read-only`:
+Under the default and `acceptEdits` modes and `--read-only`, a `Bash` call whose command is read-only runs without asking. Any other command gets the default mode's refusal, or under `--read-only`:
 
 ```
 --read-only: Bash command is not read-only (<reason>)
@@ -497,7 +499,7 @@ Internal; [Stream JSON](#stream-json) writes its lines from them. The agent loop
 | `assistant_message` | `message` (the assembled API message), `requestId`, `durationMs`, `usd`, `priced` | when a response completes |
 | `message_append` | `role`, `content` (the blocks just added to the history), `kind` (`prompt`, `tool_results`, `assistant` or `partial`), `meta` (`message`, `requestId`, `durationMs`, `usd` for `assistant`; `{}` otherwise) | each time blocks join the history; for a response, just before `assistant_message`, even when its content is empty |
 | `tool_use` | `id`, `name`, `input`, `summary` | before each tool call, and before the result made up for a call that never ran |
-| `permission_request` | `id`, `name`, `input`, `summary` | after `tool_use`, when the default mode would refuse the call or a settings ask rule matches it, and the agent has an asker (the REPL); before the `Notification` hook and the ask |
+| `permission_request` | `id`, `name`, `input`, `summary` | after `tool_use`, when the mode would ask about the call (see [REPL](#repl) and [Permission rules](#permission-rules)) and the agent has an asker (the REPL, or [Stream JSON](#stream-json) with `--permission-prompt-tool stdio`); before the `Notification` hook and the ask |
 | `permission` | `id`, `name`, `decision` (`allow` or `deny`), `reason` (on deny) | after `tool_use`, for a known tool, unless the turn was interrupted before the decision |
 | `tool_result` | `id`, `name`, `content`, `isError`, `durationMs` | after each tool call, including refused, unknown and interrupted calls |
 | `turn_end` | `stopReason`, `turn` (the turn's cost aggregate) | last, once per turn |
@@ -563,7 +565,7 @@ Record kinds, in the order a turn writes them:
 | tool results | `type: "user"`, `message: {role: "user", content: [tool_result blocks, then any PostToolUse and PostToolUseFailure context blocks]}`, `toolUseResult: {name, isError, input}` describing the first block; `input` is the input the tool ran with, after any hook `updatedInput` |
 | partial assistant | `type: "assistant"`, `message: {role: "assistant", content: [the completed text blocks], stop_reason: null}`; written on an interrupt that kept text |
 | interrupt | `type: "user"`, `message: {role: "user", content: [{type: "text", text: "[Request interrupted by user]"}]}`, `isVisibleInTranscriptOnly: true`; no `isMeta` |
-| compact boundary | `type: "system"`, `subtype: "compact_boundary"`, `content: "Conversation compacted"`, `level: "info"`, `parentUuid: null`, `logicalParentUuid` (the previous record's `uuid`), `compactMetadata: {trigger, preTokens, postTokens}`; written by `/compact` (see [REPL](#repl)), outside any turn |
+| compact boundary | `type: "system"`, `subtype: "compact_boundary"`, `content: "Conversation compacted"`, `level: "info"`, `parentUuid: null`, `logicalParentUuid` (the previous record's `uuid`), `compactMetadata: {trigger, preTokens, postTokens}`; written by `/compact` (see [REPL](#repl) or [Stream JSON](#stream-json) stdin), outside any turn |
 | compact summary | `type: "user"`, `message: {role: "user", content: [{type: "text", text: "This session continues an earlier conversation that was compacted. Summary of it:\n\n<summary>"}]}`, `isVisibleInTranscriptOnly: true`, `isCompactSummary: true`; right after the boundary. The summary request's own response is not recorded |
 | turn end | `type: "system"`, `subtype: "turn_duration"`, `durationMs` (the turn's duration in whole milliseconds), `messageCount` (the user and assistant records written since the previous `turn_duration` record, the interrupt record included and the compact records not); after the turn's last record |
 
@@ -680,14 +682,14 @@ When each event fires:
 
 | event | fires |
 |---|---|
-| `SessionStart` | once, after the `[clodent:session]` line and before the prompt: `source` is `resume` with `--resume`, else `startup`; in the REPL, again after `/clear` with `source` `clear`, and after a successful `/compact` with `source` `compact` |
+| `SessionStart` | once, after the `[clodent:session]` line and before the prompt: `source` is `resume` with `--resume`, else `startup`; from the REPL or a stream-json slash command, again after `/clear` with `source` `clear`, and after a successful `/compact` with `source` `compact` |
 | `UserPromptSubmit` | before the prompt joins the history |
 | `PreToolUse` | before each call of a known tool, before the permission decision; a call of an unknown tool fires no hook |
 | `PostToolUse` | after a tool that ran returns a result that is not an error |
 | `PostToolUseFailure` | instead of `PostToolUse`, when that result is an error; a refused call never ran, so neither fires |
 | `Stop` | once at the end of the turn, after the `turn_duration` record; its output is ignored apart from warnings |
 | `Notification` | in the REPL, when a tool call waits for a permission answer: after the `[clodent:permit]` line and `Allow? [y/n] `, while the ask is listening (see [REPL](#repl)) |
-| `PreCompact` | in the REPL, at `/compact` on a non-empty history, before the summary request; its output is ignored apart from warnings |
+| `PreCompact` | from the REPL or a stream-json slash command, at `/compact` on a non-empty history, before the summary request; its output is ignored apart from warnings |
 
 `permission_mode` names the mode as Claude Code does: `default` (the default ask mode), `bypassPermissions` (`--yolo`, `--dangerously-skip-permissions`), `plan` (`--read-only`) or `acceptEdits`; `--permission-mode <mode>` gives `<mode>`.
 
@@ -763,7 +765,7 @@ Warnings are one line each:
 hook <Event> "<first 60 characters of the command>": <exit <n>|timeout|aborted|killed by <signal>|<error message>|invalid JSON ignored|stdout over 1 MiB truncated>
 ```
 
-statusLine: after each API response other than a compact's summary request, and in the REPL after `/clear` and a successful `/compact` (see [REPL](#repl)), clodent runs the `statusLine` command the same way, with a 5 s timeout, and this JSON on stdin:
+statusLine: after each API response other than a compact's summary request, and from the REPL or a stream-json slash command after `/clear` and a successful `/compact` (see [REPL](#repl) and [Stream JSON](#stream-json)), clodent runs the `statusLine` command the same way, with a 5 s timeout, and this JSON on stdin:
 
 ```json
 {
