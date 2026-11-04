@@ -25,6 +25,7 @@ export async function runStream(ctx, deps) {
   let pendingInterrupt = false;
   let printed = [];
   let failed = false;
+  let spent;
 
   function poke() {
     const resolve = wake;
@@ -204,6 +205,7 @@ export async function runStream(ctx, deps) {
     const outcome = await guarded((signal) => agent.compact({ instructions, trigger: 'manual' }, { signal }));
     output.status(null, { compact_result: outcome.ok ? 'success' : 'failed' });
     failed = !outcome.ok;
+    spent = outcome.turn?.tokens;
     return outcome;
   }
 
@@ -221,10 +223,12 @@ export async function runStream(ctx, deps) {
   async function runSlash(command) {
     printed = [];
     failed = false;
+    spent = undefined;
     output.beginCommand();
     const verdict = await runCommand(command, commandCtx);
+    pendingInterrupt = false;
     if (verdict === 'exit') return 'exit';
-    output.endCommand({ isError: failed || verdict === 'unknown', text: printed.join('\n'), requests: command.name === 'compact' ? 1 : 0 });
+    output.endCommand({ isError: failed || verdict === 'unknown', text: printed.join('\n'), requests: command.name === 'compact' ? 1 : 0, tokens: spent });
   }
 
   async function run({ text, empty, command }) {

@@ -88,8 +88,7 @@ export function createStreamOutput(ctx, deps) {
     error({ message: text }) {
       if (turn) turn.error = text;
     },
-    compacted({ trigger, preTokens, postTokens, turn: spent }) {
-      if (command) command.tokens = spent.tokens;
+    compacted({ trigger, preTokens, postTokens }) {
       line({
         type: 'system',
         subtype: 'compact_boundary',
@@ -148,7 +147,7 @@ export function createStreamOutput(ctx, deps) {
       result({ isError: true, text: EMPTY_PROMPT });
     },
     beginCommand() {
-      command = { startedAt: now(), tokens: NO_TOKENS };
+      command = { startedAt: now() };
     },
     status(status, fields = {}) {
       line({ type: 'system', subtype: 'status', status, ...fields, session_id: sessionId(), uuid: uuid() });
@@ -156,10 +155,10 @@ export function createStreamOutput(ctx, deps) {
     conversationReset(newId) {
       line({ type: 'conversation_reset', new_conversation_id: newId, trigger: 'clear', session_id: sessionId(), uuid: uuid() });
     },
-    endCommand({ isError, text, requests = 0 }) {
-      const current = command ?? { startedAt: now(), tokens: NO_TOKENS };
+    endCommand({ isError, text, requests = 0, tokens = NO_TOKENS }) {
+      const current = command;
       command = null;
-      result({ isError, text, subtype: 'success', durationMs: Math.round(now() - current.startedAt), requests, tokens: current.tokens });
+      result({ isError, text, subtype: 'success', durationMs: Math.round(now() - current.startedAt), requests, tokens });
     },
     controlRequest(requestId, request) {
       line({ type: 'control_request', request_id: requestId, request });

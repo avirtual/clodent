@@ -65,7 +65,9 @@ test('compact sends one quiet summary request, replaces the history with the sum
   await h.agent.runTurn('first');
   const before = h.agent.messages();
   const mark = h.events.length;
-  assert.deepEqual(await h.agent.compact({ instructions: 'keep paths', trigger: 'manual' }), { ok: true, preTokens: 240, postTokens: 7 });
+  const { turn, ...outcome } = await h.agent.compact({ instructions: 'keep paths', trigger: 'manual' });
+  assert.deepEqual(outcome, { ok: true, preTokens: 240, postTokens: 7 });
+  assert.deepEqual([turn.requests, turn.tokens], [1, { in: 10, cacheRead: 200, cacheWrite: 30, out: 7 }]);
   const [first, summary] = h.bodies();
   assert.deepEqual(summary.tool_choice, { type: 'none' });
   assert.equal('tool_choice' in first, false);
@@ -109,7 +111,9 @@ test('a failed summary leaves the history as it was, records its cost apart from
     const h = harness([reply('one'), response, reply('two')]);
     await h.agent.runTurn('first');
     const before = h.agent.messages();
-    assert.deepEqual(await h.agent.compact(MANUAL), { ok: false, reason }, label);
+    const { turn, ...outcome } = await h.agent.compact(MANUAL);
+    assert.deepEqual(outcome, { ok: false, reason }, label);
+    assert.equal(turn?.requests ?? 0, requests - 1, label);
     assert.deepEqual(h.agent.messages(), before, label);
     assert.equal(h.ledger.session().requests, requests, label);
     assert.equal(h.types().includes('compacted'), false, label);

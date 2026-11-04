@@ -6,6 +6,7 @@ import { COMPACT_PROMPT } from '../../src/agent/compact.js';
 import { HELP } from '../../src/repl/slash.js';
 import { transcriptPath } from '../../src/session/paths.js';
 import { hookGroup, readJsonl, textReply, toolsReply, writeSettings } from '../helpers/run-main.js';
+import { sse } from '../helpers/sse-builder.js';
 import { script } from '../hooks/scripts.js';
 import { useTempDir } from '../tools/tmp-dir.js';
 import { kinds, parseRecords, startStream, STREAM_ARGV, userLine, UUID } from './harness.js';
@@ -89,9 +90,10 @@ test('/compact writes status compacting, compact_boundary with the REPL token co
   ]);
 });
 
-test('a failed /compact writes no compact_boundary, status null with compact_result failed, and an is_error result', GUARD, async (t) => {
+test('a failed /compact writes no compact_boundary, status null with compact_result failed, and an is_error result with the usage of any response', GUARD, async (t) => {
   const { home, cwd } = await dirs(t);
-  const s = startStream([...STREAM_ARGV, '--session-id', UUID], { home, cwd, replies: [textReply('r1'), http400] });
+  const cut = { body: sse({ blocks: [{ type: 'text', text: 'SUMMARY cut' }], stopReason: 'max_tokens', usage: { input_tokens: 500, output_tokens: 20 } }) };
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID], { home, cwd, replies: [textReply('r1'), cut, http400] });
   s.send(userLine('/compact'));
   await s.until('result');
   assert.equal(s.fetch.calls.length, 0);
@@ -99,21 +101,26 @@ test('a failed /compact writes no compact_boundary, status null with compact_res
   await s.until('result', 2);
   s.send(userLine('/compact'));
   await s.until('result', 3);
+  s.send(userLine('/compact'));
+  await s.until('result', 4);
   s.close();
   assert.equal(await s.done, 0);
   const records = parseRecords(s.out.text);
   assert.equal(records.some((record) => record.subtype === 'compact_boundary'), false);
-  const [empty, , failed] = results(s);
-  for (const [result, text, from] of [
-    [empty, 'clodent: nothing to compact', 0],
-    [failed, 'clodent: compact failed: credit balance is too low', 2],
+  const [empty, one, stopped, failed] = results(s);
+  for (const [result, text, from, usage] of [
+    [empty, 'clodent: nothing to compact', 0, ZERO],
+    [stopped, 'clodent: compact failed: stop_reason max_tokens', 2, { ...ZERO, input_tokens: 500, output_tokens: 20 }],
+    [failed, 'clodent: compact failed: credit balance is too low', 3, ZERO],
   ]) {
     const tail = after(s, from);
     assert.deepEqual(kinds(tail).slice(0, 3), ['system/status', 'system/status', 'result']);
     assert.deepEqual([tail[0].status, tail[1].status, tail[1].compact_result], ['compacting', null, 'failed']);
-    assert.deepEqual([result.subtype, result.is_error, result.result, result.session_id], ['success', true, text, UUID]);
+    assert.deepEqual([result.subtype, result.is_error, result.result, result.session_id, result.usage], ['success', true, text, UUID, usage]);
   }
-  assert.equal(s.fetch.calls.length, 2);
+  assert.ok(stopped.total_cost_usd > one.total_cost_usd);
+  assert.equal(failed.total_cost_usd, stopped.total_cost_usd);
+  assert.equal(s.fetch.calls.length, 3);
 });
 
 test('/clear writes conversation_reset, a fresh init with the new id, and a result that keeps the cumulative total', GUARD, async (t) => {
@@ -203,6 +210,31 @@ test('/quit exits 0 without stdin EOF and writes no result', GUARD, async (t) =>
   assert.equal(await s.done, 0);
   assert.deepEqual(kinds(parseRecords(s.out.text)), ['system/init']);
   assert.match(s.err.text, /^\[clodent:cost\] session total /m);
+});
+
+test('/exit drops a prompt sent behind it in the same stdin chunk: no request and no result', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID], { home, cwd, replies: [textReply('never')] });
+  await s.until('system/init');
+  s.stdin.type(`${JSON.stringify(userLine('/exit'))}\n${JSON.stringify(userLine('after'))}\n`);
+  assert.equal(await s.done, 0);
+  assert.equal(s.fetch.calls.length, 0);
+  assert.deepEqual(kinds(parseRecords(s.out.text)), ['system/init']);
+});
+
+test('an interrupt in the same stdin chunk as an idle /cost is used up by it: a later prompt runs in full', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID], { home, cwd, replies: [textReply('again done')] });
+  await s.until('system/init');
+  const interrupt = { type: 'control_request', request_id: 'clodex-interrupt-1', request: { subtype: 'interrupt' } };
+  s.stdin.type(`${JSON.stringify(userLine('/cost'))}\n${JSON.stringify(interrupt)}\n`);
+  await s.until('result');
+  s.send(userLine('again'));
+  await s.until('result', 2);
+  s.close();
+  assert.equal(await s.done, 0);
+  assert.deepEqual(results(s).map((result) => result.result.startsWith('[clodent:cost]') || result.result), [true, 'again done']);
+  assert.equal(s.fetch.calls.length, 1);
 });
 
 test('a /clear sent during a turn is never folded: it runs after that turn, and a prompt sent after it waits for it', GUARD, async (t) => {

@@ -305,15 +305,15 @@ export function createAgent(config, deps) {
     ledger.record(model, message.usage);
     const summary = summaryOf(message);
     if (message.stop_reason !== 'end_turn' || summary.trim() === '') {
-      ledger.endTurn();
-      return { ok: false, reason: message.stop_reason === 'end_turn' ? 'empty summary' : `stop_reason ${message.stop_reason}` };
+      return { ok: false, reason: message.stop_reason === 'end_turn' ? 'empty summary' : `stop_reason ${message.stop_reason}`, turn: ledger.endTurn() };
     }
     const { preTokens, postTokens } = compactTokens(message.usage);
     history.splice(0, history.length, summaryMessage(summary));
     interruptedBefore = false;
-    emit({ type: 'compacted', trigger, summary, preTokens, postTokens, turn: ledger.endTurn() });
+    const turn = ledger.endTurn();
+    emit({ type: 'compacted', trigger, summary, preTokens, postTokens, turn });
     await fireSessionStart('compact', { signal });
-    return { ok: true, preTokens, postTokens };
+    return { ok: true, preTokens, postTokens, turn };
   }
 
   return {
