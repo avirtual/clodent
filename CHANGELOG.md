@@ -4,6 +4,11 @@ clodent was named clay up to 0.2.0.
 
 ## Unreleased
 
+- Security: hooks and the statusLine command run without `ANTHROPIC_API_KEY` and without the deny `credentials.envVars` names, also when settings `env` sets them; in hook context, deny reasons and hook warnings the key's value and each such name's value of 8 or more characters read `[redacted]`.
+- New settings key `hookContextMaxBytes` (`perHook`, default 65536; `perEvent`, default 262144; integers from 1024 to 16777216, any other value exits 2): `SessionStart`, `UserPromptSubmit`, `PostToolUse` and `PostToolUseFailure` context over a cap is cut to its head and tail around a `[clodent: hook context of <bytes> bytes truncated to <limit>]` line, with a warning and, in stream-json, a `system` `hook_context_truncated` record on stdout. `SessionStart` is exempt from `perEvent`.
+- Security: `<hook-context` and `</hook-context` inside hook context are written with `&lt;`, so a hook can no longer forge another event's frame.
+- A `SessionStart` that fires again before the next prompt, such as after two `/compact`s, replaces the held `SessionStart` context instead of adding to it.
+- An unknown `permissionDecision` warns, and denies under `onFailure: "block"`; an `onFailure` other than `"block"` or `"warn"` and a hook event name clodent does not know warn at startup.
 - Security: in `acceptEdits`, a `Write` or `Edit` runs without asking only inside the working directory and the `--add-dir`/`trustedDirectories`/`additionalDirectories` dirs; it asks, or is refused under `-p`, for a path under `.git`, `.clodent` or `.claude` and for a file a hook or statusLine command names (avirtual/clodent #6, #7).
 
 ## 0.5.1 — 2026-11-04

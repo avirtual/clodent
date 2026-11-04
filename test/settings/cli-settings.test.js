@@ -129,6 +129,15 @@ test('a compactReloadFiles setting outside 0 to 20 exits 2 with its message befo
   assert.equal(res.calls.length, 0);
 });
 
+test('a bad hookContextMaxBytes setting exits 2 with its message before any request', async (t) => {
+  const { home, cwd, dir } = await setup(t);
+  for (const [value, rest] of [[{ perHook: 1023 }, '.perHook 1023 is not an integer from 1024 to 16777216'], [{ perHook: 4096, cap: 1 }, '.cap is not perHook or perEvent']]) {
+    const settings = writeSettings(dir, { hookContextMaxBytes: value });
+    const res = await runMain(['-p', 'hi', '--settings', settings], { home, cwd });
+    assert.deepEqual([res.code, res.stderr, res.calls.length], [2, `clodent: settings ${settings}: hookContextMaxBytes${rest}\n`, 0]);
+  }
+});
+
 test('settings warnings print before the error line on an exit-2 path, in -p and REPL mode alike', async (t) => {
   const { home, cwd, dir } = await setup(t);
   const settings = writeSettings(dir, { env: { ANTHROPIC_API_KEY: 123 } });

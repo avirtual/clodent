@@ -328,17 +328,17 @@ test('a path only the sandbox denyRead names is refused to Read and to a Bash ca
   assert.deepEqual(results(res), [denied(`Read(/${user}/vault)`), denied(`Read(/${user}/vault)`), 'open\n[exit 0]']);
 });
 
-test('sandbox credentials envVars are absent from Bash env, while hooks keep the full environment', GUARD, async (t) => {
+test('sandbox credentials envVars are absent from the Bash and hook env, and the rest is kept', GUARD, async (t) => {
   const { home, cwd, dir, user } = await setup(t);
   const seen = join(dir, 'hook-env.txt');
-  const hook = await script(dir, 'pre.sh', `cat > /dev/null\nprintf '%s %s' "$GITHUB_TOKEN" "$AWS_ACCESS_KEY_ID" > ${JSON.stringify(seen)}`);
+  const hook = await script(dir, 'pre.sh', `cat > /dev/null\nprintf '%s %s %s' "\${GITHUB_TOKEN-unset}" "\${AWS_ACCESS_KEY_ID-unset}" "$KEEP_ME" > ${JSON.stringify(seen)}`);
   const settings = writeSettings(dir, { ...guardedFixture(user), hooks: { PreToolUse: [hookGroup('Bash', hook)] } });
   const uses = [['Bash', { command: "env | grep -E '^(GITHUB_TOKEN|AWS_ACCESS_KEY_ID|KEEP_ME)='" }]];
   const env = { HOME: user, GITHUB_TOKEN: 'ghp_secret', AWS_ACCESS_KEY_ID: 'AKIA', KEEP_ME: 'kept' };
   const res = await runMain(['-p', 'go', '--yolo', '--settings', settings], { home, cwd, env, responses: [toolsReply(uses), textReply('done')] });
   assert.equal(res.code, 0, res.stderr);
   assert.deepEqual(results(res), ['KEEP_ME=kept\n[exit 0]']);
-  assert.equal(readFileSync(seen, 'utf8'), 'ghp_secret AKIA');
+  assert.equal(readFileSync(seen, 'utf8'), 'unset unset kept');
 });
 
 test('--disallowedTools and --disallowed-tools add deny rules after the settings ones, enforced under --dangerously-skip-permissions', GUARD, async (t) => {
@@ -414,11 +414,11 @@ test('built-in denies refuse Read, Write, Edit and Bash reads of every loaded se
   assert.equal(existsSync(join(fresh, 'settings.json')), false);
 });
 
-test('the Bash tool never gets ANTHROPIC_API_KEY, from the environment or settings env; requests still send it and hooks keep it', GUARD, async (t) => {
+test('the Bash tool never gets ANTHROPIC_API_KEY, from the environment or settings env; requests still send it and hooks do not get it', GUARD, async (t) => {
   const { home, cwd, dir } = await setup(t);
   const key = 'sk-test-fake';
   const seen = join(dir, 'hook-key.txt');
-  const hook = await script(dir, 'pre.sh', `cat > /dev/null\nprintf '%s' "$ANTHROPIC_API_KEY" > ${JSON.stringify(seen)}`);
+  const hook = await script(dir, 'pre.sh', `cat > /dev/null\nprintf '%s' "\${ANTHROPIC_API_KEY-unset}" > ${JSON.stringify(seen)}`);
   const uses = [['Bash', { command: 'echo "k=$ANTHROPIC_API_KEY"' }]];
   const viaEnv = await runMain(['-p', 'go', '--yolo'], { home, cwd, key, responses: [toolsReply(uses), textReply('done')] });
   const settings = writeSettings(dir, { env: { ANTHROPIC_API_KEY: key }, hooks: { PreToolUse: [hookGroup('Bash', hook)] } });
@@ -430,5 +430,5 @@ test('the Bash tool never gets ANTHROPIC_API_KEY, from the environment or settin
     assert.equal(JSON.stringify(res.calls[1].body).includes(key), false);
     assert.equal(readFileSync(transcriptPath(home, cwd, res.id), 'utf8').includes(key), false);
   }
-  assert.equal(readFileSync(seen, 'utf8'), key);
+  assert.equal(readFileSync(seen, 'utf8'), 'unset');
 });

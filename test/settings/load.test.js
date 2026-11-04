@@ -201,3 +201,47 @@ test('compactReloadFiles: an integer from 0 to 20, the last one wins, absent by 
     await assert.rejects(loadSettings({ files: ['/b.json'] }, bad), { message });
   }
 });
+
+test('hookContextMaxBytes: perHook and perEvent merge per key with the defaults filled in, absent by default', async () => {
+  const fs = fakeFs({ [HOME_FILE]: { hookContextMaxBytes: { perHook: 1024 } }, '/1.json': { hookContextMaxBytes: { perEvent: 16777216 } }, '/2.json': { hookContextMaxBytes: {} } });
+  assert.deepEqual((await loadSettings({ clodentHome: HOME }, fs)).settings.hookContextMaxBytes, { perHook: 1024, perEvent: 262144 });
+  assert.deepEqual((await loadSettings({ clodentHome: HOME, files: ['/1.json'] }, fs)).settings.hookContextMaxBytes, { perHook: 1024, perEvent: 16777216 });
+  assert.deepEqual((await loadSettings({ files: ['/2.json'] }, fs)).settings.hookContextMaxBytes, { perHook: 65536, perEvent: 262144 });
+  assert.equal(Object.hasOwn((await loadSettings({ files: [] }, fs)).settings, 'hookContextMaxBytes'), false);
+});
+
+test('a bad hookContextMaxBytes value or key throws naming the path', async () => {
+  const cases = [
+    [0, ' 0 is not an object {perHook, perEvent}'],
+    ['64k', ' "64k" is not an object {perHook, perEvent}'],
+    [null, ' null is not an object {perHook, perEvent}'],
+    [{ perHook: 0 }, '.perHook 0 is not an integer from 1024 to 16777216'],
+    [{ perHook: 1023 }, '.perHook 1023 is not an integer from 1024 to 16777216'],
+    [{ perEvent: '64k' }, '.perEvent "64k" is not an integer from 1024 to 16777216'],
+    [{ perHook: 1e9 }, '.perHook 1000000000 is not an integer from 1024 to 16777216'],
+    [{ perEvent: 2048.5 }, '.perEvent 2048.5 is not an integer from 1024 to 16777216'],
+    [{ perHook: 2048, perTool: 2048 }, '.perTool is not perHook or perEvent'],
+  ];
+  for (const [value, rest] of cases) {
+    const bad = fakeFs({ '/b.json': { hookContextMaxBytes: value } });
+    await assert.rejects(loadSettings({ files: ['/b.json'] }, bad), { message: `settings /b.json: hookContextMaxBytes${rest}` });
+  }
+});
+
+test('an onFailure other than "block" or "warn" warns once and is treated as "warn"', async () => {
+  const hooks = { PreToolUse: [{ hooks: [cmd('/a', { onFailure: 'Block' }), cmd('/b', { onFailure: 'warn' }), cmd('/c', { onFailure: 1 }), cmd('/d', { onFailure: 'block' })] }] };
+  const { settings, warnings } = await loadSettings({ files: ['/1.json'] }, fakeFs({ '/1.json': { hooks } }));
+  assert.deepEqual(settings.hooks.PreToolUse[0].hooks.map((hook) => hook.onFailure), ['warn', 'warn', 'warn', 'block']);
+  assert.deepEqual(warnings, [
+    'settings /1.json: hooks.PreToolUse[0].hooks[0].onFailure "Block" is not "block" or "warn"; treated as "warn"',
+    'settings /1.json: hooks.PreToolUse[0].hooks[2].onFailure 1 is not "block" or "warn"; treated as "warn"',
+  ]);
+});
+
+test('an unknown hook event key warns once; Claude Code events clodent does not fire load silently', async () => {
+  const group = { hooks: [cmd('/x')] };
+  const hooks = { preToolUse: [group], SubagentStart: [group], SubagentStop: [group], SessionEnd: [group], PermissionRequest: [group], Stop: [group] };
+  const { settings, warnings } = await loadSettings({ files: ['/1.json'] }, fakeFs({ '/1.json': { hooks } }));
+  assert.deepEqual(warnings, ['settings /1.json: hooks.preToolUse is not a known event; it never fires']);
+  assert.deepEqual(Object.keys(settings.hooks), Object.keys(hooks));
+});

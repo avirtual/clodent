@@ -54,6 +54,7 @@ export function createAgent(config, deps) {
     if (signal?.aborted) return emptyOutcome();
     const outcome = await hooks.fire(event, extra, signal);
     for (const message of outcome.warnings) emit({ type: 'warning', message });
+    for (const { message, ...hookContext } of outcome.truncations ?? []) emit({ type: 'warning', message, hookContext });
     return outcome;
   }
 
@@ -281,7 +282,7 @@ export function createAgent(config, deps) {
 
   async function fireSessionStart(source, { signal } = {}) {
     const outcome = await fireHook('SessionStart', { source, model }, signal);
-    heldContext.push(...outcome.additionalContext);
+    heldContext = [...outcome.additionalContext];
     return outcome;
   }
 
