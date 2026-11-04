@@ -14,7 +14,7 @@ const noRealpath = async () => {
 
 function guardOf({ deny = [], ask = [] }, deps = {}) {
   const lists = { deny: parseRules(deny, 'permissions.deny', WHERE), ask: parseRules(ask, 'permissions.ask', WHERE) };
-  return createGuard(lists, { realpath: noRealpath, lstat: noRealpath, platform: 'linux', ...deps });
+  return createGuard(lists, { realpath: noRealpath, lstat: noRealpath, readdir: noRealpath, platform: 'linux', ...deps });
 }
 
 async function hiddenOf(guard, input, mode, tool = 'Grep') {

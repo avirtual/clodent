@@ -455,7 +455,7 @@ function changeDirectory(args, state) {
   if (reach === 'root') state.anywhere = true;
 }
 
-function searchesTree(cmd, args) {
+export function searchesTree(cmd, args) {
   if (cmd === 'rg') return true;
   if (cmd === 'diff') return args.some((arg) => shortHas(arg, 'r') || longMatches(arg, 'recursive'));
   if (!GREPS.has(cmd)) return false;
