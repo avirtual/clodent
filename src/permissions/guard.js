@@ -318,6 +318,7 @@ function wordPaths(command, cwd, split) {
 const UNKNOWN = '\u0000';
 const VAGUE = '\u0001';
 const WILD = /[\0\x01]/;
+const STAND_IN = '\uE007';
 const BRACE_CAP = 1024;
 const BRACE_DEPTH = 64;
 const VISIT_CAP = 10_000;
@@ -340,22 +341,36 @@ const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*\+?=/;
 const LOOP_WORDS = new Set(['do', 'while', 'until']);
 const CHANGES_DIR = new Set(['cd', 'pushd']);
 const CDPATH_FREE = /^(?:\/|\.\.?(?:\/|$))/;
+const CDPATH_SET = /^CDPATH\+?=/;
+const GLOBIGNORE_SET = /^GLOBIGNORE\+?=/;
+const OPTION = /^-[^=]*$/;
+const WRAPPERS = { env: 'uCPS', nice: 'n', nohup: '', timeout: 'ks', stdbuf: 'ioe', xargs: 'aEdIJLnPRSs' };
+const WRAPPER_VALUES = /^--(?:unset|chdir|split-string|adjustment|kill-after|signal|input|output|error|arg-file|delimiter|max-args|max-lines|max-procs|max-chars)$/;
 const OPTION_VALUES = { grep: 'ABCDdefm', egrep: 'ABCDdefm', fgrep: 'ABCDdefm', rg: 'ABCdEefgjMmrTt' };
 
 function marked(text) {
   let out = '';
   let escapes = 0;
+  let depth = 0;
+  let opener = -1;
   for (let i = 0; i < text.length; i += 1) {
     const c = text[i];
-    const special = c === '$' ? MARKED_AFTER_DOLLAR.test(text[i + 1] ?? '') : '*?[{},'.includes(c) && !(c === '{' && text[i - 1] === '$');
-    if (special) out += escapes % 2 === 0 ? '\\' : '\\\\';
+    const free = escapes % 2 === 0;
+    const after = c === '$' ? pastContinuations(text, i + 1) : i + 1;
+    if (free && c === '$' && text[after] === '{') {
+      depth += 1;
+      opener = after;
+    } else if (free && c === '}' && depth > 0) depth -= 1;
+    else if (c === '$' ? MARKED_AFTER_DOLLAR.test(text[i + 1] ?? '') : '*?[{},'.includes(c) && !(c === '{' && (i === opener || text[i - 1] === '$'))) {
+      out += free ? '\\' : '\\\\';
+    }
     out += c;
     escapes = c === '\\' ? escapes + 1 : 0;
   }
   return out;
 }
 
-const decoded = (word) => word.replace(MARKER, (_, c) => QUOTED[c]);
+const decoded = (word) => word.replace(MARKER, (_, c) => QUOTED[c]).replace(/[\0\x01]/g, STAND_IN);
 const literal = (text) => text.replace(QUOTED_CHAR, (q) => UNQUOTED[q]);
 const fold = (text) => literal(text).toLowerCase();
 
@@ -508,7 +523,7 @@ function segmentRegExp(segment, flags) {
   }
 }
 
-async function globbed(path, list, budget) {
+async function globbed(path, list, budget, dotglob) {
   let heads = [''];
   for (const segment of path.split('/')) {
     if (segment === '') continue;
@@ -525,7 +540,7 @@ async function globbed(path, list, budget) {
       budget.visited += names.length + 1;
       if (budget.visited > VISIT_CAP) return null;
       for (const name of dotted ? ['.', '..', ...names] : names) {
-        if ((dotted || name[0] !== '.') && regex.test(name)) next.push(`${head}/${name}`);
+        if ((dotted || dotglob || name[0] !== '.') && regex.test(name)) next.push(`${head}/${name}`);
       }
     }
     if (next.length === 0) return [];
@@ -550,13 +565,14 @@ function looseSegments(path) {
   return { segments: out, strong };
 }
 
-function segmentFits(segment, name) {
+function segmentFits(segment, name, dotglob) {
   if (!GLOB.test(segment)) return fold(segment) === name.toLowerCase();
+  if (!dotglob && name[0] === '.' && segment[0] !== '.') return false;
   const regex = segmentRegExp(segment, 'is');
   return !regex || regex.test(name);
 }
 
-function couldReach(segments, prefix, asRoot) {
+function couldReach(segments, prefix, asRoot, dotglob) {
   for (let j = 0; j < prefix.length; j += 1) {
     if (j === segments.length) return asRoot;
     const segment = segments[j];
@@ -564,7 +580,7 @@ function couldReach(segments, prefix, asRoot) {
       const end = segment.search(HEAD_END);
       return prefix.slice(j).join('/').toLowerCase().startsWith(fold(segment.slice(0, end)));
     }
-    if (!segmentFits(segment, prefix[j])) return false;
+    if (!segmentFits(segment, prefix[j], dotglob)) return false;
   }
   return true;
 }
@@ -589,7 +605,7 @@ async function expandWord(word, dirs, scope) {
         }
         paths.add(resolve(literal(path)));
         if (!GLOB.test(path)) continue;
-        const matched = await globbed(path, scope.list, budget);
+        const matched = await globbed(path, scope.list, budget, scope.dotglob);
         if (matched) for (const one of matched) paths.add(one);
         else loose.push(path);
       }
@@ -622,63 +638,97 @@ function searchOperands(head, args) {
   return { operands: paths, implicit: paths.length === 0 };
 }
 
+function pastWrappers(words, at) {
+  let k = at;
+  for (let name = basename(literal(words[k] ?? '')); Object.hasOwn(WRAPPERS, name); name = basename(literal(words[k] ?? ''))) {
+    k += 1;
+    for (let word = literal(words[k] ?? ''); word.startsWith('-') || (name === 'env' && ASSIGNMENT.test(word)); word = literal(words[k] ?? '')) {
+      const letter = [...word.slice(1)].findIndex((one) => WRAPPERS[name].includes(one));
+      const valued = word.startsWith('--') ? WRAPPER_VALUES.test(word) : letter !== -1 && letter + 2 === word.length;
+      k += valued ? 2 : 1;
+    }
+    if (name === 'timeout') k += 1;
+  }
+  return k;
+}
+
+const pathless = (word, k, at) => (k < at ? LEADING_WORDS.has(word) : (k === at && !word.includes('/')) || OPTION.test(word));
+
 async function reachOf(command, cwd, scope) {
   const text = marked(command);
   const dirs = new Map([[typeof cwd === 'string' ? cwd : UNKNOWN, -1]]);
-  let index = 0;
-  const add = (dir) => {
+  const add = (dir, at) => {
     const one = dirs.has(dir) || dirs.size < DIR_CAP ? dir : UNKNOWN;
-    if (!dirs.has(one)) dirs.set(one, index);
+    if (!dirs.has(one) || dirs.get(one) > at) dirs.set(one, at);
   };
-  const cdScope = { ...scope, cdpath: scope.env?.CDPATH ? scope.env.CDPATH.split(':') : null };
   const searches = [];
   const pieces = [];
-  let loops = false;
+  const cds = [];
+  let anyOrder = false;
+  let cdpathAt = Infinity;
+  let dotglob = false;
+  let index = 0;
   for (const piece of simpleCommands(text)) {
     index += 1;
     const words = shellWords(piece).map(decoded);
-    pieces.push({ words, index });
     let at = 0;
     while (at < words.length && (LEADING_WORDS.has(words[at]) || ASSIGNMENT.test(words[at]))) at += 1;
-    loops ||= words.slice(0, at).some((word) => LOOP_WORDS.has(word));
     const [head, ...args] = words.slice(at);
+    anyOrder ||= head === 'trap' || words.slice(0, at).some((word) => LOOP_WORDS.has(word));
+    if (words.some((word) => CDPATH_SET.test(word))) cdpathAt = Math.min(cdpathAt, index);
+    dotglob ||= words.some((word) => GLOBIGNORE_SET.test(word)) || (head === 'shopt' && args.includes('dotglob'));
+    pieces.push({ words: words.filter((word, k) => !pathless(word, k, at)), index });
     if (head === undefined) continue;
-    if (CHANGES_DIR.has(head)) {
+    if (CHANGES_DIR.has(head)) cds.push({ head, args, index });
+    const call = pastWrappers(words, at);
+    if (call >= words.length) continue;
+    const name = basename(literal(words[call]));
+    const rest = words.slice(call + 1);
+    if (searchesTree(name, rest.map(literal))) searches.push({ head: name, index, ...searchOperands(name, rest) });
+  }
+  const wordScope = { ...scope, dotglob };
+  const cdScope = { ...wordScope, cdpath: scope.env?.CDPATH ? scope.env.CDPATH.split(':') : [] };
+  const vagueScope = { ...cdScope, cdpath: [...cdScope.cdpath, VAGUE] };
+  const scopeAt = (at) => ((anyOrder ? cdpathAt < Infinity : at >= cdpathAt) ? vagueScope : cdScope);
+  const tried = new Set();
+  for (let fresh = true; fresh; ) {
+    fresh = false;
+    for (const { head, args, index: at } of cds) {
       const target = args.find((arg) => arg === '-' || !arg.startsWith('-'));
       if (target === undefined) {
-        if (head === 'cd') add(scope.home ?? UNKNOWN);
-      } else if (target === '-') add(UNKNOWN);
+        if (head === 'cd') add(scope.home ?? UNKNOWN, at);
+      } else if (target === '-') add(UNKNOWN, at);
       else if (head === 'cd' || !/^\+\d+$/.test(target)) {
         for (const dir of [...dirs.keys()]) {
-          const { paths, loose } = await expandWord(target, [dir], cdScope);
-          paths.forEach(add);
-          if (loose.length > 0) add(loose.some((path) => looseSegments(path).strong) ? UNKNOWN : VAGUE);
+          const key = `${at}:${dir}`;
+          if (tried.has(key) || (anyOrder ? dirs.get(dir) === at : dirs.get(dir) >= at)) continue;
+          tried.add(key);
+          fresh = true;
+          const { paths, loose } = await expandWord(target, [dir], scopeAt(at));
+          paths.forEach((path) => add(path, at));
+          if (loose.length > 0) add(loose.some((path) => looseSegments(path).strong) ? UNKNOWN : VAGUE, at);
         }
       }
     }
-    const name = basename(literal(head));
-    if (searchesTree(name, args.map(literal))) searches.push({ head: name, index, ...searchOperands(name, args) });
   }
   const paths = new Set();
   const loose = [];
   const all = [...dirs.keys()];
-  const dirsAt = (at) => all.filter((dir) => loops || !WILD.test(dir) || dirs.get(dir) < at);
+  const dirsAt = (at) => all.filter((dir) => anyOrder || !WILD.test(dir) || dirs.get(dir) < at);
   const resolveWords = async (words, against) => {
     for (const word of words) {
       const at = word.indexOf('=');
       for (const one of at === -1 ? [word] : [word, word.slice(at + 1)]) {
-        const reach = await expandWord(one, against, scope);
+        const reach = await expandWord(one, against, wordScope);
         reach.paths.forEach((path) => paths.add(path));
         loose.push(...reach.loose.map(looseSegments));
       }
     }
   };
-  await resolveWords(shellWords(text).map(decoded), dirsAt(0));
-  if (!loops) {
-    for (const { words, index: at } of pieces) {
-      const later = all.filter((dir) => WILD.test(dir) && dirs.get(dir) >= 0 && dirs.get(dir) < at);
-      if (later.length > 0) await resolveWords(words, later);
-    }
+  await resolveWords(shellWords(text).map(decoded), all.filter((dir) => !WILD.test(dir) || dirs.get(dir) < 0));
+  for (const { words, index: at } of pieces) {
+    const later = all.filter((dir) => WILD.test(dir) && dirs.get(dir) >= 0 && (anyOrder || dirs.get(dir) < at));
+    if (later.length > 0) await resolveWords(words, later);
   }
   const roots = [];
   for (const { head, operands, implicit, index: at } of searches) {
@@ -688,12 +738,12 @@ async function reachOf(command, cwd, scope) {
       against.filter((dir) => !WILD.test(dir)).forEach((dir) => paths.add(dir));
     }
     for (const operand of operands) {
-      const reach = await expandWord(operand, against, scope);
+      const reach = await expandWord(operand, against, wordScope);
       roots.push(...[...reach.paths, ...reach.loose].map((path) => ({ head, ...looseSegments(path) })));
     }
   }
   const spelled = [...paths].flatMap((path) => (DATA_PREFIX.test(path) ? [path, path.replace(DATA_PREFIX, '')] : [path]));
-  return { paths: spelled, loose, roots };
+  return { paths: spelled, loose, roots, dotglob };
 }
 
 const shown = (segments) => literal(`/${segments.join('/')}`).replace(/[\0\x01]+/g, '…');
@@ -726,9 +776,9 @@ function bashMatch(rules, command, cwd, readOnly, forms, reaches, pass = PRECISE
 function looseMatch(rules, reaches, forms, readOnly, strong) {
   for (const rule of rules) {
     if (rule.kind !== 'path' || rule.bash === null || (rule.bash !== 'read' && readOnly())) continue;
-    const { loose, roots } = reaches.get(rule.home);
+    const { loose, roots, dotglob } = reaches.get(rule.home);
     const prefixes = forms.get(rule).map((form) => form.prefix);
-    const reaching = (asRoot) => (one) => one.strong === strong && prefixes.some((prefix) => couldReach(one.segments, prefix, asRoot));
+    const reaching = (asRoot) => (one) => one.strong === strong && prefixes.some((prefix) => couldReach(one.segments, prefix, asRoot, dotglob));
     const word = loose.find(reaching(false));
     if (word) return { rule, reason: `${shown(word.segments)} may name a path ${rule.text} guards` };
     const root = rule.bash === 'read' && roots.find(reaching(true));
