@@ -102,10 +102,11 @@ test('accept-edits allows a Write inside the cwd or an extra dir', () => {
   }
 });
 
-test('accept-edits asks for a Write outside the cwd and the extra dirs, compared on whole path segments', () => {
+test('accept-edits asks for a Write outside the cwd and the extra dirs, compared on whole path segments, or with no file_path', () => {
   for (const file_path of ['/work-other/x', '../x', '/home/u/.bashrc']) {
     assert.deepEqual(decide(WRITE, { file_path }, 'accept-edits', '/work', SCOPE), ASKED, file_path);
   }
+  assert.deepEqual(decide(WRITE, {}, 'accept-edits', '/work', SCOPE), ASKED);
 });
 
 test('accept-edits asks for a Write with a .git, .clodent or .claude component in any case', () => {
