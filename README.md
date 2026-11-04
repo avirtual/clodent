@@ -328,16 +328,16 @@ Slash commands: a submitted line is a command when it was typed, with no paste i
 
 Reloading files after a compact, unless `compactReloadFiles` is 0 or the `Read` tool is not sent:
 
-- The files: the text after the colon of the summary's last line whose trim starts with `Files to reload:` once leading `` ` ``, `*`, `#` and spaces are dropped (a `` ` `` or `*` among those is also dropped from both ends of that text), then the lines after that line, up to the first blank line or the end, each trimmed, less one leading `- ` or `* ` and surrounding backticks; empty entries left are dropped. When that text, cleaned, is `none` (in any case), no file. When no line starts so, the `file_path` of the history's `Read`, `Edit` and `Write` calls, most recent first. A relative path resolves against the working directory; duplicates are dropped and the first `compactReloadFiles` kept. The summary text stays as the model wrote it, the list included.
-- Each file, in order, is read with the `Read` tool's defaults (its 32 KiB cap included) after the screen a model `Read` gets: the settings deny rules (the `sandbox` block's included), the ask rules and the mode. Nothing asks: a file a deny rule matches is skipped as `denied`, and one an ask rule matches as `ask` unless the mode is `--yolo`, which never asks. A missing file, a directory or any other `Read` error is skipped with the error text as the reason.
+- The files: the text after the colon of the summary's last line whose trim starts with `Files to reload:` once leading `` ` ``, `*`, `#` and spaces are dropped (when a `` ` `` or `*` is among those, the run of `` ` `` and `*` right after the colon, or else at the end of that text, is dropped too), then the lines after that line, up to the first blank line or the end, each trimmed, less one leading `- ` or `* ` and surrounding backticks; when that text is empty, blank lines right after the line are skipped first; empty entries left are dropped. When that text, cleaned, is `none` (in any case), no file. When no line starts so, or no entry is left, the `file_path` of the history's `Read`, `Edit` and `Write` calls whose result was not an error, most recent first, so a call a hook or rule refused, or one that failed, is left out. A relative path resolves against the working directory; duplicates are dropped and the first `compactReloadFiles` kept. The summary text stays as the model wrote it, the list included.
+- Each file, in order, is read with the `Read` tool's defaults (its 32 KiB cap included) after the screen a model `Read` gets: the `PreToolUse` hooks (see [Hooks](#hooks)), the settings deny rules (the `sandbox` block's included), the ask rules and the mode. Nothing asks: a file a hook denies or asks about is skipped as `hook` in every mode, one a deny rule matches as `denied`, and one an ask rule matches as `ask` unless the mode is `--yolo`, which never asks. A hook `updatedInput` replaces the `Read` input, as for a model call, and the rules screen that input; the file's block and lines still name the listed path. A missing file, a directory or any other `Read` error is skipped with the error text as the reason.
 - The outputs may total 64 KiB (65536 bytes). A file that would pass that is skipped as `budget`; a later, smaller one may still fit. The `SessionStart` context does not count.
 - Each reloaded file's block is `Contents of <absolute path> at compact time (Read tool output):\n\n<output>`. A skipped file's content goes nowhere, and the message does not name the skipped files.
-- A reload is not a tool call: no `PreToolUse`, `PostToolUse`, `PostToolUseFailure` or `Notification` hook fires, no `● <Tool>` line prints, and no `tool_use`, `tool_result` or `permission` event and no tool results record is written.
-- ^C during the reads stops the remaining ones, each skipped as `interrupted`; the compact still succeeds with the files read.
+- A reload is not a tool call: apart from `PreToolUse`, no hook fires (no `PostToolUse`, `PostToolUseFailure` or `Notification`), no `● <Tool>` line prints, and no `tool_use`, `tool_result` or `permission` event and no tool results record is written.
+- ^C during the reads or their `PreToolUse` hooks kills the running hooks and stops the remaining reads, each skipped as `interrupted`, the file whose hooks it stopped included; the compact still succeeds with the files read.
 
 A compact is not a turn: it fires no `Stop` hook and writes no `turn_duration` record. Print mode has no compact.
 
-Permission ask: in the default mode, a write or exec tool call that no hook allowed or denied waits for an answer, unless it is a read-only `Bash` command (see [Read-only Bash](#read-only-bash)). In `--permission-mode acceptEdits` write tools run, so only a `Bash` command that is not read-only waits. So does any call a settings ask rule matches, even one a hook allowed; a call a deny rule matches is refused without asking (see [Permission rules](#permission-rules)). The `--yolo` and `--read-only` modes, whichever flag names them, never ask, and print mode refuses the call instead.
+Permission ask: in the default mode, a write or exec tool call that no hook allowed or denied waits for an answer, unless it is a read-only `Bash` command (see [Read-only Bash](#read-only-bash)). In `--permission-mode acceptEdits` write tools run, so only a `Bash` command that is not read-only waits. So does any call a settings ask rule matches, even one a hook allowed, and any call a hook asks about, a read included; a call a deny rule matches is refused without asking (see [Permission rules](#permission-rules)). The `--yolo` and `--read-only` modes, whichever flag names them, never ask, and print mode refuses the call instead.
 
 1. clodent prints `[clodent:permit <Tool> <tool_use id>] <summary>` on its own line, with the summary of the `● <Tool> <summary>` line; with an empty summary the line ends at `]`.
 2. It writes `Allow? [y/n] ` and starts reading one line.
@@ -705,7 +705,7 @@ When each event fires:
 |---|---|
 | `SessionStart` | once, after the `[clodent:session]` line and before the prompt: `source` is `resume` with `--resume`, else `startup`; from the REPL or a stream-json slash command, again after `/clear` with `source` `clear`, and after a successful `/compact` with `source` `compact` |
 | `UserPromptSubmit` | before the prompt joins the history |
-| `PreToolUse` | before each call of a known tool, before the permission decision; a call of an unknown tool fires no hook, and neither does a `/compact` file reload, which fires no tool hook at all (see [REPL](#repl)) |
+| `PreToolUse` | before each call of a known tool, before the permission decision, and before each `/compact` file reload, which fires no other hook (see [REPL](#repl)); a call of an unknown tool fires no hook |
 | `PostToolUse` | after a tool that ran returns a result that is not an error |
 | `PostToolUseFailure` | instead of `PostToolUse`, when that result is an error; a refused call never ran, so neither fires |
 | `Stop` | once at the end of the turn, after the `turn_duration` record; its output is ignored apart from warnings |
@@ -718,10 +718,10 @@ The permission decision for a tool call goes in this order:
 
 1. A hook `deny` wins: the call does not run and the model gets the hook's reason as an error tool result.
 2. A settings deny rule refuses the call in every mode, `--yolo` included (see [Permission rules](#permission-rules)); a hook `allow` does not override it.
-3. A settings ask rule asks in the REPL's default and `acceptEdits` modes; `-p` and `--read-only` refuse the call instead, and `--yolo` runs it. A hook `allow` does not skip the ask.
+3. A settings ask rule or a hook `ask` asks in the REPL's default and `acceptEdits` modes, for read tools too; `-p` and `--read-only` refuse the call instead, and `--yolo` runs it. A hook `allow` does not skip the ask.
 4. `--read-only` refuses write tools and any Bash command that is not read-only; a hook `allow` does not override it.
 5. A hook `allow` runs the call without the default or `acceptEdits` mode's ask or refusal.
-6. A hook `ask`, or no decision, leaves it to the mode (see [Print mode](#print-mode)); in the REPL the default and `acceptEdits` modes ask (see [REPL](#repl)).
+6. No hook decision leaves it to the mode (see [Print mode](#print-mode)); in the REPL the default and `acceptEdits` modes ask (see [REPL](#repl)).
 
 A hook `updatedInput` replaces the input before the decision and the run, and the `tool_use` event and the `● <Tool> <summary>` line show it. The history sent to the API keeps the model's own `tool_use` block; the transcript's `toolUseResult.input` records the input that ran.
 
@@ -754,7 +754,7 @@ stdin is one JSON object followed by a newline, then closed. Every event sends `
 |---|---|
 | `SessionStart` | `source`: `startup`, `resume`, `clear` or `compact`; `model`: the session's model id |
 | `UserPromptSubmit` | `prompt` |
-| `PreToolUse` | `tool_name`, `tool_input`, `tool_use_id` |
+| `PreToolUse` | `tool_name`, `tool_input`, `tool_use_id`; for a `/compact` file reload, `tool_name` `Read`, `tool_input` `{"file_path": "<absolute path>"}` and `tool_use_id` `compact-reload-<n>`, where `<n>` is the file's place in the reload list, from 1 |
 | `PostToolUse` | `tool_name`, `tool_input` (the input that ran), `tool_use_id`, `tool_response`: `{content, isError}` |
 | `PostToolUseFailure` | the `PostToolUse` fields, and `error`: the result text |
 | `Notification` | a permission prompt sends `notification_type: "permission_prompt"`, `title: "Permission needed"`, `message: "clodent needs your permission to use <Tool>"`, `tool` and `id` |
@@ -773,10 +773,10 @@ Running:
 
 Results, per command:
 
-- Exit 0 with stdout that is a JSON object: clodent reads `hookSpecificOutput.additionalContext` (a string, added to the model's context) on every event. On `PreToolUse` only it also reads `hookSpecificOutput.permissionDecision` (`allow`, `deny` or `ask`), `hookSpecificOutput.permissionDecisionReason` and `hookSpecificOutput.updatedInput` (an object that replaces the tool input).
-- Exit 0 with non-empty stdout that is not a JSON object: on `SessionStart` and `UserPromptSubmit` the text, without trailing whitespace, is added as context. On any other event it is ignored with the warning `invalid JSON ignored`.
+- Exit 0 with stdout that is a JSON object: clodent reads `hookSpecificOutput.additionalContext` (a string, added to the model's context) on every event. On `PreToolUse` only it also reads `hookSpecificOutput.permissionDecision` (`allow`, `deny` or `ask`), `hookSpecificOutput.permissionDecisionReason` and `hookSpecificOutput.updatedInput` (an object that replaces the tool input), and a top-level `"decision": "block"`, Claude's older shape, is a deny whatever `permissionDecision` says, with the top-level `reason` as its reason (`blocked by hook` when that is missing or empty); `"decision": "approve"` is ignored.
+- Exit 0 with non-empty stdout that is not a JSON object: on `SessionStart` and `UserPromptSubmit` the text, without trailing whitespace, is added as context. On any other event it is ignored with the warning `invalid JSON ignored`; on `PreToolUse` it is also a failure (below).
 - Exit 2: on `PreToolUse` the tool call is denied, with stderr (trimmed) as the reason, or `blocked by hook` when stderr is empty. On any other event it is a warning.
-- Any other exit code, death by a signal, a timeout or a failure to start is a failure. On `PreToolUse`, an entry with `"onFailure": "block"` turns it into a deny with the reason `hook failed: <exit <n>|timeout|aborted|killed by <signal>|<error message>>`. Otherwise it is a warning and the turn continues. Only `PreToolUse` can block.
+- Any other exit code, death by a signal, a timeout or a failure to start is a failure; on `PreToolUse`, so is exit 0 with stdout cut at 1 MiB, or non-empty and not a JSON object. On `PreToolUse`, an entry with `"onFailure": "block"` turns a failure into a deny with the reason `hook failed: <exit <n>|timeout|aborted|killed by <signal>|<error message>|stdout over 1 MiB truncated|invalid JSON>`. Otherwise a failure is a warning (for those exit-0 cases, the warnings above) and the turn continues. Only `PreToolUse` can block.
 
 Combining: a deny beats an ask, and an ask beats an allow. The reason comes from the first command, in config order, that gave the winning decision; a JSON deny without a reason reads `blocked by hook`. The last `updatedInput` in config order wins. Context strings keep config order, and empty or whitespace-only ones are dropped.
 

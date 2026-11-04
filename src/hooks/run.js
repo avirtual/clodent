@@ -16,6 +16,7 @@ const TOOL_EVENTS = new Set(['PreToolUse', 'PostToolUse', 'PostToolUseFailure'])
 const PLAIN_TEXT_EVENTS = new Set(['SessionStart', 'UserPromptSubmit']);
 const DECISIONS = new Set(['allow', 'deny', 'ask']);
 const BLOCKED = 'blocked by hook';
+const TRUNCATED = 'stdout over 1 MiB truncated';
 
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -52,18 +53,24 @@ function groupMatches(event, matcher, input, warnings) {
   return re.test(String(matcherSubject(event, input) ?? ''));
 }
 
+function textOrNull(value) {
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
 function readJsonOutput(event, parsed) {
   const result = {};
-  const output = parsed.hookSpecificOutput;
-  if (!isObject(output)) return result;
+  const output = isObject(parsed.hookSpecificOutput) ? parsed.hookSpecificOutput : {};
   if (typeof output.additionalContext === 'string' && output.additionalContext.trim() !== '') {
     result.context = output.additionalContext;
   }
   if (event !== 'PreToolUse') return result;
   if (DECISIONS.has(output.permissionDecision)) {
     result.decision = output.permissionDecision;
-    const reason = typeof output.permissionDecisionReason === 'string' && output.permissionDecisionReason !== '' ? output.permissionDecisionReason : null;
-    result.reason = reason ?? (result.decision === 'deny' ? BLOCKED : null);
+    result.reason = textOrNull(output.permissionDecisionReason) ?? (result.decision === 'deny' ? BLOCKED : null);
+  }
+  if (parsed.decision === 'block' && result.decision !== 'deny') {
+    result.decision = 'deny';
+    result.reason = textOrNull(parsed.reason) ?? BLOCKED;
   }
   if (isObject(output.updatedInput)) result.updatedInput = output.updatedInput;
   return result;
@@ -73,7 +80,16 @@ function interpret(event, entry, res) {
   const label = `hook ${event} "${commandLabel(entry.command)}"`;
   const result = interpretOutput(event, entry, res, label);
   if (!res.truncated) return result;
-  return { ...result, warnings: [`${label}: stdout over 1 MiB truncated`, ...(result.warnings ?? [])] };
+  return { ...result, warnings: [`${label}: ${TRUNCATED}`, ...(result.warnings ?? [])] };
+}
+
+function parseObject(text) {
+  try {
+    const parsed = JSON.parse(text);
+    return isObject(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 function interpretOutput(event, entry, res, label) {
@@ -87,12 +103,12 @@ function interpretOutput(event, entry, res, label) {
     return { warnings: [`${label}: ${failure}`] };
   }
   const text = res.stdout.trim();
+  const parsed = text === '' ? null : parseObject(text);
+  if (event === 'PreToolUse' && entry.onFailure === 'block' && (res.truncated || (text !== '' && !parsed))) {
+    return { decision: 'deny', reason: `hook failed: ${res.truncated ? TRUNCATED : 'invalid JSON'}` };
+  }
   if (text === '') return {};
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch {}
-  if (isObject(parsed)) return readJsonOutput(event, parsed);
+  if (parsed) return readJsonOutput(event, parsed);
   if (PLAIN_TEXT_EVENTS.has(event)) return { context: res.stdout.trimEnd() };
   return { warnings: [`${label}: invalid JSON ignored`] };
 }

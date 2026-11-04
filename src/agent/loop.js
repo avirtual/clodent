@@ -13,8 +13,9 @@ export const USER_DENIAL = 'denied by the user';
 export const MID_STREAM_DELAYS_MS = Object.freeze([2000, 4000]);
 const MID_STREAM_RETRYABLE = new Set(['overloaded_error', 'api_error']);
 const ALLOWED = Object.freeze({ allow: true });
-const NO_HOOK_DECISION = Object.freeze({});
 const RELOAD_SKIPS = Object.freeze({ deny: 'denied', ask: 'ask' });
+const RELOAD_HOOK_SKIP = 'hook';
+const RELOAD_USE_ID = 'compact-reload-';
 
 function isMidStreamRetryable(err) {
   return err instanceof ApiError && err.status === null && MID_STREAM_RETRYABLE.has(err.type);
@@ -110,7 +111,7 @@ export function createAgent(config, deps) {
   function verdictFor(tool, input, pre, ruled) {
     if (pre.decision === 'deny') return { allow: false, reason: pre.reason };
     if (ruled?.decision === 'deny') return { allow: false, reason: denialReason(ruled.rule) };
-    if (ruled?.decision === 'ask' && permission !== 'yolo') return { allow: false, ask: asksInMode(permission), reason: ASK_DENIAL };
+    if ((ruled?.decision === 'ask' || pre.decision === 'ask') && permission !== 'yolo') return { allow: false, ask: asksInMode(permission), reason: ASK_DENIAL };
     if (pre.decision === 'allow' && asksInMode(permission)) return ALLOWED;
     return decide(tool, input, permission);
   }
@@ -293,11 +294,14 @@ export function createAgent(config, deps) {
     }
   }
 
-  async function reloadOne(path, signal) {
-    const input = { file_path: path };
+  async function reloadOne(path, number, signal) {
+    const pre = await fireHook('PreToolUse', { tool_name: 'Read', tool_input: { file_path: path }, tool_use_id: `${RELOAD_USE_ID}${number}` }, signal);
+    if (signal?.aborted) return { reason: 'interrupted' };
+    if (pre.decision === 'deny' || pre.decision === 'ask') return { reason: RELOAD_HOOK_SKIP };
+    const input = pre.updatedInput ?? { file_path: path };
     const ruled = guard.active ? (await guard.screen('Read', input, deps.cwd, permission)).ruled : null;
     const tool = byName.get('Read');
-    const verdict = verdictFor(tool, input, NO_HOOK_DECISION, ruled);
+    const verdict = verdictFor(tool, input, pre, ruled);
     if (!verdict.allow) return { reason: RELOAD_SKIPS[ruled?.decision] ?? verdict.reason };
     try {
       const outcome = await tool.run(input, { cwd: deps.cwd, env: deps.env, signal, hidden: null });
@@ -310,8 +314,8 @@ export function createAgent(config, deps) {
   async function reloadFiles(paths, signal) {
     const files = { blocks: [], reloaded: [], skipped: [] };
     let spent = 0;
-    for (const path of paths) {
-      const { output, reason } = signal?.aborted ? { reason: 'interrupted' } : await reloadOne(path, signal);
+    for (const [index, path] of paths.entries()) {
+      const { output, reason } = signal?.aborted ? { reason: 'interrupted' } : await reloadOne(path, index + 1, signal);
       const bytes = output === undefined ? 0 : Buffer.byteLength(output);
       const skip = reason ?? (spent + bytes > RELOAD_BUDGET_BYTES ? 'budget' : null);
       if (skip !== null) {

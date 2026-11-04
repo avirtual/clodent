@@ -15,13 +15,13 @@ import { plant, useTempDir } from '../tools/tmp-dir.js';
 
 const MODEL = 'claude-opus-5-5';
 
-function harness(responses, { tools = [], permission = 'yolo', budgetUsd, cwd = '/work', onEvent, sleep, history, interrupted, hooks, cacheTtl } = {}) {
+function harness(responses, { tools = [], permission = 'yolo', budgetUsd, cwd = '/work', onEvent, sleep, history, interrupted, hooks, cacheTtl, ask } = {}) {
   const events = [];
   const sleeps = [];
   const fetch = createFakeFetch(responses);
   const ledger = createLedger({ budgetUsd }, {});
   const agent = createAgent(
-    { model: MODEL, system: 'You are a test.', tools, permission, history, interrupted, cacheTtl },
+    { model: MODEL, system: 'You are a test.', tools, permission, history, interrupted, cacheTtl, ask },
     {
       fetch,
       env: { ANTHROPIC_API_KEY: 'sk-test' },
@@ -246,6 +246,27 @@ test('an interrupt that lands during PreToolUse stops the call before it runs', 
   await h.agent.runTurn('go', { signal: controller.signal });
   assert.deepEqual(log, []);
   assert.deepEqual(h.of('tool_result').map((e) => [e.id, e.content, e.isError]), [['toolu_1', INTERRUPTED_RESULT, true]]);
+});
+
+test('a PreToolUse ask on a read tool asks like a settings ask rule: in the ask and accept-edits modes, refused with ASK_DENIAL without an ask answer or under read-only, run under yolo', async () => {
+  const hooks = { fire: async (event) => ({ ...emptyOutcome(), ...(event === 'PreToolUse' ? { decision: 'ask', reason: 'hook asks' } : {}) }) };
+  const cases = [
+    ['ask', true, 'allow', 1],
+    ['accept-edits', true, 'allow', 1],
+    ['ask', false, 'deny', 0],
+    ['read-only', true, 'deny', 0],
+    ['yolo', true, 'allow', 0],
+  ];
+  for (const [permission, answers, decision, asks] of cases) {
+    const log = [];
+    const asked = [];
+    const ask = answers ? async (request) => (asked.push(request.id), { allow: true }) : undefined;
+    const h = harness([toolReply([{ name: 'R', input: { n: 1 } }]), textReply('done')], { tools: [fakeTool('R', 'read', log)], permission, hooks, ask });
+    await h.agent.runTurn('go');
+    const label = `${permission} ${answers ? 'with' : 'without'} an ask answer`;
+    assert.deepEqual([h.of('permission')[0].decision, asked.length, log.length], [decision, asks, decision === 'allow' ? 1 : 0], label);
+    if (decision === 'deny') assert.equal(h.of('permission')[0].reason, ASK_DENIAL, label);
+  }
 });
 
 test('Stop context is dropped: the next turn of the same agent does not carry it', async () => {
