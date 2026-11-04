@@ -55,7 +55,7 @@ function copyTools(tools) {
 }
 
 export function buildRequest(
-  { model, system, tools = [], messages, effort, maxTokens = DEFAULT_MAX_TOKENS, baseUrl, toolChoice },
+  { model, system, tools = [], messages, effort, maxTokens = DEFAULT_MAX_TOKENS, baseUrl, toolChoice, sessionId },
   deps,
 ) {
   if (effort !== undefined && effort !== null && !EFFORTS.includes(effort)) {
@@ -78,6 +78,7 @@ export function buildRequest(
   body.messages = copyMessages(messages);
   body.thinking = { type: 'adaptive' };
   if (effort !== undefined && effort !== null) body.output_config = { effort };
+  if (sessionId !== undefined && sessionId !== null) body.metadata = { user_id: JSON.stringify({ session_id: sessionId }) };
 
   return {
     url: apiUrl(baseUrl),

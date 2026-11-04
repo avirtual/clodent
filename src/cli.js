@@ -191,6 +191,7 @@ function createRuntime(prep, opts, deps, render) {
         effort: opts.effort ?? settings.effortLevel,
         system: current.system,
         baseUrl,
+        sessionId: session.sessionId,
         tools,
         permission: opts.permission,
         history: session.history,

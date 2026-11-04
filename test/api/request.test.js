@@ -116,6 +116,18 @@ test('toolChoice maps to tool_choice only when set', () => {
   assert.deepEqual(buildRequest(base({ toolChoice: { type: 'none' } }), deps).body.tool_choice, { type: 'none' });
 });
 
+test('sessionId maps to metadata.user_id as a JSON string only when set, and leaves the cache breakpoints alone', () => {
+  const id = '11111111-2222-4333-8444-555555555555';
+  assert.equal('metadata' in buildRequest(base(), deps).body, false);
+  assert.equal('metadata' in buildRequest(base({ sessionId: null }), deps).body, false);
+  const plain = buildRequest(base(), deps);
+  const req = buildRequest(base({ sessionId: id }), deps);
+  assert.deepEqual(req.body.metadata, { user_id: `{"session_id":"${id}"}` });
+  const { metadata: _metadata, ...rest } = req.body;
+  assert.deepEqual(rest, plain.body);
+  assert.deepEqual(req.headers, plain.headers);
+});
+
 test('an invalid effort throws', () => {
   for (const effort of ['ultra', 'MAX', 'HIGH', '', 3]) {
     assert.throws(() => buildRequest(base({ effort }), deps), /invalid effort/);
