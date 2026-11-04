@@ -228,6 +228,15 @@ test('a bare Bash deny leaves every mention of a shell out of the system prompt;
   assert.match(sent.calls[0].body.system[0].text, /you read and search files, edit and create them, and run shell commands\. /);
 });
 
+test('a bare Read deny leaves reading files out of the system prompt', GUARD, async (t) => {
+  const { home, cwd, dir } = await setup(t);
+  const settings = writeSettings(dir, { permissions: { deny: ['Read'] } });
+  const res = await runMain(['-p', 'go', '--settings', settings], { home, cwd, responses: [textReply('done')] });
+  assert.equal(res.code, 0, res.stderr);
+  assert.equal(res.calls[0].body.tools.some((tool) => tool.name === 'Read'), false);
+  assert.doesNotMatch(res.calls[0].body.system[0].text, /read (and search )?files/);
+});
+
 test('Bash under --yolo: a Read path mention and a Bash(prefix:*) rule deny; an Edit path passes a read-only command only', GUARD, async (t) => {
   const { home, cwd, dir, user } = await setup(t);
   await plant(user, { '.ssh/id_rsa': 'KEY', 'notes/n.txt': 'note' });

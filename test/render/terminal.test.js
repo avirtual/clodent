@@ -184,16 +184,16 @@ test('a permission_request with an empty summary has no trailing space, as the t
 
 test('compacted prints the compacted line, then the cost line of the summary request', () => {
   const { out, render } = setup('repl');
-  render({ type: 'compacted', trigger: 'manual', summary: 'secret summary', preTokens: 1200, postTokens: 45, turn: agg() });
+  render({ type: 'compacted', trigger: 'manual', summary: 'secret summary', reloaded: [], skipped: [], preTokens: 1200, postTokens: 45, turn: agg() });
   assert.equal(out.text(), `clodent: conversation compacted (1200 → 45 tokens)\n${COST}\n`);
 });
 
 test('a compact on an unpriced model prints the unpriced warning once, before its cost line', () => {
   const { out, render } = setup('repl');
   const WARN = '[clodent:cost] warning: no price for model x-model; cost not counted';
-  render({ type: 'compacted', trigger: 'manual', summary: 's', preTokens: 1200, postTokens: 45, turn: agg(['x-model']) });
+  render({ type: 'compacted', trigger: 'manual', summary: 's', reloaded: [], skipped: [], preTokens: 1200, postTokens: 45, turn: agg(['x-model']) });
   render({ type: 'turn_end', stopReason: 'end_turn', turn: agg(['x-model']) });
-  render({ type: 'compacted', trigger: 'manual', summary: 's', preTokens: 50, postTokens: 5, turn: agg(['x-model']) });
+  render({ type: 'compacted', trigger: 'manual', summary: 's', reloaded: [], skipped: [], preTokens: 50, postTokens: 5, turn: agg(['x-model']) });
   const lines = out.text().split('\n');
   assert.deepEqual(lines.slice(0, 3), ['clodent: conversation compacted (1200 → 45 tokens)', WARN, COST]);
   assert.equal(lines.filter((l) => l === WARN).length, 1);

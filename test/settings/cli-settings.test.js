@@ -120,6 +120,15 @@ test('an invalid settings file exits 2 with the loader error before any request'
   assert.equal(res.calls.length, 0);
 });
 
+test('a compactReloadFiles setting outside 0 to 20 exits 2 with its message before any request', async (t) => {
+  const { home, cwd, dir } = await setup(t);
+  const settings = writeSettings(dir, { compactReloadFiles: 21 });
+  const res = await runMain(['-p', 'hi', '--settings', settings], { home, cwd });
+  assert.equal(res.code, 2);
+  assert.equal(res.stderr, `clodent: settings ${settings}: compactReloadFiles 21 is not an integer from 0 to 20\n`);
+  assert.equal(res.calls.length, 0);
+});
+
 test('settings warnings print before the error line on an exit-2 path, in -p and REPL mode alike', async (t) => {
   const { home, cwd, dir } = await setup(t);
   const settings = writeSettings(dir, { env: { ANTHROPIC_API_KEY: 123 } });

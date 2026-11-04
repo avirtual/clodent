@@ -120,7 +120,7 @@ test('a live compact replays as the summary alone, and later turns replay after 
   const [boundary, summary] = loaded.records.slice(-2);
   assert.equal(boundary.parentUuid, null);
   assert.equal(boundary.logicalParentUuid, before);
-  assert.deepEqual(boundary.compactMetadata, { trigger: 'manual', preTokens: 100, postTokens: 20 });
+  assert.deepEqual(boundary.compactMetadata, { trigger: 'manual', preTokens: 100, postTokens: 20, reloadedFiles: [] });
   assert.equal(summary.parentUuid, boundary.uuid);
   await live.turn('second');
   loaded = loadTranscript(path, fs);

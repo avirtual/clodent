@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { COMPACT_PROMPT, SUMMARY_PREFIX } from '../../src/agent/compact.js';
+import { COMPACT_PROMPT, reloadRequest, SUMMARY_PREFIX } from '../../src/agent/compact.js';
 import { transcriptPath } from '../../src/session/paths.js';
 import { hookGroup, readJsonl, runMain, strip, textReply, writeSettings } from '../helpers/run-main.js';
 import { sse } from '../helpers/sse-builder.js';
@@ -54,7 +54,7 @@ test('/compact <instructions> summarises quietly, records boundary and summary, 
   assert.deepEqual(strip(summary.messages), [
     ...strip(second.messages),
     { role: 'assistant', content: [{ type: 'text', text: 'r2' }] },
-    { role: 'user', content: [{ type: 'text', text: `${COMPACT_PROMPT}\n\nAdditional instructions: keep the file list` }] },
+    { role: 'user', content: [{ type: 'text', text: `${COMPACT_PROMPT}\n${reloadRequest(5)}\n\nAdditional instructions: keep the file list` }] },
   ]);
   assert.equal(next.messages.length, 1);
   assert.deepEqual(userTexts(next), [`${SUMMARY_PREFIX}${SUMMARY}`, '<hook-context event="SessionStart">\nbriefing\n</hook-context>', 'three']);
