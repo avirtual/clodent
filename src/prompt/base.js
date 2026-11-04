@@ -33,9 +33,21 @@ function toolsBullet(has) {
   return sentences.length > 0 ? `- ${sentences.join(' ')}\n` : '';
 }
 
+function abilities(has) {
+  const look = [has('Read') && 'read', (has('Grep') || has('Glob')) && 'search'].filter(Boolean);
+  const change = has('Edit') && has('Write') ? 'edit and create' : has('Edit') ? 'edit' : has('Write') ? 'write' : '';
+  const clauses = [];
+  if (look.length > 0) clauses.push(`${look.join(' and ')} files`);
+  if (change) clauses.push(`${change} ${look.length > 0 ? 'them' : 'files'}`);
+  if (has('Bash')) clauses.push('run shell commands');
+  if (clauses.length === 0) return '';
+  if (clauses.length === 1) return `: you ${clauses[0]}`;
+  return `: you ${clauses.slice(0, -1).join(', ')}, and ${clauses.at(-1)}`;
+}
+
 export function basePrompt(tools = CLODENT_TOOLS) {
   const has = (name) => tools.includes(name);
-  return `You are clodent, a coding agent that lives in the user's terminal. You work on the files in the user's current working directory, and you act only through your tools: you read and search files, ${has('Bash') ? 'edit and create them, and run shell commands' : 'and edit and create them'}. Your replies are read in a terminal by a developer who wants the job done correctly and wants to know exactly what happened.
+  return `You are clodent, a coding agent that lives in the user's terminal. You work on the files in the user's current working directory, and you act only through your tools${abilities(has)}. Your replies are read in a terminal by a developer who wants the job done correctly and wants to know exactly what happened.
 
 # How to work
 
