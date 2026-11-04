@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
 import { runCommand } from '../../src/hooks/command.js';
 import { buildHookInput, runHooks, HOOK_EVENTS } from '../../src/hooks/run.js';
 import { cleanEnv, useTempDir } from '../tools/tmp-dir.js';
@@ -104,6 +106,32 @@ test('identical commands in one firing run once, their result at the first confi
   const outcome = await runHooks('PostToolUse', { tool_name: 'Bash' }, ctxFor(dir, settings), deps);
   assert.deepEqual(outcome.additionalContext, ['counted', 'other']);
   assert.equal(readFileSync(log, 'utf8'), 'run\n');
+});
+
+test('a duplicate that sets onFailure block keeps the block on the merged entry', GUARD, async (t) => {
+  const dir = await useTempDir(t);
+  const log = join(dir, 'runs.log');
+  const fail = await script(dir, 'fail.sh', `echo run >> ${JSON.stringify(log)}\nexit 1`);
+  const settings = settingsWith({ PreToolUse: [group('', entry(fail)), group('Bash', entry(fail, { onFailure: 'block' }))] });
+  const outcome = await runHooks('PreToolUse', { tool_name: 'Bash' }, ctxFor(dir, settings), deps);
+  assert.deepEqual([outcome.decision, outcome.reason, outcome.warnings], ['deny', 'hook failed: exit 1', []]);
+  assert.equal(readFileSync(log, 'utf8'), 'run\n');
+});
+
+test('identical commands run under the longest of their timeouts', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const child = Object.assign(new EventEmitter(), { pid: 4242, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough() });
+  const kills = [];
+  const fake = { spawn: () => child, kill: (pid, signal) => kills.push([pid, signal]) };
+  const settings = settingsWith({ Stop: [group('', entry('hook', { timeout: 1 }), entry('hook', { timeout: 3 }), entry('hook'))] });
+  const pending = runHooks('Stop', {}, ctxFor('/w', settings), fake);
+  t.mock.timers.tick(59999);
+  assert.deepEqual(kills, []);
+  t.mock.timers.tick(1);
+  assert.deepEqual(kills, [[-4242, 'SIGTERM']]);
+  child.emit('exit', null, 'SIGTERM');
+  child.emit('close', null, 'SIGTERM');
+  assert.deepEqual((await pending).warnings, ['hook Stop "hook": timeout']);
 });
 
 test('a hook that ignores SIGTERM is SIGKILLed after the grace period, with its children', GUARD, async (t) => {
