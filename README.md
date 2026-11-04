@@ -218,12 +218,12 @@ Result fields, in this order:
 - `is_error`: true for an API error after retries, a budget stop, an empty prompt, a failed `/compact` or `/clear`, or an unknown slash command.
 - `duration_ms`: the turn's wall time in ms, from the prompt to the end of the turn, before the `Stop` hook.
 - `duration_api_ms`: the summed durations of the turn's API responses.
-- `num_turns`: the number of API responses in the turn.
+- `num_turns`: the number of API responses in the turn; a failed or interrupted attempt is not one.
 - `result`: the text blocks of the turn's last response that did not stop for `tool_use`, joined, or `""`. For an API error it is the error message; for a budget stop, the `[clodent:budget]` line; for an interrupt, the text that streamed in the interrupted response before the interrupt, or `""`; for an empty prompt, `clodent: empty prompt (image input is not supported)`.
 - `stop_reason`: the last response's `stop_reason`; null after an interrupt, an API error, a budget stop, a response without one, and for an empty prompt.
 - `session_id`.
 - `total_cost_usd`: the session total so far, the number on the `[clodent:cost] session total` line. It is cumulative for the process and never resets.
-- `usage`: `input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens` and `output_tokens`, summed over the turn's responses.
+- `usage`: `input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens` and `output_tokens`, summed over the turn's requests, failed and interrupted attempts included (see [Cost](#cost)).
 - `permission_denials`: always `[]`.
 - `uuid`.
 
@@ -256,7 +256,7 @@ Slash commands: a user message whose text, trimmed, is one line whose first word
 
 | command | lines on stdout |
 |---|---|
-| `/compact [<instructions>]` | the REPL's `/compact` (`PreCompact`, the summary request, the transcript records, `SessionStart` with `source` `compact`, the statusLine update), under the same session id: `status` `"compacting"`; on success the `compact_boundary` line; `status` `null` with `compact_result`; then the result, with `num_turns` 1, `usage` the summary request's when it got a response (all zeros when none came back), and `total_cost_usd` including it. On success `is_error` is false and `result` is `""`; on failure no `compact_boundary` is written, `is_error` is true and `result` is the REPL's line: `clodent: nothing to compact` or `clodent: compact failed: <reason>` |
+| `/compact [<instructions>]` | the REPL's `/compact` (`PreCompact`, the summary request, the transcript records, `SessionStart` with `source` `compact`, the statusLine update), under the same session id: `status` `"compacting"`; on success the `compact_boundary` line; `status` `null` with `compact_result`; then the result, with `num_turns` 1, `usage` the summary request's, its failed and interrupted attempts included (see [Cost](#cost); all zeros when no attempt reported usage), and `total_cost_usd` including it. On success `is_error` is false and `result` is `""`; on failure no `compact_boundary` is written, `is_error` is true and `result` is the REPL's line: `clodent: nothing to compact` or `clodent: compact failed: <reason>` |
 | `/clear` | the REPL's `/clear` (a new minted session id and transcript, the statusLine update with zero usage, `SessionStart` with `source` `clear`): `conversation_reset`, then a full `init` with the new `session_id` after the `SessionStart` hooks, then the result with `result` `""` and the new `session_id`; `total_cost_usd` is not reset. Later requests carry the new id in `metadata.user_id`. If a new session cannot start, only an `is_error` result with `clodent: <message>` |
 | `/cost` | the result, with `result` the REPL's `[clodent:cost] session total …` line |
 | `/model [<id>]` | as the REPL: with an id, the same as a `set_model` request; the result, with `result` the REPL's lines, such as `clodent: model <id>` |
@@ -326,7 +326,7 @@ Slash commands: a submitted line is a command when it was typed, with no paste i
 2. When the history ends in an assistant message with `tool_use` blocks and no results, it first closes them the way a turn does: it prints the `● <Tool> <summary>` and `  ✗ interrupted by user` lines for each, writes a tool results record giving each the error result `interrupted by user`, and marks the next prompt as following an interrupt until the compact succeeds. Then it fires the `PreCompact` hook with `trigger: "manual"` and `custom_instructions` (see [Hooks](#hooks)).
 3. It sends one summary request: the model, system prompt and tools of a normal turn, `tool_choice: {type: "none"}`, and the history with one user text block appended that asks for a summary a fresh context can continue from, followed by `\n\nAdditional instructions: <instructions>` when there are any. When `compactReloadFiles` (see [Settings](#settings)) is above 0 and the `Read` tool is sent, the block asks, before any instructions, that the summary end with a `Files to reload:` line followed by up to that many file paths, one per line, most important first, or `Files to reload: none`; at 0, or when a bare-name `Read` deny removes the tool (see [Permission rules](#permission-rules)), it is the block without that sentence. The budget check applies as before any request. The summary does not stream to the screen.
 4. On a response with `stop_reason: "end_turn"` and non-empty text, clodent reloads the files (below), and the history becomes one user message: a text block `This session continues an earlier conversation that was compacted. Summary of it:\n\n` followed by the summary, then one text block per reloaded file. clodent prints `clodent: conversation compacted (<preTokens> → <postTokens> tokens)`, then `clodent: reloaded <n> file(s) after compact: <path>, <path>` when it reloaded any and one `clodent: not reloaded <path>: <reason>` per skipped file, the `[clodent:cost] warning: no price for model <id>; cost not counted` line if this model has not been warned about yet, and the request's `[clodent:cost]` line, sends a statusLine update with `used_tokens` at `<postTokens>`, and fires `SessionStart` with `source` `compact`, whose context goes into the next prompt. `<preTokens>` is the request's input, cache-read and cache-write tokens; `<postTokens>` is its output tokens, so the reloaded files count from the next request's usage on. The transcript gets the two compact records (see [Sessions](#sessions)).
-5. Otherwise the history and transcript are unchanged apart from that closing of step 2, and clodent prints `clodent: compact failed: <reason>`: `budget` (after the `[clodent:budget]` line), `interrupted`, `stop_reason <stop_reason>`, `empty summary`, or the API error message. A response's cost still counts in the session total.
+5. Otherwise the history and transcript are unchanged apart from that closing of step 2, and clodent prints `clodent: compact failed: <reason>`: `budget` (after the `[clodent:budget]` line), `interrupted`, `stop_reason <stop_reason>`, `empty summary`, or the API error message. A response's cost, and a failed or interrupted attempt's (see [Cost](#cost)), still counts in the session total.
 
 Reloading files after a compact, unless `compactReloadFiles` is 0 or the `Read` tool is not sent:
 
@@ -389,6 +389,8 @@ With the cache TTL `5m`, the default (see `--cache-ttl` and the settings `cacheT
 
 Requests that fail before the first SSE event with status 429, 500, 502, 503, 504 or 529, or with a network error, are tried at most 4 times. The waits are 1 s, 2 s and 4 s, each with ±20% jitter, and a `retry-after` header in seconds replaces the wait, capped at 60 s. Any other status is not retried. An `error` event once the stream has started discards the partial response; when its type is `overloaded_error` or `api_error`, clodent re-sends the same request at most 2 more times, after 2 s and then 4 s, each announced by a `clodent: <message>; retrying in <n> s` warning. Any other `error` event is not retried. The API's error message is surfaced verbatim. A network error's message is surfaced with any `//<user>:<password>@` in it cut to `//`.
 
+When no bytes of the response body arrive for 300 s, clodent drops the connection as a network error `stream idle for 300s`; an event whose unterminated text passes 16 MiB (16,777,216 characters) fails the same way with `SSE event over 16 MiB`. The rules above apply to both: retried before the first SSE event, and failing the turn after it. The API sends `ping` events while the model thinks, so a live stream is never idle that long.
+
 ### Cost
 
 clodent prices each Messages API response from its `usage` object, against a table keyed by the exact model id. Ids never match by prefix: `claude-opus-5-5-preview` has no price. Rates are USD per million tokens:
@@ -419,11 +421,15 @@ Line formats. Each is one line. Amounts have exactly four decimals, rounded half
 
 `in` is `input_tokens`, `cache-read` is `cache_read_input_tokens`, `cache-write` is all cache-write tokens and `out` is `output_tokens`, summed over the turn's requests, or over the session for the total. The per-turn line prints after every turn, and the session total prints on exit.
 
-`--budget <usd>` is checked before every API request:
+Every request attempt that got its `message_start` event is charged and counts in `requests`, also when it then fails, is re-sent or is interrupted (Ctrl-C, a signal, a stream-json `interrupt`). A failed or interrupted attempt is charged its `message_start` input, cache-read and cache-write tokens and the `output_tokens` of its last `message_delta`, or 0 output before any. The per-turn line, the session total, `/cost` and `--budget` all include these charges; the transcript records no usage for a failed or interrupted attempt. An attempt that fails before `message_start` reported no usage and is not charged.
 
-- The estimate for the next request is the cost of the previous request, or 0 before the first.
+`--budget <usd>` is checked before every request the loop sends, each mid-stream re-send included:
+
+- The estimate for the next request is the cost of the previous charged attempt, or 0 before the first.
 - clodent stops with the `spent` line when the session total spent plus that estimate exceeds the budget. A projected total exactly equal to the budget proceeds.
 - When any request in the session was for a model with no price, clodent stops with the `has no price` line, naming the first such model. A budget is never run unmetered.
+
+A re-send the budget does not cover is not sent, and the turn stops with the `spent` line as a first request would, without the `retrying` warning. Pre-stream retries (see [API wire](#api-wire)) charge nothing, so the check before the first try covers them.
 
 ### Tools
 

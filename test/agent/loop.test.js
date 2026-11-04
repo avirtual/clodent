@@ -41,7 +41,7 @@ function harness(responses, { tools = [], permission = 'yolo', budgetUsd, cwd = 
       },
     },
   );
-  return { agent, events, sleeps, fetch, types: () => events.map((e) => e.type), of: (type) => events.filter((e) => e.type === type) };
+  return { agent, events, sleeps, fetch, ledger, types: () => events.map((e) => e.type), of: (type) => events.filter((e) => e.type === type) };
 }
 
 function fakeTool(name, kind, log, result = { content: `${name} ok`, isError: false }) {
@@ -375,6 +375,40 @@ test('an abort during the mid-stream retry wait discards the partial of the fail
   assert.deepEqual(h.sleeps, [2000]);
   assert.deepEqual(h.agent.messages(), [{ role: 'user', content: [{ type: 'text', text: 'go' }] }]);
   assert.deepEqual(h.of('message_append').map((e) => e.kind), ['prompt']);
+});
+
+const failedAfterDelta = sseEvents({ blocks: [{ type: 'text', text: 'lost' }], usage: { input_tokens: 40, cache_read_input_tokens: 6, cache_creation_input_tokens: 3, output_tokens: 7 } }).slice(0, -1).join('') + sseError('overloaded_error', 'Overloaded');
+
+test('a mid-stream error after message_start charges that attempt, and the turn line adds the retry that succeeded', async () => {
+  const h = harness([{ body: failedAfterDelta }, textReply('ok')]);
+  assert.deepEqual(await h.agent.runTurn('go'), { stopReason: 'end_turn', ok: true });
+  const [{ turn }] = h.of('turn_end');
+  assert.deepEqual([turn.requests, turn.tokens], [2, { in: 140, cacheRead: 6, cacheWrite: 3, out: 27 }]);
+  assert.deepEqual(h.ledger.session(), turn);
+  assert.equal(h.of('assistant_message')[0].usd, (100 * 4 + 20 * 20) / 1e6);
+});
+
+test('an interrupt after message_start charges the partial usage, output 0 before any message_delta', async () => {
+  const controller = new AbortController();
+  const h = harness([{ body: sse({ blocks: [{ type: 'text', text: ['a', 'b'] }], usage: { input_tokens: 50, cache_read_input_tokens: 8 } }) }], {
+    onEvent: (e) => {
+      if (e.type === 'text_delta') controller.abort();
+    },
+  });
+  assert.deepEqual(await h.agent.runTurn('go', { signal: controller.signal }), { stopReason: 'interrupted', ok: false });
+  const [{ turn }] = h.of('turn_end');
+  assert.deepEqual([turn.requests, turn.tokens], [1, { in: 50, cacheRead: 8, cacheWrite: 0, out: 0 }]);
+  assert.equal(h.ledger.session().requests, 1);
+});
+
+test('a mid-stream retry the budget no longer covers is refused before it is announced or sent', async () => {
+  const h = harness([{ body: 'error-mid-stream.sse' }, textReply('never')], { budgetUsd: 0.00015 });
+  assert.deepEqual(await h.agent.runTurn('go'), { stopReason: 'budget', ok: false });
+  assert.equal(h.fetch.calls.length, 1);
+  assert.deepEqual(h.sleeps, []);
+  assert.deepEqual(h.of('warning'), []);
+  assert.deepEqual(h.of('budget_stop')[0].result, { ok: false, spentUsd: 0.0001, nextEstimateUsd: 0.0001, budgetUsd: 0.00015 });
+  assert.deepEqual(h.of('turn_end').map((e) => [e.stopReason, e.turn.requests, e.turn.tokens.in]), [['budget', 1, 25]]);
 });
 
 test('three mid-stream overloaded errors in a row emit the API message and end not ok', async () => {

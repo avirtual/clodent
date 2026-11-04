@@ -1,40 +1,75 @@
-import { ApiError } from './errors.js';
+import { ApiError, StreamFault } from './errors.js';
 
 const LF = 10;
 const CR = 13;
+const MIB = 1024 * 1024;
+export const MAX_EVENT_CHARS = 16 * MIB;
 
-function splitLines(text, final) {
-  const lines = [];
-  let start = 0;
-  let i = 0;
-  while (i < text.length) {
-    const code = text.charCodeAt(i);
-    if (code === LF) {
-      lines.push(text.slice(start, i));
-      start = i + 1;
-    } else if (code === CR) {
-      if (i + 1 === text.length && !final) break;
-      lines.push(text.slice(start, i));
-      if (text.charCodeAt(i + 1) === LF) i++;
-      start = i + 1;
-    }
-    i++;
+function sizeLabel(chars) {
+  return chars % MIB === 0 ? `${chars / MIB} MiB` : `${chars} chars`;
+}
+
+function createLineSplitter() {
+  let parts = [];
+  let size = 0;
+  let skipLF = false;
+
+  function take(text, start, end) {
+    parts.push(text.slice(start, end));
+    const line = parts.length === 1 ? parts[0] : parts.join('');
+    parts = [];
+    size = 0;
+    return line;
   }
-  return { lines, rest: text.slice(start) };
+
+  return {
+    feed(text) {
+      const lines = [];
+      let start = 0;
+      for (let i = 0; i < text.length; i++) {
+        const code = text.charCodeAt(i);
+        if (skipLF) {
+          skipLF = false;
+          if (code === LF) {
+            start = i + 1;
+            continue;
+          }
+        }
+        if (code === LF || code === CR) {
+          lines.push(take(text, start, i));
+          start = i + 1;
+          skipLF = code === CR;
+        }
+      }
+      if (start < text.length) {
+        parts.push(text.slice(start));
+        size += text.length - start;
+      }
+      return lines;
+    },
+    end() {
+      return size > 0 ? [take('', 0, 0)] : [];
+    },
+    size: () => size,
+  };
 }
 
 function createEventBuilder() {
   let eventName = '';
   let dataLines = [];
+  let size = 0;
   return {
+    size: () => size,
     line(line) {
       if (line === '') {
+        size = 0;
         if (dataLines.length === 0) {
           eventName = '';
           return null;
         }
         return this.flush();
       }
+      size += line.length + 1;
       if (line.startsWith(':')) return null;
       const colon = line.indexOf(':');
       const field = colon === -1 ? line : line.slice(0, colon);
@@ -45,6 +80,7 @@ function createEventBuilder() {
       return null;
     },
     flush() {
+      size = 0;
       if (dataLines.length === 0) return null;
       const raw = dataLines.join('\n');
       const event = eventName || 'message';
@@ -63,24 +99,26 @@ function createEventBuilder() {
   };
 }
 
-export async function* parseSSE(byteIterable) {
+export async function* parseSSE(byteIterable, { maxEventChars = MAX_EVENT_CHARS } = {}) {
   const decoder = new TextDecoder('utf-8');
+  const splitter = createLineSplitter();
   const builder = createEventBuilder();
-  let buffer = '';
+  const overCap = () => new StreamFault(`SSE event over ${sizeLabel(maxEventChars)}`);
+  function accept(line) {
+    const event = builder.line(line);
+    if (builder.size() > maxEventChars) throw overCap();
+    return event;
+  }
   for await (const chunk of byteIterable) {
-    buffer += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
-    const { lines, rest } = splitLines(buffer, false);
-    buffer = rest;
-    for (const line of lines) {
-      const event = builder.line(line);
+    const text = typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
+    for (const line of splitter.feed(text)) {
+      const event = accept(line);
       if (event) yield event;
     }
+    if (builder.size() + splitter.size() > maxEventChars) throw overCap();
   }
-  buffer += decoder.decode();
-  const { lines, rest } = splitLines(buffer, true);
-  if (rest !== '') lines.push(rest);
-  for (const line of lines) {
-    const event = builder.line(line);
+  for (const line of [...splitter.feed(decoder.decode()), ...splitter.end()]) {
+    const event = accept(line);
     if (event) yield event;
   }
   const last = builder.flush();

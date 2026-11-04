@@ -18,6 +18,10 @@ clodent was named clay up to 0.2.0.
 - Stream JSON: stdin lines are split in linear time, and a line over 64 MiB is dropped up to its newline with `clodent: stdin: ignoring a line over 67108864 bytes`.
 - Stream JSON: a `control_request` or `control_response` without a string `request_id` is ignored with a `stdin:` warning; a `control_request` no longer gets a reply without one.
 - Stream JSON: an ask abandoned by an interrupt, a signal or stdin closing writes `{"type":"control_cancel_request","request_id":<id>}`, so the host can dismiss its prompt.
+- Every request attempt that got its `message_start` is charged, also when it fails mid-stream, is re-sent or is interrupted: its `message_start` input and cache tokens and its last `message_delta` output count in the per-turn `[clodent:cost]` line, the session total, `/cost`, `--budget` and the stream-json result `usage` of a turn or `/compact`; `num_turns` still counts responses only.
+- `--budget` is also checked before each mid-stream re-send; one it does not cover is not sent, and the turn stops with the `[clodent:budget]` line.
+- A response body that sends no bytes for 300 s fails as a network error `stream idle for 300s`, retried before the first SSE event as other network errors are.
+- SSE parsing runs in linear time on events split over many chunks, and an event whose unterminated text passes 16 MiB fails as a network error `SSE event over 16 MiB`.
 
 ## 0.5.1 — 2026-11-04
 

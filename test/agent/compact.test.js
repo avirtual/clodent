@@ -5,7 +5,7 @@ import { createAgent, INTERRUPTED_RESULT } from '../../src/agent/loop.js';
 import { createLedger } from '../../src/cost/ledger.js';
 import { emptyOutcome } from '../../src/hooks/fire.js';
 import { createFakeFetch } from '../helpers/fake-fetch.js';
-import { sse } from '../helpers/sse-builder.js';
+import { sse, sseError, sseEvents } from '../helpers/sse-builder.js';
 
 const TOOL = { name: 'A', kind: 'read', description: 'a', input_schema: { type: 'object', properties: {} }, run: async () => ({ content: 'A ok', isError: false }) };
 const MANUAL = { instructions: '', trigger: 'manual' };
@@ -133,6 +133,19 @@ test('a failed summary leaves the history as it was, records its cost apart from
     assert.deepEqual(strip(h.bodies().at(-1).messages), [...before, { role: 'user', content: [text('again')] }], label);
     assert.equal(h.events.filter((e) => e.type === 'turn_end').at(-1).turn.requests, 1, label);
   }
+});
+
+test('a summary that fails after message_start charges its partial as the compact\'s turn, apart from the next turn', async () => {
+  const head = sseEvents({ blocks: [{ type: 'text', text: 'half' }], usage: { input_tokens: 70 } }).slice(0, 3).join('');
+  const h = harness([reply('one'), { body: head + sseError('invalid_request_error', 'bad thing') }, reply('two')]);
+  await h.agent.runTurn('first');
+  const { turn, ...outcome } = await h.agent.compact(MANUAL);
+  assert.deepEqual(outcome, { ok: false, reason: 'bad thing' });
+  assert.deepEqual([turn.requests, turn.tokens], [1, { in: 70, cacheRead: 0, cacheWrite: 0, out: 0 }]);
+  assert.equal(h.ledger.session().requests, 2);
+  await h.agent.runTurn('again');
+  assert.equal(h.events.filter((e) => e.type === 'turn_end').at(-1).turn.requests, 1);
+  assert.equal(h.ledger.session().requests, 3);
 });
 
 test('an abort during PreCompact or the summary request fails as interrupted with the history unchanged', async () => {

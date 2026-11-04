@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSSE } from '../../src/api/sse.js';
+import { MAX_EVENT_CHARS, parseSSE } from '../../src/api/sse.js';
 import { createFakeFetch, readFixture } from '../helpers/fake-fetch.js';
 
 const FIXTURES = [
@@ -121,4 +121,44 @@ test('unparseable data throws an ApiError of type invalid_sse', async () => {
     name: 'ApiError',
     type: 'invalid_sse',
   });
+});
+
+function* oneByteChunks(text) {
+  const bytes = encoder.encode(text);
+  for (let i = 0; i < bytes.length; i++) yield bytes.subarray(i, i + 1);
+}
+
+test('a 1 MiB event delivered in 1-byte chunks parses with each character scanned a bounded number of times', async () => {
+  const payload = 'y'.repeat(1024 * 1024);
+  const text = `event: big\r\ndata: {"t":"${payload}"}\r\n\r\nevent: after\ndata: 1\n\n`;
+  const budget = 2 * text.length;
+  const original = String.prototype.charCodeAt;
+  let calls = 0;
+  String.prototype.charCodeAt = function (index) {
+    if (++calls > budget) throw new Error(`charCodeAt called over ${budget} times`);
+    return original.call(this, index);
+  };
+  let events;
+  try {
+    events = await collect(oneByteChunks(text));
+  } finally {
+    String.prototype.charCodeAt = original;
+  }
+  assert.deepEqual(events.map((e) => e.event), ['big', 'after']);
+  assert.equal(events[0].data.t, payload);
+  assert.ok(calls <= budget, `${calls} scans for ${text.length} characters`);
+});
+
+test('an unterminated event over the injected cap throws a StreamFault; events under it each pass', async () => {
+  const collectCapped = async (chunks, maxEventChars) => {
+    const out = [];
+    for await (const item of parseSSE(chunks.map((c) => encoder.encode(c)), { maxEventChars })) out.push(item);
+    return out;
+  };
+  const small = 'event: a\ndata: {"x":"0123456789"}\n\n';
+  assert.equal((await collectCapped([small, small, small, small], 48)).length, 4);
+  await assert.rejects(collectCapped(['event: a\ndata: {"x":"', '0123456789'.repeat(5)], 48), { name: 'StreamFault', message: 'SSE event over 48 chars' });
+  await assert.rejects(collectCapped([`event: a\ndata: ${'0'.repeat(22)}\ndata: ${'1'.repeat(10)}\n\n`], 48), { name: 'StreamFault' });
+  await assert.rejects(collectCapped([`event: a\ndata: {"x":"${'0'.repeat(60)}"}\n\n`], 48), { name: 'StreamFault' });
+  assert.equal(MAX_EVENT_CHARS, 16 * 1024 * 1024);
 });
