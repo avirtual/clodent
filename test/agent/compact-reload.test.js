@@ -27,9 +27,10 @@ const use = (name, input, id) => ({ type: 'tool_use', id, name, input });
 const fileBlock = (path, output) => text(`Contents of ${path} at compact time (Read tool output):\n\n${output}`);
 const pick = (summary, { history = [], count = 5, cwd = '/w' } = {}) => reloadPaths(summary, history, { cwd, count });
 
-function harness(responses, { cwd, permissions, compactReloadFiles = 5, permission = 'yolo', history = HISTORY, tools = [createRead()], context = {}, ask } = {}) {
+function harness(responses, { cwd, permissions, compactReloadFiles = 5, permission = 'yolo', history = HISTORY, tools = [createRead()], context = {}, ask, pre = () => ({}) } = {}) {
   const events = [];
   const fired = [];
+  const preInputs = [];
   const raw = [];
   const asked = [];
   const inner = createFakeFetch(responses);
@@ -40,7 +41,9 @@ function harness(responses, { cwd, permissions, compactReloadFiles = 5, permissi
   const hooks = {
     async fire(event, extra) {
       fired.push(event);
-      return { ...emptyOutcome(), additionalContext: context[event] ?? [] };
+      if (event !== 'PreToolUse') return { ...emptyOutcome(), additionalContext: context[event] ?? [] };
+      preInputs.push(extra);
+      return { ...emptyOutcome(), ...pre(extra) };
     },
   };
   const agent = createAgent(
@@ -67,7 +70,7 @@ function harness(responses, { cwd, permissions, compactReloadFiles = 5, permissi
     },
   );
   const compacted = () => events.find((event) => event.type === 'compacted');
-  return { agent, events, fired, raw, asked, compacted };
+  return { agent, events, fired, preInputs, raw, asked, compacted };
 }
 
 async function guardFrom(settings, cwd, home = cwd) {
@@ -132,6 +135,34 @@ test('one leading "- " or "* " and surrounding backticks are stripped, and entri
   assert.deepEqual(pick(summary), ['/w/src/a.js', '/w/src/b.js', '/w/src/c.js', '/w/src/d.js']);
 });
 
+test('blank lines right after a bare heading are skipped, and a section left empty that is not "none" falls back to the history', () => {
+  const history = [{ role: 'assistant', content: [use('Read', { file_path: 'x.js' }, 't1')] }];
+  assert.deepEqual(pick('S\n**Files to reload:**\n\n  \nsrc/a.js\nsrc/b.js\n\nlater.js', { history }), ['/w/src/a.js', '/w/src/b.js']);
+  for (const summary of ['S\nFiles to reload:', 'S\n## Files to reload:\n\n\n', 'S\nFiles to reload:\n- ``\n']) {
+    assert.deepEqual(pick(summary, { history }), ['/w/x.js'], JSON.stringify(summary));
+  }
+});
+
+test('a backtick or * run right after the colon of a wrapped heading is its closing mark, so the path or "none" after it is kept whole', () => {
+  const history = [{ role: 'assistant', content: [use('Read', { file_path: 'x.js' }, 't1')] }];
+  assert.deepEqual(pick('S\n`Files to reload:` `src/a.js`', { history }), ['/w/src/a.js']);
+  assert.deepEqual(pick('S\n`**Files to reload:**` none', { history }), []);
+});
+
+test('runs of 40k backticks or asterisks in the list or on the heading line parse in linear time', () => {
+  const ticks = '`'.repeat(40000);
+  const stars = '*'.repeat(40000);
+  for (const summary of [`S\nFiles to reload:\n${ticks}x`, `S\n\`Files to reload: x${ticks}y`, `S\n**Files to reload:** x${stars}y`]) {
+    let best = Infinity;
+    for (let attempt = 0; attempt < 3 && best >= 50; attempt++) {
+      const started = performance.now();
+      pick(summary);
+      best = Math.min(best, performance.now() - started);
+    }
+    assert.ok(best < 50, `${best.toFixed(1)} ms for ${summary.slice(0, 24)}`);
+  }
+});
+
 test('a relative path resolves against the working directory', () => {
   assert.deepEqual(pick('Files to reload:\nsrc/a.js\n../up.txt\n/abs/b.js', { cwd: '/w/proj' }), ['/w/proj/src/a.js', '/w/up.txt', '/abs/b.js']);
 });
@@ -175,7 +206,7 @@ test('with no section, the Read, Edit and Write file_path of the history are pic
   assert.deepEqual(pick(summary, { history, count: 2 }), ['/w/a.js', '/w/c.js']);
 });
 
-test('the named files are re-read into text blocks after the unchanged summary block; no hook, tool or permission event fires for them', async (t) => {
+test('the named files are re-read into text blocks after the unchanged summary block; only PreToolUse fires for them, as for a model Read, and no tool or permission event', async (t) => {
   const cwd = await useTempDir(t);
   await plant(cwd, { 'src/a.js': 'alpha\n', 'notes.md': 'beta\ngamma\n' });
   const summary = 'Did things.\nFiles to reload:\n- src/a.js\n- notes.md';
@@ -194,12 +225,77 @@ test('the named files are re-read into text blocks after the unchanged summary b
   ]);
   assert.deepEqual(skipped, []);
   assert.deepEqual(recorded, message);
-  assert.deepEqual(h.fired, ['PreCompact', 'SessionStart']);
+  assert.deepEqual(h.fired, ['PreCompact', 'PreToolUse', 'PreToolUse', 'SessionStart']);
+  assert.deepEqual(h.preInputs, [
+    { tool_name: 'Read', tool_input: { file_path: a }, tool_use_id: 'compact-reload-1' },
+    { tool_name: 'Read', tool_input: { file_path: notes }, tool_use_id: 'compact-reload-2' },
+  ]);
   assert.deepEqual(h.events.map((event) => event.type), ['session_start', 'request_start', 'compacted']);
   await h.agent.runTurn('next');
   const sent = JSON.parse(h.raw[1]).messages;
   assert.deepEqual(sent.length, 1);
   assert.deepEqual(sent[0].content.map((block) => block.text), [...message.content.map((block) => block.text), '<hook-context event="SessionStart">\nbriefing\n</hook-context>', 'next']);
+});
+
+test('a Read a PreToolUse hook denied is left out of the fallback, and a summary naming it gets it skipped as hook, so its content goes nowhere', async (t) => {
+  const cwd = await useTempDir(t);
+  await plant(cwd, { '.env': 'MARKER-HOOK-DENIED', 'ok.txt': 'fine' });
+  const reads = { body: sse({ blocks: [use('Read', { file_path: '.env' }, 'toolu_1'), use('Read', { file_path: 'ok.txt' }, 'toolu_2')], stopReason: 'tool_use' }) };
+  const pre = (extra) => (extra.tool_input.file_path.endsWith('.env') ? { decision: 'deny', reason: 'no .env' } : {});
+  const h = harness([reads, reply('done'), reply('S'), reply('S2\nFiles to reload:\n.env\nok.txt'), reply('next')], { cwd, permission: 'ask', ask: true, pre });
+  await h.agent.runTurn('read both');
+  assert.deepEqual(h.agent.messages().at(-2).content.map((block) => [block.tool_use_id, block.is_error]), [['toolu_1', true], ['toolu_2', false]]);
+  assert.equal((await h.agent.compact(MANUAL)).ok, true);
+  assert.equal((await h.agent.compact(MANUAL)).ok, true);
+  await h.agent.runTurn('next');
+  const [fallback, named] = h.events.filter((event) => event.type === 'compacted');
+  assert.deepEqual([fallback.reloaded.map((file) => file.path), fallback.skipped], [[join(cwd, 'ok.txt')], []]);
+  assert.deepEqual([named.reloaded.map((file) => file.path), named.skipped], [[join(cwd, 'ok.txt')], [{ path: join(cwd, '.env'), reason: 'hook' }]]);
+  assert.deepEqual(h.asked, []);
+  for (const where of [h.raw.join(''), JSON.stringify(h.events), JSON.stringify(h.agent.messages())]) {
+    assert.equal(where.includes('MARKER-HOOK-DENIED'), false);
+  }
+});
+
+test('a PreToolUse ask skips the file as hook without asking, in the ask mode and under yolo, and fires no Notification', async (t) => {
+  const cwd = await useTempDir(t);
+  await plant(cwd, { 'asked.txt': 'ASKED', 'ok.txt': 'fine' });
+  const pre = (extra) => (extra.tool_input.file_path.endsWith('asked.txt') ? { decision: 'ask' } : {});
+  for (const permission of ['ask', 'yolo']) {
+    const h = harness([reply('S\nFiles to reload:\nasked.txt\nok.txt')], { cwd, permission, ask: true, pre });
+    assert.equal((await h.agent.compact(MANUAL)).ok, true, permission);
+    assert.deepEqual(h.compacted().skipped, [{ path: join(cwd, 'asked.txt'), reason: 'hook' }], permission);
+    assert.deepEqual(h.compacted().reloaded.map((file) => file.path), [join(cwd, 'ok.txt')], permission);
+    assert.deepEqual([h.asked, h.fired], [[], ['PreCompact', 'PreToolUse', 'PreToolUse', 'SessionStart']], permission);
+  }
+});
+
+test('a PreToolUse updatedInput replaces the reload Read input, and the settings rules screen the input that would run', async (t) => {
+  const cwd = await useTempDir(t);
+  await plant(cwd, { 'a.txt': 'ORIGINAL', 'redacted.txt': 'REDACTED', 'secret.txt': 'MARKER-REWRITTEN-DENY' });
+  const permissions = await guardFrom(writeSettings(cwd, { permissions: { deny: ['Read(./secret.txt)'] } }), cwd);
+  const targets = { 'a.txt': 'redacted.txt', 'b.txt': 'secret.txt' };
+  const pre = (extra) => {
+    const name = Object.keys(targets).find((key) => extra.tool_input.file_path.endsWith(key));
+    return name ? { updatedInput: { file_path: join(cwd, targets[name]) } } : {};
+  };
+  const h = harness([reply('S\nFiles to reload:\na.txt\nb.txt')], { cwd, permissions, pre });
+  assert.equal((await h.agent.compact(MANUAL)).ok, true);
+  assert.deepEqual(h.agent.messages()[0].content.slice(1), [fileBlock(join(cwd, 'a.txt'), '     1\tREDACTED')]);
+  assert.deepEqual(h.compacted().skipped, [{ path: join(cwd, 'b.txt'), reason: 'denied' }]);
+});
+
+test('an interrupt during a reload PreToolUse hook skips that file and the rest as interrupted', async (t) => {
+  const cwd = await useTempDir(t);
+  await plant(cwd, { 'a.txt': 'a', 'b.txt': 'b' });
+  const controller = new AbortController();
+  const h = harness([reply('S\nFiles to reload:\na.txt\nb.txt')], { cwd, pre: () => (controller.abort(), {}) });
+  assert.equal((await h.agent.compact(MANUAL, { signal: controller.signal })).ok, true);
+  assert.deepEqual(h.compacted().reloaded, []);
+  assert.deepEqual(h.compacted().skipped, [
+    { path: join(cwd, 'a.txt'), reason: 'interrupted' },
+    { path: join(cwd, 'b.txt'), reason: 'interrupted' },
+  ]);
 });
 
 test('a path a settings permissions.deny rule matches is skipped as denied, and its content goes nowhere', async (t) => {
@@ -265,7 +361,7 @@ test('a path an ask rule matches is skipped as ask without asking in the ask mod
   assert.equal((await asking.agent.compact(MANUAL)).ok, true);
   assert.deepEqual(asking.compacted().skipped, [{ path: join(cwd, 'asked.txt'), reason: 'ask' }]);
   assert.deepEqual(asking.asked, []);
-  assert.deepEqual(asking.fired, ['PreCompact', 'SessionStart']);
+  assert.deepEqual(asking.fired, ['PreCompact', 'PreToolUse', 'SessionStart']);
   assert.equal(asking.events.some((event) => event.type === 'permission_request'), false);
   const yolo = harness([reply('S\nFiles to reload:\nasked.txt')], { cwd, permissions });
   assert.equal((await yolo.agent.compact(MANUAL)).ok, true);

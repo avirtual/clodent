@@ -213,6 +213,44 @@ test('a spawn error is a failure that onFailure block turns into a deny', GUARD,
   assert.match(outcome.reason, /^hook failed: .*ENOENT/);
 });
 
+test('on PreToolUse, stdout cut at 1 MiB or not a JSON object is a failure: onFailure block denies, otherwise it only warns', GUARD, async (t) => {
+  const dir = await useTempDir(t);
+  const big = await script(dir, 'big.sh', `printf '{"hookSpecificOutput":{"permissionDecision":"deny","additionalContext":"'; head -c 1100000 /dev/zero | tr '\\0' a; printf '"}}\\n'`);
+  const plain = await script(dir, 'plain.sh', 'echo "not json"');
+  const array = await script(dir, 'array.sh', "echo '[1]'");
+  const quiet = await script(dir, 'quiet.sh', 'true');
+  const fire = async (command, onFailure) => {
+    const settings = settingsWith({ PreToolUse: [group('', entry(command, { onFailure }))] });
+    const outcome = await runHooks('PreToolUse', { tool_name: 'Bash' }, ctxFor(dir, settings), deps);
+    return [outcome.decision, outcome.reason, outcome.warnings];
+  };
+  const truncated = `hook PreToolUse "${label(big)}": stdout over 1 MiB truncated`;
+  assert.deepEqual(await fire(big, 'block'), ['deny', 'hook failed: stdout over 1 MiB truncated', [truncated]]);
+  assert.deepEqual(await fire(plain, 'block'), ['deny', 'hook failed: invalid JSON', []]);
+  assert.deepEqual(await fire(array, 'block'), ['deny', 'hook failed: invalid JSON', []]);
+  assert.deepEqual(await fire(quiet, 'block'), [null, null, []]);
+  assert.deepEqual(await fire(big, null), [null, null, [truncated, `hook PreToolUse "${label(big)}": invalid JSON ignored`]]);
+  assert.deepEqual(await fire(plain, null), [null, null, [`hook PreToolUse "${label(plain)}": invalid JSON ignored`]]);
+});
+
+test('a top-level decision "block" on PreToolUse denies with its reason, or blocked by hook, even over a hookSpecificOutput allow; "approve" decides nothing', GUARD, async (t) => {
+  const dir = await useTempDir(t);
+  const print = (name, value) => script(dir, name, `printf '%s\\n' '${JSON.stringify(value)}'`);
+  const legacy = await print('legacy.sh', { decision: 'block', reason: 'legacy no' });
+  const bare = await print('bare.sh', { decision: 'block' });
+  const mixed = await print('mixed.sh', { decision: 'block', reason: 'mixed no', hookSpecificOutput: { permissionDecision: 'allow' } });
+  const approve = await print('approve.sh', { decision: 'approve', reason: 'fine' });
+  const fire = async (event, command) => {
+    const outcome = await runHooks(event, { tool_name: 'Bash' }, ctxFor(dir, settingsWith({ [event]: [group('', command)] })), deps);
+    return [outcome.decision, outcome.reason, outcome.warnings];
+  };
+  assert.deepEqual(await fire('PreToolUse', legacy), ['deny', 'legacy no', []]);
+  assert.deepEqual(await fire('PreToolUse', bare), ['deny', 'blocked by hook', []]);
+  assert.deepEqual(await fire('PreToolUse', mixed), ['deny', 'mixed no', []]);
+  assert.deepEqual(await fire('PreToolUse', approve), [null, null, []]);
+  assert.deepEqual(await fire('PostToolUse', legacy), [null, null, []]);
+});
+
 test('a timeout kills the hook within the timeout plus grace', GUARD, async (t) => {
   const dir = await useTempDir(t);
   const slow = await script(dir, 'slow.sh', 'sleep 5');
