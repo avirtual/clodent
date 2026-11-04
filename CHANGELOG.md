@@ -4,6 +4,8 @@ clodent was named clay up to 0.2.0.
 
 ## Unreleased
 
+- Security: the REPL, and print mode's stderr lines, write each control byte in model text, tool summaries, tool errors, warnings and compact lines as a visible `\u00XX` escape, so a Bash summary can no longer forge the `[clodent:permit …]` line and streamed text can no longer send OSC 52 or turn bracketed paste off.
+
 ## 0.5.0 — 2026-11-04
 
 - `/compact` re-reads the files the summary names under `Files to reload:`, on that line or the lines after it (or else the last files read, edited or written), into the summary message, through the permission screen and within 64 KiB; a Markdown-wrapped heading and a backticked `none` are understood; the settings key `compactReloadFiles` (0–20, default 5) sets how many, and 0 or a bare `Read` deny turns it off.
