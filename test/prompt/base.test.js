@@ -26,7 +26,6 @@ const without = (...names) => ALL.filter((name) => !names.includes(name));
 const bullets = (prompt) => prompt.split('\n').filter((line) => /^- (Reach for|Use the file tools|Use Bash|To change|To create)/.test(line));
 
 test('the tool bullets keep their wording with all six tools and name only the tools that are sent', () => {
-  assert.equal(basePrompt(ALL), CLODENT_BASE_PROMPT);
   assert.deepEqual(bullets(CLODENT_BASE_PROMPT), [
     '- To change an existing file, use Edit. Use Write for a new file, or when the user asked for a file to be replaced wholesale.',
     '- Reach for the file tools first: Read to view a file, Grep to search contents, Glob to find files by name, Edit and Write to change files. Use Bash to run programs such as tests, builds, git and package managers, not to read or edit files.',
@@ -46,6 +45,8 @@ test('the tool bullets keep their wording with all six tools and name only the t
   ]);
   assert.deepEqual(bullets(basePrompt(['Bash'])), ['- Use Bash to run programs such as tests, builds, git and package managers.']);
   assert.deepEqual(bullets(basePrompt([])), []);
+  assert.match(CLODENT_BASE_PROMPT, /^- Shell commands run without a terminal attached/m);
+  assert.doesNotMatch(basePrompt(without('Bash')), /Shell commands/);
   for (const removed of ALL) {
     const prompt = basePrompt(without(removed)).replace('Read a file before you edit it', '');
     assert.doesNotMatch(prompt, new RegExp(`\\b${removed}\\b`), removed);

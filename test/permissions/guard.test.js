@@ -137,6 +137,19 @@ test('the listing filter hides files a deny path rule for that tool matches, and
   assert.equal(await hiddenOf(guardOf({ ask: ['Read(./a)'] }), {}, 'yolo'), null);
 });
 
+test('screen returns an approved filter without the ask rules that match the root, for use after the user allows the ask', async () => {
+  const guard = guardOf({ deny: ['Read(./s/d)'], ask: ['Read(./s)', 'Read(./s/inner)'] });
+  const files = ['/work/s/b', '/work/s/inner/c', '/work/s/d/e'];
+  const asked = await guard.screen('Grep', { path: 's' }, '/work', 'ask');
+  assert.equal(`${asked.ruled.decision} ${asked.ruled.rule.text}`, 'ask Read(./s)');
+  assert.deepEqual(await Promise.all(files.map(asked.hidden)), [true, true, true]);
+  assert.deepEqual(await Promise.all(files.map(asked.approved)), [false, true, true]);
+  const plain = await guard.screen('Glob', {}, '/work', 'ask');
+  assert.equal(plain.ruled, null);
+  assert.equal(plain.approved, plain.hidden);
+  assert.equal((await guard.screen('Read', { file_path: 's/b' }, '/work', 'ask')).approved, null);
+});
+
 test('the listing filter also tests each listed file under the realpath of a symlinked root', async () => {
   const realpath = async (path) => {
     if (path === '/work/h') return HOME;
@@ -234,6 +247,10 @@ test('darwin: a path under /System/Volumes/Data is also checked without that pre
   assert.equal(await read(darwin, `/System/Volumes/Datax${HOME}/.ssh/id_rsa`), null);
   assert.deepEqual(await (await hiddenOf(darwin, { path: '/System/Volumes/Data' }, 'yolo'))([`/System/Volumes/Data${HOME}/.ssh/id_rsa`]), [true]);
   assert.deepEqual(await (await hiddenOf(darwin, { path: 'x' }, 'yolo'))(['/work/x/id_rsa']), [true]);
+  const spelled = { deny: [`Read(//System/Volumes/Data${HOME}/.ssh)`] };
+  assert.equal(await read(guardOf(spelled, { platform: 'darwin' }), `${HOME}/.ssh/id_rsa`), spelled.deny[0]);
+  assert.equal(await bash(guardOf(spelled, { platform: 'darwin' }), 'cat ~/.ssh/id_rsa'), `deny ${spelled.deny[0]}`);
+  assert.equal(await read(guardOf(spelled, { platform: 'linux' }), `${HOME}/.ssh/id_rsa`), null);
 });
 
 test('Bash: a mention matches in any letter case and after a /System/Volumes/Data prefix, on every platform', async () => {

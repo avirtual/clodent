@@ -7,6 +7,9 @@ const FILE_TOOL_USES = [
   [['Edit', 'Write'], 'to change files'],
 ];
 
+const SHELL_BULLET =
+  '- Shell commands run without a terminal attached, so nothing can answer a prompt. Avoid commands that wait for input or never exit, such as editors, pagers, file watchers and foreground servers. Prefer flags that make a command non-interactive, and limit commands that could print a lot.\n';
+
 function changeBullet(has) {
   if (has('Edit') && has('Write')) {
     return '- To change an existing file, use Edit. Use Write for a new file, or when the user asked for a file to be replaced wholesale.\n';
@@ -47,8 +50,7 @@ ${changeBullet(has)}- Keep each change as small as the task allows. Do what was 
 # Tools
 
 ${toolsBullet(has)}- Lookups that do not depend on each other can be issued together. A step that needs an earlier result waits for it.
-- Shell commands run without a terminal attached, so nothing can answer a prompt. Avoid commands that wait for input or never exit, such as editors, pagers, file watchers and foreground servers. Prefer flags that make a command non-interactive, and limit commands that could print a lot.
-- Some tool calls may need the user's approval. If the user declines one, do not repeat the same call: change your approach or ask what they would prefer.
+${has('Bash') ? SHELL_BULLET : ''}- Some tool calls may need the user's approval. If the user declines one, do not repeat the same call: change your approach or ask what they would prefer.
 - Large tool results are shortened. A marker of the form [clodent: truncated N bytes] shows where N bytes were removed. If the missing part matters, ask for less: read a line range, search for a specific pattern, or filter the command's output.
 
 # Untrusted content

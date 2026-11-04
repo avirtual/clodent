@@ -499,7 +499,7 @@ A rule is `Tool` or `Tool(specifier)`:
 | `Bash(<command>)` | a `Bash` command, see below |
 | any other name, bare or with a specifier (`WebFetch`, `Agent(x)`, `mcp__…`, `NotebookEdit`, `Skill`, …) | nothing; ignored silently |
 
-Names are case-sensitive. A name that differs from a clodent tool name only in letter case or by surrounding spaces (`read(x)`, `Read (x)`, `BASH`) is a startup error, so a misspelt rule never does less than it says. A path specifier expands to an absolute pattern:
+Names are case-sensitive. A name that differs from a clodent tool name only in letter case or by a space before `(` (`read(x)`, `Read (x)`, `BASH`) is a startup error. A path specifier expands to an absolute pattern:
 
 - `//abs/path` is `/abs/path`.
 - `~/p` is `$HOME/p` and `~` is `$HOME`, from the `HOME` environment variable, else the OS home directory.
@@ -508,11 +508,11 @@ Names are case-sensitive. A name that differs from a clodent tool name only in l
 
 In a pattern, `*` matches within one path segment and `**` matches zero or more segments; every other character, a space included, is literal. A rule matches a path when it matches the path itself or any ancestor directory, so `Read(~/.ssh)` also matches `~/.ssh/id_rsa`, and `X/**` also matches `X`.
 
-A file tool's path is checked twice, lexically (resolved against the working directory) and after `realpath`, of the path or, when it does not exist, of its deepest existing ancestor with the rest appended. The call matches when either check does, so a symlink into a denied directory is denied too. On macOS, a path that starts with `/System/Volumes/Data/` is also checked, in both checks, with that prefix removed.
+A file tool's path is checked twice, lexically (resolved against the working directory) and after `realpath`, of the path or, when it does not exist, of its deepest existing ancestor with the rest appended. The call matches when either check does, so a symlink into a denied directory is denied too. On macOS, a path that starts with `/System/Volumes/Data/` is also checked, in both checks, with that prefix removed, and a rule whose pattern starts with it also matches the pattern without it.
 
 A rule's leading part, up to its first segment with a `*`, is resolved with `realpath` once, on the first check, the same way. When that changes it (on macOS `/etc` is `/private/etc` and `/tmp` is `/private/tmp`; `$HOME` may sit under a symlink), the rule matches both forms, in file tools, in `Grep` and `Glob` listings and in `Bash` mentions.
 
-`Grep` and `Glob` also drop every file they would list or search that a deny rule for that tool matches, or an ask rule unless the mode is `--yolo`, without a message and without asking. Each file is checked on its path under the searched directory and on the same path under the directory's realpath. A listed entry that is a symlink is also checked on its realpath; no other entry is resolved.
+`Grep` and `Glob` also drop every file they would list or search that a deny rule for that tool matches, or an ask rule unless the mode is `--yolo`, without a message and without asking. When the REPL asks for the call itself and the user allows it, the ask rules that match the call's `path` hide nothing in that call. Each file is checked on its path under the searched directory and on the same path under the directory's realpath. A listed entry that is a symlink is also checked on its realpath; no other entry is resolved.
 
 `Bash` rules are a best-effort string guard on the command text, not a sandbox:
 

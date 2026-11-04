@@ -11,7 +11,7 @@ export const OPEN_GUARD = Object.freeze({
   active: false,
   removes: () => false,
   check: async () => null,
-  screen: async () => ({ ruled: null, hidden: null }),
+  screen: async () => ({ ruled: null, hidden: null, approved: null }),
 });
 
 const removedBy = (deny, tool) => deny.some((rule) => rule.kind === 'tool' && rule.tool === tool);
@@ -69,10 +69,10 @@ export function simpleCommands(text) {
   return out;
 }
 
+const matchesPaths = (rule, paths, forms) => forms.get(rule).some((form) => paths.some((path) => form.regex.test(path)));
+
 function pathMatch(rules, tool, paths, forms) {
-  return rules.find(
-    (rule) => rule.kind === 'path' && rule.tools.includes(tool) && forms.get(rule).some((form) => paths.some((path) => form.regex.test(path))),
-  );
+  return rules.find((rule) => rule.kind === 'path' && rule.tools.includes(tool) && matchesPaths(rule, paths, forms));
 }
 
 function bashMatch(rules, command, readOnly, forms) {
@@ -86,7 +86,9 @@ function bashMatch(rules, command, readOnly, forms) {
   });
 }
 
-async function resolveForms(rules, realpath) {
+const formOf = (pattern, home) => ({ regex: pathRegExp(pattern), mention: mentionRegExp(pattern, home) });
+
+async function resolveForms(rules, realpath, platform) {
   const reals = new Map();
   const forms = new Map();
   await Promise.all(
@@ -96,10 +98,12 @@ async function resolveForms(rules, realpath) {
         const { prefix, rest } = splitPattern(rule.pattern);
         if (!reals.has(prefix)) reals.set(prefix, realpathDeep(prefix, realpath));
         const real = await reals.get(prefix);
-        const own = { regex: rule.regex, mention: rule.mention };
-        if (real === prefix) return forms.set(rule, [own]);
-        const pattern = rest === '' ? real : join(real, rest);
-        forms.set(rule, [own, { regex: pathRegExp(pattern), mention: mentionRegExp(pattern, rule.home) }]);
+        const list = [{ regex: rule.regex, mention: rule.mention }];
+        if (real !== prefix) list.push(formOf(rest === '' ? real : join(real, rest), rule.home));
+        if (platform === 'darwin' && rule.pattern.startsWith(`${DATA_VOLUME}/`)) {
+          list.push(formOf(rule.pattern.slice(DATA_VOLUME.length), rule.home));
+        }
+        forms.set(rule, list);
       }),
   );
   return forms;
@@ -114,7 +118,7 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
     ['ask', ask],
   ];
   let forms;
-  const formsOf = () => (forms ??= resolveForms([...deny, ...ask], realpath));
+  const formsOf = () => (forms ??= resolveForms([...deny, ...ask], realpath, platform));
   const spellings = (path) =>
     platform === 'darwin' && path.startsWith(`${DATA_VOLUME}/`) ? [path, path.slice(DATA_VOLUME.length)] : [path];
 
@@ -125,7 +129,9 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
     return { lexical, real: await realpathDeep(lexical, realpath) };
   }
 
-  function verdict(tool, input, root, ruleForms) {
+  const rootPaths = (root) => (root ? [...spellings(root.lexical), ...spellings(root.real)] : []);
+
+  function verdict(tool, input, paths, ruleForms) {
     const bare = (rules) => rules.find((rule) => rule.kind === 'tool' && rule.tool === tool);
     let match;
     if (tool === 'Bash') {
@@ -134,7 +140,6 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
       const readOnly = () => (classified ??= classifyBash(command)).readOnly;
       match = (rules) => bare(rules) ?? (typeof command === 'string' ? bashMatch(rules, command, readOnly, ruleForms) : undefined);
     } else if (Object.hasOwn(PATH_FIELDS, tool)) {
-      const paths = root ? [...spellings(root.lexical), ...spellings(root.real)] : [];
       match = (rules) => bare(rules) ?? pathMatch(rules, tool, paths, ruleForms);
     } else {
       match = bare;
@@ -146,9 +151,7 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
     return null;
   }
 
-  function listingFilter(tool, root, mode, ruleForms) {
-    if (!LISTING_TOOLS.has(tool)) return null;
-    const rules = (mode === 'yolo' ? deny : [...deny, ...ask]).filter((rule) => rule.kind === 'path' && rule.tools.includes(tool));
+  function listingFilter(root, rules, ruleForms) {
     if (rules.length === 0) return null;
     const regexes = rules.flatMap((rule) => ruleForms.get(rule).map((form) => form.regex));
     const denied = (path) => spellings(path).some((one) => regexes.some((regex) => regex.test(one)));
@@ -168,7 +171,14 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
   async function screen(tool, input, cwd, mode) {
     const ruleForms = await formsOf();
     const root = await rootOf(tool, input, cwd);
-    return { ruled: verdict(tool, input, root, ruleForms), hidden: listingFilter(tool, root, mode, ruleForms) };
+    const paths = rootPaths(root);
+    const ruled = verdict(tool, input, paths, ruleForms);
+    if (!LISTING_TOOLS.has(tool)) return { ruled, hidden: null, approved: null };
+    const rules = (mode === 'yolo' ? deny : [...deny, ...ask]).filter((rule) => rule.kind === 'path' && rule.tools.includes(tool));
+    const hidden = listingFilter(root, rules, ruleForms);
+    if (ruled?.decision !== 'ask') return { ruled, hidden, approved: hidden };
+    const kept = rules.filter((rule) => !ask.includes(rule) || !matchesPaths(rule, paths, ruleForms));
+    return { ruled, hidden, approved: listingFilter(root, kept, ruleForms) };
   }
 
   return {

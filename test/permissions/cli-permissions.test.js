@@ -128,6 +128,25 @@ test('Grep and Glob hide files an ask rule matches unless --yolo, and never ask 
   assert.equal(await repl.done, 0);
 });
 
+test('in the REPL, a Grep or Glob whose root an ask rule matches asks once and, allowed, lists the files under it', GUARD, async (t) => {
+  const { home, cwd, dir } = await setup(t);
+  await plant(cwd, { 'secret/b.txt': 'needle' });
+  const settings = writeSettings(dir, { permissions: { ask: ['Read(./secret)'] } });
+  const grep = toolsReply([['Grep', { pattern: 'needle', path: 'secret' }]]);
+  const glob = toolsReply([['Glob', { pattern: '*', path: 'secret' }]]);
+  const repl = startRepl(['--settings', settings], { home, cwd, replies: [grep, textReply('done'), glob, textReply('done')] });
+  for (const [n, call] of [[1, 1], [2, 3]]) {
+    await repl.prompts(n);
+    repl.stdin.type('look\r');
+    await repl.until(ASK_LINE, n);
+    repl.stdin.type('y\r');
+    await repl.prompts(n + 1);
+    assert.equal(repl.fetch.calls[call].body.messages.at(-1).content[0].content, join(cwd, 'secret/b.txt'), `call ${call}`);
+  }
+  repl.stdin.type('\x04');
+  assert.equal(await repl.done, 0);
+});
+
 test('Grep and Glob hide a symlink in the searched tree whose target a Read rule denies', GUARD, async (t) => {
   const { home, cwd, dir, user } = await setup(t);
   await plant(user, { '.ssh/id_rsa': 'BEGIN KEY' });
