@@ -4,6 +4,7 @@ clodent was named clay up to 0.2.0.
 
 ## Unreleased
 
+- Security: the REPL, and print mode's stderr lines, write each control byte in model text, tool summaries, tool errors, warnings and compact lines as a visible `\u00XX` escape, so a Bash summary can no longer forge the `[clodent:permit …]` line and streamed text can no longer send OSC 52 or turn bracketed paste off.
 - Security: each `/compact` file reload fires `PreToolUse` as a model `Read` would (`tool_use_id` `compact-reload-<n>`); a hook deny or ask skips the file as `hook` without asking, and the fallback list leaves out `Read`, `Edit` and `Write` calls whose result was an error, so a file only a hook guards is no longer pulled into context.
 - Security: a `PreToolUse` hook `ask` counts as a settings ask rule: the REPL asks, read tools included, `-p` and `--read-only` refuse, and `--yolo` runs the call; a top-level `"decision": "block"` is a deny with its `reason`, and `"approve"` is ignored.
 - Security: on `PreToolUse`, stdout cut at 1 MiB, or non-empty and not a JSON object, is a hook failure, so an entry with `onFailure: "block"` denies the call.
