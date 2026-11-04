@@ -9,6 +9,7 @@ import { createHookFirer } from './hooks/fire.js';
 import { createStatusLine } from './hooks/status-line.js';
 import { buildSystemPrompt } from './prompt/system.js';
 import { createRenderer } from './render/terminal.js';
+import { runRepl } from './repl/repl.js';
 import { loadSettings } from './settings/load.js';
 import { openSession } from './session/open.js';
 import { clayHome } from './session/paths.js';
@@ -99,37 +100,33 @@ function startSession(opts, deps) {
   );
 }
 
-async function runPrint(opts, deps) {
-  const { stdout, stderr, cwd } = deps;
+async function prepare(opts, deps) {
+  const { stderr, cwd } = deps;
   let loaded;
   try {
     loaded = await loadSettings({ clayHome: home(deps), files: opts.settings.map((file) => resolve(cwd, file)) });
   } catch (err) {
     stderr.write(`clay: ${err.message}\n`);
-    return 2;
+    return { code: 2 };
   }
+  const fail = (message) => {
+    for (const warning of loaded.warnings) stderr.write(`clay: ${warning}\n`);
+    stderr.write(`clay: ${message}\n`);
+    return { code: 2 };
+  };
   const { settings } = loaded;
   const env = { ...deps.env, ...settings.env };
-  if (opts.print === '') {
-    stderr.write('clay: -p needs a non-empty prompt\n');
-    return 2;
-  }
-  if (!env.ANTHROPIC_API_KEY) {
-    stderr.write('clay: ANTHROPIC_API_KEY is not set\n');
-    return 2;
-  }
+  if (opts.print === '') return fail('-p needs a non-empty prompt');
+  if (!env.ANTHROPIC_API_KEY) return fail('ANTHROPIC_API_KEY is not set');
   const base = baseUrlFrom(env);
-  if (!base.ok) {
-    stderr.write('clay: invalid ANTHROPIC_BASE_URL\n');
-    return 2;
-  }
+  if (!base.ok) return fail('invalid ANTHROPIC_BASE_URL');
   const model = opts.model ?? settings.model ?? DEFAULT_MODEL;
+  const addDirs = extraDirs(opts, settings, cwd);
   let system;
   try {
-    system = systemPrompt(opts, model, extraDirs(opts, settings, cwd), deps);
+    system = systemPrompt(opts, model, addDirs, deps);
   } catch (err) {
-    stderr.write(`clay: ${err.message}\n`);
-    return 2;
+    return fail(err.message);
   }
   let session;
   try {
@@ -137,71 +134,136 @@ async function runPrint(opts, deps) {
   } catch (err) {
     session = { ok: false, error: err.message };
   }
-  if (!session.ok) {
-    stderr.write(`clay: ${session.error}\n`);
-    return 2;
-  }
-  stderr.write(`[clay:session] ${session.sessionId}\n`);
-  for (const warning of [...loaded.warnings, ...session.warnings]) stderr.write(`clay: ${warning}\n`);
-  const render = createRenderer({ out: stdout, err: stderr, mode: 'print' });
-  const record = createRecorder(session.transcript, { now: deps.now });
+  if (!session.ok) return fail(session.error);
+  const warnings = [...loaded.warnings, ...session.warnings];
+  return { settings, env, baseUrl: base.baseUrl, model, addDirs, system, session, warnings };
+}
+
+function createRuntime(prep, opts, deps, render) {
+  const { settings, env, baseUrl, addDirs } = prep;
+  const { cwd } = deps;
   const procDeps = { spawn: deps.spawn, kill: deps.kill };
   const ledger = createLedger({ budgetUsd: opts.budgetUsd }, {});
   const statusLine = createStatusLine(
     { settings, env, cwd, version: version() },
     { ...procDeps, warn: (message) => render({ type: 'warning', message }) },
   );
-  const statusBase = { modelId: model, sessionId: session.sessionId, transcriptPath: session.transcriptPath };
-  const hooks = createHookFirer(
-    { settings, env, cwd, sessionId: session.sessionId, transcriptPath: session.transcriptPath, permission: opts.permission },
-    procDeps,
-  );
-  const agent = createAgent(
-    {
-      model,
-      effort: opts.effort ?? settings.effortLevel,
-      system,
-      baseUrl: base.baseUrl,
-      tools: createTools(procDeps),
-      permission: opts.permission,
-      history: session.history,
-      interrupted: session.interrupted,
-    },
-    {
-      fetch: deps.fetch,
-      env,
-      cwd,
-      sleep: deps.sleep,
-      random: deps.random,
-      now: deps.now,
-      ledger,
-      hooks,
-      emit: (event) => {
-        record(event);
-        render(event);
-        if (event.type === 'assistant_message') statusLine.update(statusState(event.message.usage, statusBase, ledger));
+  const tools = createTools(procDeps);
+  const current = { model: prep.model, system: prep.system };
+  const statusOf = (session, usage) =>
+    statusState(usage, { modelId: current.model, sessionId: session.sessionId, transcriptPath: session.transcriptPath }, ledger);
+
+  function open(session, { ask } = {}) {
+    const record = createRecorder(session.transcript, { now: deps.now });
+    const hooks = createHookFirer(
+      { settings, env, cwd, sessionId: session.sessionId, transcriptPath: session.transcriptPath, permission: opts.permission },
+      procDeps,
+    );
+    return createAgent(
+      {
+        model: current.model,
+        effort: opts.effort ?? settings.effortLevel,
+        system: current.system,
+        baseUrl,
+        tools,
+        permission: opts.permission,
+        history: session.history,
+        interrupted: session.interrupted,
+        ask,
       },
+      {
+        fetch: deps.fetch,
+        env,
+        cwd,
+        sleep: deps.sleep,
+        random: deps.random,
+        now: deps.now,
+        ledger,
+        hooks,
+        emit: (event) => {
+          record(event);
+          render(event);
+          if (event.type === 'assistant_message') statusLine.update(statusOf(session, event.message.usage));
+        },
+      },
+    );
+  }
+
+  return {
+    ledger,
+    statusLine,
+    open,
+    model: () => current.model,
+    setModel(model) {
+      const system = systemPrompt(opts, model, addDirs, deps);
+      Object.assign(current, { model, system });
+      return system;
     },
-  );
+    freshSession() {
+      try {
+        return startSession({ ...opts, sessionId: undefined, resume: undefined, forkSession: false }, deps);
+      } catch (err) {
+        return { ok: false, error: err.message };
+      }
+    },
+    resetStatus(session) {
+      statusLine.update(statusOf(session, {}));
+    },
+  };
+}
+
+export function ignoreBrokenPipes(stream) {
+  stream.on('error', (err) => {
+    if (err?.code === 'EIO' || err?.code === 'EPIPE') return;
+    throw err;
+  });
+  return stream;
+}
+
+async function runPrint(opts, deps) {
+  const { stdout, stderr } = deps;
+  const prep = await prepare(opts, deps);
+  if (prep.code !== undefined) return prep.code;
+  stderr.write(`[clay:session] ${prep.session.sessionId}\n`);
+  for (const warning of prep.warnings) stderr.write(`clay: ${warning}\n`);
+  const render = createRenderer({ out: stdout, err: stderr, mode: 'print' });
+  const runtime = createRuntime(prep, opts, deps, render);
+  const agent = runtime.open(prep.session);
   const controller = new AbortController();
+  const stopHooks = new AbortController();
   let caught = null;
   const offs = Object.keys(SIGNAL_EXIT).map((name) =>
     deps.onSignal(name, () => {
-      caught ??= name;
+      if (caught !== null) {
+        stopHooks.abort();
+        return;
+      }
+      caught = name;
       controller.abort();
     }),
   );
   let result;
   try {
     await agent.fireSessionStart(opts.resume === undefined ? 'startup' : 'resume', { signal: controller.signal });
-    result = await agent.runTurn(opts.print, { signal: controller.signal });
+    result = await agent.runTurn(opts.print, { signal: controller.signal, stopSignal: stopHooks.signal });
   } finally {
     for (const off of offs) off();
   }
   agent.endSession();
-  await statusLine.flush();
+  await runtime.statusLine.flush();
   if (controller.signal.aborted) return SIGNAL_EXIT[caught];
   return result.ok ? 0 : 1;
+}
+
+async function runInteractive(opts, deps) {
+  const prep = await prepare(opts, deps);
+  if (prep.code !== undefined) return prep.code;
+  const render = createRenderer({ out: deps.stdout, err: deps.stderr, mode: 'repl' });
+  const runtime = createRuntime(prep, opts, deps, render);
+  return runRepl(
+    { runtime, session: prep.session, warnings: prep.warnings, resume: opts.resume !== undefined, signalExit: SIGNAL_EXIT },
+    { stdin: deps.stdin, stdout: deps.stdout, onSignal: deps.onSignal },
+  );
 }
 
 export async function main(argv, deps) {
@@ -225,6 +287,5 @@ export async function main(argv, deps) {
     return 2;
   }
   if (opts.print !== undefined) return runPrint(opts, deps);
-  deps.stderr.write('clay: not implemented yet\n');
-  return 1;
+  return runInteractive(opts, deps);
 }
