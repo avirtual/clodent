@@ -416,7 +416,7 @@ test('Bash: a rule only the conservative pass matches is uncertain: a deny rule 
   }
   assert.deepEqual(rawCommands("case x in a)#'\nrm z"), ['case x in a', 'rm z']);
   assert.deepEqual(rawCommands('git commit -m "x; rm y"'), ['git commit -m x', 'rm y']);
-  assert.deepEqual(rawWords('echo ${x:- #}; cat ~//.ssh/id_rsa'), ['echo', '${x:-', '$x:-', 'cat', '~//.ssh/id_rsa']);
+  assert.deepEqual(rawWords('echo ${x:- #}; cat ~//.ssh/id_rsa'), ['echo', '${x:-', '$x:-', '}', 'cat', '~//.ssh/id_rsa']);
   assert.deepEqual(
     [uncertainDecision('deny', 'yolo'), uncertainDecision('deny', 'default'), uncertainDecision('ask', 'yolo'), uncertainDecision('ask', 'acceptEdits')],
     ['deny', 'ask', 'ask', 'ask'],
