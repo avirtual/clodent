@@ -56,13 +56,22 @@ function listedPath(line) {
   return path.replace(/^`+([^`]*)`+$/, '$1').trim();
 }
 
+function headingRest(line) {
+  const text = line.trim();
+  const open = text.match(/^[`*#\s]*/)[0];
+  if (!text.startsWith(RELOAD_HEADING, open.length)) return null;
+  let rest = text.slice(open.length + RELOAD_HEADING.length).trim();
+  if (open.includes('`')) rest = rest.replace(/^`+|`+$/g, '').trim();
+  if (open.includes('*')) rest = rest.replace(/^\*+|\*+$/g, '').trim();
+  return rest;
+}
+
 function listedFiles(summary) {
   const lines = summary.split('\n');
-  const at = lines.findLastIndex((line) => line.trim().startsWith(RELOAD_HEADING));
+  const at = lines.findLastIndex((line) => headingRest(line) !== null);
   if (at === -1) return null;
-  const inline = lines[at].trim().slice(RELOAD_HEADING.length);
-  if (inline.trim().toLowerCase() === 'none') return [];
-  const first = listedPath(inline);
+  const first = listedPath(headingRest(lines[at]));
+  if (first.toLowerCase() === 'none') return [];
   const paths = first === '' ? [] : [first];
   for (const line of lines.slice(at + 1)) {
     if (line.trim() === '') break;

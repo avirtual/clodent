@@ -297,7 +297,7 @@ export function createAgent(config, deps) {
     const input = { file_path: path };
     const ruled = guard.active ? (await guard.screen('Read', input, deps.cwd, permission)).ruled : null;
     const tool = byName.get('Read');
-    const verdict = tool ? verdictFor(tool, input, NO_HOOK_DECISION, ruled) : { allow: false, reason: 'unknown tool Read' };
+    const verdict = verdictFor(tool, input, NO_HOOK_DECISION, ruled);
     if (!verdict.allow) return { reason: RELOAD_SKIPS[ruled?.decision] ?? verdict.reason };
     try {
       const outcome = await tool.run(input, { cwd: deps.cwd, env: deps.env, signal, hidden: null });
