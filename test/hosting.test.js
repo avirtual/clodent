@@ -95,6 +95,19 @@ test('acceptEdits in -p runs Write, Edit and a read-only Bash command; refuses o
   assert.deepEqual(['t.txt', 'asked.txt', 'locked.txt'].map((name) => existsSync(join(cwd, name))), [false, false, false]);
 });
 
+test('acceptEdits in -p runs a Write in an --add-dir dir and refuses one to the script a hook command names', GUARD, async (t) => {
+  const { home, cwd, dir } = await setup(t);
+  const settings = writeSettings(dir, { hooks: { PreToolUse: [hookGroup('NoSuchTool', 'bash "$CLODENT_PROJECT_DIR/scripts/pre.sh"')] } });
+  const uses = [
+    ['Write', { file_path: join(dir, 'c.txt'), content: 'c' }],
+    ['Write', { file_path: 'scripts/pre.sh', content: 'p' }],
+  ];
+  const res = await runMain(['-p', 'go', '--permission-mode', 'acceptEdits', '--add-dir', dir, '--settings', settings], { home, cwd, responses: [toolsReply(uses), textReply('done')] });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(results(res), [`Wrote 1 bytes to ${join(dir, 'c.txt')}`, ASK_DENIAL]);
+  assert.equal(existsSync(join(cwd, 'scripts', 'pre.sh')), false);
+});
+
 test('acceptEdits in the REPL runs a Write without asking and asks for a Bash command that is not read-only', GUARD, async (t) => {
   const { home, cwd } = await setup(t);
   const uses = [['Write', { file_path: 'w.txt', content: 'w' }], ['Bash', { command: 'touch t.txt' }]];

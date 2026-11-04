@@ -9,6 +9,7 @@ clodent was named clay up to 0.2.0.
 - Security: `<hook-context` and `</hook-context` inside hook context are written with `&lt;`, so a hook can no longer forge another event's frame.
 - A `SessionStart` that fires again before the next prompt, such as after two `/compact`s, replaces the held `SessionStart` context instead of adding to it.
 - An unknown `permissionDecision` warns, and denies under `onFailure: "block"`; an `onFailure` other than `"block"` or `"warn"` and a hook event name clodent does not know warn at startup.
+- Security: in `acceptEdits`, a `Write` or `Edit` runs without asking only inside the working directory and the `--add-dir`/`trustedDirectories`/`additionalDirectories` dirs; it asks, or is refused under `-p`, for a path under `.git`, `.clodent` or `.claude` and for a file a hook or statusLine command names (avirtual/clodent #6, #7).
 
 ## 0.5.1 — 2026-11-04
 

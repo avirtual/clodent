@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DEFAULT_RELOAD_FILES } from './agent/compact.js';
 import { createAgent } from './agent/loop.js';
+import { hookPaths } from './agent/permission.js';
 import { DEFAULT_MODEL, FLAGS, givenFlags, parseArgs } from './args.js';
 import { createLedger } from './cost/ledger.js';
 import { createHookFirer } from './hooks/fire.js';
@@ -152,6 +153,7 @@ async function prepare(opts, deps) {
   if (!base.ok) return fail('invalid ANTHROPIC_BASE_URL');
   const model = opts.model ?? settings.model ?? DEFAULT_MODEL;
   const addDirs = extraDirs(opts, settings, cwd);
+  const scope = { dirs: addDirs, protect: hookPaths(settings, { cwd, env, home: rulesHome }) };
   let system;
   try {
     system = systemPrompt(opts, model, addDirs, deps, permissions);
@@ -166,11 +168,11 @@ async function prepare(opts, deps) {
   }
   if (!session.ok) return fail(session.error);
   const warnings = [...loaded.warnings, ...session.warnings];
-  return { settings, permissions, env, baseUrl: base.baseUrl, model, addDirs, system, session, warnings };
+  return { settings, permissions, env, baseUrl: base.baseUrl, model, addDirs, scope, system, session, warnings };
 }
 
 function createRuntime(prep, opts, deps, render) {
-  const { settings, permissions, env, baseUrl, addDirs } = prep;
+  const { settings, permissions, env, baseUrl, addDirs, scope } = prep;
   const { cwd } = deps;
   const procDeps = { spawn: deps.spawn, kill: deps.kill };
   const ledger = createLedger({ budgetUsd: opts.budgetUsd }, {});
@@ -216,6 +218,7 @@ function createRuntime(prep, opts, deps, render) {
         ledger,
         hooks,
         guard,
+        scope,
         emit: (event) => {
           record(event);
           render(event);
