@@ -4,7 +4,7 @@ import { createGuard, simpleCommands } from '../../src/permissions/guard.js';
 import { parseRules } from '../../src/permissions/rules.js';
 
 const HOME = '/Users/u';
-const WHERE = { file: '/etc/clay/settings.json', cwd: '/work', home: HOME };
+const WHERE = { file: '/etc/clodent/settings.json', cwd: '/work', home: HOME };
 const noRealpath = async () => {
   throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
 };

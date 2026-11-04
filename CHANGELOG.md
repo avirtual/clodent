@@ -1,6 +1,10 @@
 # Changelog
 
+clodent was named clay up to 0.2.0.
+
 ## Unreleased
+
+- Renamed clay to clodent: the clodent command, CLODENT_HOME (default ~/.clodent), CLODENT_PROJECT_DIR, [clodent:*] output lines, clodent: message prefix, user agent clodent/<version>, transcript entrypoint clodent; no aliases for the old names.
 
 ## 0.2.0 — 2026-11-04
 

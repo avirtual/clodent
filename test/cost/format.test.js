@@ -8,13 +8,13 @@ const agg = (usd) => ({ usd, tokens, requests: 3, unpriced: [] });
 const usdOf = (usd) => formatCost(agg(usd)).match(/\$(\S+)/)[1];
 
 test('formatCost prints the per-turn line', () => {
-  assert.equal(formatCost(agg(0.0646)), '[clay:cost] $0.0646 (in 1234567, cache-read 0, cache-write 42, out 7)');
+  assert.equal(formatCost(agg(0.0646)), '[clodent:cost] $0.0646 (in 1234567, cache-read 0, cache-write 42, out 7)');
 });
 
 test('formatTotal prints the session total line', () => {
   assert.equal(
     formatTotal(agg(12.5)),
-    '[clay:cost] session total $12.5000 (in 1234567, cache-read 0, cache-write 42, out 7, requests 3)',
+    '[clodent:cost] session total $12.5000 (in 1234567, cache-read 0, cache-write 42, out 7, requests 3)',
   );
 });
 
@@ -32,25 +32,25 @@ test('amounts print exactly four decimals, rounded half-up', () => {
 test('a ledger turn worth exactly $0.00015 prints $0.0002', () => {
   const ledger = createLedger();
   ledger.record('claude-haiku-5-5', { cache_read_input_tokens: 15000 });
-  assert.equal(formatCost(ledger.endTurn()), '[clay:cost] $0.0002 (in 0, cache-read 15000, cache-write 0, out 0)');
+  assert.equal(formatCost(ledger.endTurn()), '[clodent:cost] $0.0002 (in 0, cache-read 15000, cache-write 0, out 0)');
 });
 
 test('formatBudgetStop prints the overshoot line', () => {
   assert.equal(
     formatBudgetStop({ ok: false, spentUsd: 0.0646, nextEstimateUsd: 0.00015, budgetUsd: 0.1 }),
-    '[clay:budget] stopped: spent $0.0646, next request est. $0.0002, budget $0.1000',
+    '[clodent:budget] stopped: spent $0.0646, next request est. $0.0002, budget $0.1000',
   );
 });
 
 test('formatBudgetStop prints the unpriced line', () => {
   assert.equal(
     formatBudgetStop({ ok: false, reason: 'unpriced', model: 'mystery-1', spentUsd: 0, nextEstimateUsd: 0, budgetUsd: 5 }),
-    '[clay:budget] stopped: model mystery-1 has no price; --budget needs a priced model',
+    '[clodent:budget] stopped: model mystery-1 has no price; --budget needs a priced model',
   );
 });
 
 test('formatUnpriced prints the warning line', () => {
-  assert.equal(formatUnpriced('mystery-1'), '[clay:cost] warning: no price for model mystery-1; cost not counted');
+  assert.equal(formatUnpriced('mystery-1'), '[clodent:cost] warning: no price for model mystery-1; cost not counted');
 });
 
 test('every formatter returns one line without a trailing newline', () => {

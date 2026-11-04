@@ -11,10 +11,10 @@ import { createFakeFetch } from './helpers/fake-fetch.js';
 import { sse } from './helpers/sse-builder.js';
 import { cleanEnv, plant, useTempDir } from './tools/tmp-dir.js';
 
-const COST_LINE = /^\[clay:cost\] \$\d+\.\d{4} \(in \d+, cache-read \d+, cache-write \d+, out \d+\)$/m;
-const TOTAL_LINE = /^\[clay:cost\] session total \$\d+\.\d{4} /m;
-const SESSION_LINE = /^\[clay:session\] [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const HOME = mkdtempSync(join(tmpdir(), 'clay-cli-home-'));
+const COST_LINE = /^\[clodent:cost\] \$\d+\.\d{4} \(in \d+, cache-read \d+, cache-write \d+, out \d+\)$/m;
+const TOTAL_LINE = /^\[clodent:cost\] session total \$\d+\.\d{4} /m;
+const SESSION_LINE = /^\[clodent:session\] [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const HOME = mkdtempSync(join(tmpdir(), 'clodent-cli-home-'));
 after(() => rmSync(HOME, { recursive: true, force: true }));
 
 function fakeDeps({ responses = [], env = {}, cwd = tmpdir(), ...extra } = {}) {
@@ -57,14 +57,14 @@ const toolReply = (name, input) => ({
 });
 
 test('--version prints the package version and returns 0', async () => {
-  assert.deepEqual(await run(['--version']), { code: 0, stdout: 'clay 0.2.0\n', stderr: '' });
-  assert.deepEqual(await run(['-v']), { code: 0, stdout: 'clay 0.2.0\n', stderr: '' });
+  assert.deepEqual(await run(['--version']), { code: 0, stdout: 'clodent 0.2.0\n', stderr: '' });
+  assert.deepEqual(await run(['-v']), { code: 0, stdout: 'clodent 0.2.0\n', stderr: '' });
 });
 
 test('--help prints usage and returns 0', async () => {
   const res = await run(['--help']);
   assert.equal(res.code, 0);
-  assert.match(res.stdout, /^usage: clay/);
+  assert.match(res.stdout, /^usage: clodent/);
   assert.equal(res.stderr, '');
   assert.equal((await run(['-h'])).stdout, res.stdout);
 });
@@ -83,19 +83,19 @@ test('--help lists every flag with a description and marks the unimplemented one
 
 test('--help and --version win over flags that are not implemented yet', async () => {
   assert.equal((await run(['--yolo', '--help'])).code, 0);
-  assert.equal((await run(['--model', 'x', '--version'])).stdout, 'clay 0.2.0\n');
+  assert.equal((await run(['--model', 'x', '--version'])).stdout, 'clodent 0.2.0\n');
 });
 
 test('a parse error prints the error and a pointer to --help, and returns 2', async () => {
   assert.deepEqual(await run(['--frobnicate']), {
     code: 2,
     stdout: '',
-    stderr: 'clay: unknown option: --frobnicate\nclay: see --help\n',
+    stderr: 'clodent: unknown option: --frobnicate\nclodent: see --help\n',
   });
   assert.deepEqual(await run(['--effort', 'max']), {
     code: 2,
     stdout: '',
-    stderr: 'clay: --effort must be low, medium or high, got "max"\nclay: see --help\n',
+    stderr: 'clodent: --effort must be low, medium or high, got "max"\nclodent: see --help\n',
   });
   assert.equal((await run(['fix it'])).code, 2);
 });
@@ -110,7 +110,7 @@ test('NOT_YET names only real flags and never --version or --help', () => {
 test('a missing --settings file exits 2 with the loader error, before any request', async (t) => {
   const cwd = await useTempDir(t);
   const res = await run(['-p', 'go', '--settings', 'missing.json'], { env: KEY, cwd });
-  assert.deepEqual([res.code, res.stdout, res.stderr], [2, '', `clay: settings file not found: ${join(cwd, 'missing.json')}\n`]);
+  assert.deepEqual([res.code, res.stdout, res.stderr], [2, '', `clodent: settings file not found: ${join(cwd, 'missing.json')}\n`]);
   assert.equal(res.fetch.calls.length, 0);
 });
 
@@ -118,10 +118,10 @@ test('NOT_YET is empty: every flag is implemented', () => {
   assert.deepEqual([...NOT_YET], []);
 });
 
-test('without -p clay starts the REPL, which exits 2 before reading stdin when ANTHROPIC_API_KEY is unset', async () => {
+test('without -p clodent starts the REPL, which exits 2 before reading stdin when ANTHROPIC_API_KEY is unset', async () => {
   const res = await run([]);
-  assert.deepEqual([res.code, res.stdout, res.stderr], [2, '', 'clay: ANTHROPIC_API_KEY is not set\n']);
-  assert.equal((await run(['--model', 'x', '--yolo'])).stderr, 'clay: ANTHROPIC_API_KEY is not set\n');
+  assert.deepEqual([res.code, res.stdout, res.stderr], [2, '', 'clodent: ANTHROPIC_API_KEY is not set\n']);
+  assert.equal((await run(['--model', 'x', '--yolo'])).stderr, 'clodent: ANTHROPIC_API_KEY is not set\n');
 });
 
 test('README ### Flags marks exactly the NOT_YET flags as parsed; not yet implemented', () => {
@@ -142,7 +142,7 @@ test('README ### Flags marks exactly the NOT_YET flags as parsed; not yet implem
 
 test('-p without ANTHROPIC_API_KEY exits 2 before any request', async () => {
   const res = await run(['-p', 'hi']);
-  assert.deepEqual([res.code, res.stdout, res.stderr], [2, '', 'clay: ANTHROPIC_API_KEY is not set\n']);
+  assert.deepEqual([res.code, res.stdout, res.stderr], [2, '', 'clodent: ANTHROPIC_API_KEY is not set\n']);
   assert.equal(res.fetch.calls.length, 0);
 });
 
@@ -153,7 +153,7 @@ test('-p prints only the answer on stdout, the cost and total on stderr, and exi
   assert.equal(res.stdout, 'Hello, world!\n');
   const lines = res.stderr.split('\n');
   assert.match(lines[0], SESSION_LINE);
-  assert.equal(lines[1], '[clay:cost] $0.0004 (in 25, cache-read 0, cache-write 0, out 15)');
+  assert.equal(lines[1], '[clodent:cost] $0.0004 (in 25, cache-read 0, cache-write 0, out 15)');
   assert.match(lines[2], TOTAL_LINE);
   assert.equal(lines.length, 4);
 });
@@ -181,7 +181,7 @@ test('-p with an unreadable prompt file exits 2 before any request', async (t) =
   const cwd = await useTempDir(t);
   const res = await run(['-p', 'hi', '--system-prompt-file', 'missing.md'], { env: KEY, cwd });
   assert.equal(res.code, 2);
-  assert.equal(res.stderr, `clay: cannot read --system-prompt-file ${cwd}/missing.md: ENOENT\n`);
+  assert.equal(res.stderr, `clodent: cannot read --system-prompt-file ${cwd}/missing.md: ENOENT\n`);
   assert.equal(res.fetch.calls.length, 0);
 });
 
@@ -194,7 +194,7 @@ test('-p exits 1 on an API error, with the message verbatim', async (t) => {
   });
   assert.equal(res.code, 1);
   assert.equal(res.stdout, '');
-  assert.match(res.stderr, /^clay: credit balance is too low\n/m);
+  assert.match(res.stderr, /^clodent: credit balance is too low\n/m);
   assert.match(res.stderr, COST_LINE);
 });
 
@@ -203,7 +203,7 @@ test('-p exits 1 when max_tokens cuts the answer, still printing the text', asyn
   const res = await run(['-p', 'hi'], { env: KEY, cwd, responses: [textReply('partial', 'max_tokens')] });
   assert.equal(res.code, 1);
   assert.equal(res.stdout, 'partial\n');
-  assert.match(res.stderr, /^clay: response hit max_tokens$/m);
+  assert.match(res.stderr, /^clodent: response hit max_tokens$/m);
 });
 
 test('-p under the default ask mode denies Write and says why on stderr', async (t) => {
@@ -215,7 +215,7 @@ test('-p under the default ask mode denies Write and says why on stderr', async 
   });
   assert.equal(res.code, 0);
   assert.equal(res.stdout, 'could not\n');
-  assert.match(res.stderr, /^● Write x\.txt\n {2}✗ permission required: run clay without -p to approve it, or pass --yolo$/m);
+  assert.match(res.stderr, /^● Write x\.txt\n {2}✗ permission required: run clodent without -p to approve it, or pass --yolo$/m);
 });
 
 test('--budget below the first request cost stops before the second: exit 1 and the budget line', async (t) => {
@@ -227,7 +227,7 @@ test('--budget below the first request cost stops before the second: exit 1 and 
   });
   assert.equal(res.code, 1);
   assert.equal(res.fetch.calls.length, 1);
-  assert.match(res.stderr, /^\[clay:budget\] stopped: spent \$0\.0044, next request est\. \$0\.0044, budget \$0\.0010$/m);
+  assert.match(res.stderr, /^\[clodent:budget\] stopped: spent \$0\.0044, next request est\. \$0\.0044, budget \$0\.0010$/m);
   assert.match(res.stderr, COST_LINE);
   assert.match(res.stderr, TOTAL_LINE);
 });
@@ -249,7 +249,7 @@ test('SIGINT during -p kills the running Bash, awaits it, and exits 130', async 
     return child;
   };
   const fake = fakeDeps({
-    env: { ...cleanEnv(KEY), CLAY_HOME: join(HOME, 'sigint') },
+    env: { ...cleanEnv(KEY), CLODENT_HOME: join(HOME, 'sigint') },
     cwd,
     spawn,
     responses: [toolReply('Bash', { command: 'sleep 30 & echo $!; wait' })],
@@ -264,20 +264,20 @@ test('SIGINT during -p kills the running Bash, awaits it, and exits 130', async 
   assert.ok(stat === '' || stat.startsWith('Z'), `sleep ${sleepPid} still running: ${stat}`);
   assert.equal(fake.fetch.calls.length, 1);
   assert.deepEqual(fake.signals, {});
-  assert.match(fake.stderr(), /^clay: interrupted$/m);
+  assert.match(fake.stderr(), /^clodent: interrupted$/m);
   assert.match(fake.stderr(), TOTAL_LINE);
 });
 
-test('bin/clay.js --version runs from any cwd', () => {
-  const bin = fileURLToPath(new URL('../bin/clay.js', import.meta.url));
+test('bin/clodent.js --version runs from any cwd', () => {
+  const bin = fileURLToPath(new URL('../bin/clodent.js', import.meta.url));
   const res = spawnSync(process.execPath, [bin, '--version'], { cwd: tmpdir(), encoding: 'utf8' });
   assert.equal(res.status, 0, res.stderr);
-  assert.equal(res.stdout, 'clay 0.2.0\n');
+  assert.equal(res.stdout, 'clodent 0.2.0\n');
 });
 
-test('bin/clay.js exits 2 on a parse error', () => {
-  const bin = fileURLToPath(new URL('../bin/clay.js', import.meta.url));
+test('bin/clodent.js exits 2 on a parse error', () => {
+  const bin = fileURLToPath(new URL('../bin/clodent.js', import.meta.url));
   const res = spawnSync(process.execPath, [bin, '--frobnicate'], { cwd: tmpdir(), encoding: 'utf8' });
   assert.equal(res.status, 2);
-  assert.equal(res.stderr, 'clay: unknown option: --frobnicate\nclay: see --help\n');
+  assert.equal(res.stderr, 'clodent: unknown option: --frobnicate\nclodent: see --help\n');
 });

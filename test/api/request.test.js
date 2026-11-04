@@ -16,7 +16,7 @@ const TOOLS = [
 function base(overrides = {}) {
   return {
     model: 'claude-opus-5-5',
-    system: 'You are clay.',
+    system: 'You are clodent.',
     tools: TOOLS,
     messages: [{ role: 'user', content: 'hi' }],
     ...overrides,
@@ -54,13 +54,13 @@ test('baseUrl replaces the origin, trailing slashes dropped, and leaves the head
   }
 });
 
-test('headers are exactly key, version, content type and clay user agent', () => {
+test('headers are exactly key, version, content type and clodent user agent', () => {
   const { headers } = buildRequest(base(), deps);
   assert.deepEqual(headers, {
     'x-api-key': 'sk-test-key',
     'anthropic-version': '2026-10-21',
     'content-type': 'application/json',
-    'user-agent': `clay/${PACKAGE_VERSION}`,
+    'user-agent': `clodent/${PACKAGE_VERSION}`,
   });
 });
 
@@ -84,7 +84,7 @@ test('body carries model, default max_tokens, stream, system block, tools, messa
   assert.equal(body.max_tokens, DEFAULT_MAX_TOKENS);
   assert.equal(DEFAULT_MAX_TOKENS, 32000);
   assert.equal(body.stream, true);
-  assert.deepEqual(body.system, [{ type: 'text', text: 'You are clay.', cache_control: { type: 'ephemeral' } }]);
+  assert.deepEqual(body.system, [{ type: 'text', text: 'You are clodent.', cache_control: { type: 'ephemeral' } }]);
   assert.deepEqual(body.thinking, { type: 'adaptive' });
 });
 
@@ -167,7 +167,7 @@ test('a trailing thinking block is skipped for the nearest other block', () => {
 test('building twice over a growing history keeps three markers and never mutates the caller', () => {
   const tools = structuredClone(TOOLS);
   const messages = [{ role: 'user', content: 'one' }];
-  const system = 'You are clay.';
+  const system = 'You are clodent.';
   const first = buildRequest({ model: 'm', system, tools, messages }, deps);
   assert.equal(cachePaths(first.body).length, 3);
   messages.push(

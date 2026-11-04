@@ -92,7 +92,7 @@ test('head_limit cuts the output and says so', async (t) => {
   const result = await grep.run({ pattern: 'hit', output_mode: 'content', head_limit: 3 }, ctxFor(dir));
   const lines = result.content.split('\n');
   assert.deepEqual(lines.slice(0, 3), [1, 2, 3].map((n) => `${join(dir, 'many.txt')}:${n}:hit`));
-  assert.equal(lines[3], '[clay: showing the first 3 of 10 lines; raise head_limit to see more]');
+  assert.equal(lines[3], '[clodent: showing the first 3 of 10 lines; raise head_limit to see more]');
   assert.equal(lines.length, 4);
 });
 
@@ -101,7 +101,7 @@ test('head_limit defaults to 250 lines', async (t) => {
   await plant(dir, { 'many.txt': 'hit\n'.repeat(300) });
   const lines = (await grep.run({ pattern: 'hit', output_mode: 'content' }, ctxFor(dir))).content.split('\n');
   assert.equal(lines.length, 251);
-  assert.equal(lines[250], '[clay: showing the first 250 of 300 lines; raise head_limit to see more]');
+  assert.equal(lines[250], '[clodent: showing the first 250 of 300 lines; raise head_limit to see more]');
 });
 
 test('CRLF line endings do not reach the regex or the output', async (t) => {

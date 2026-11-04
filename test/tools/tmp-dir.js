@@ -12,7 +12,7 @@ export function cleanEnv(extra = {}) {
 }
 
 export async function useTempDir(t) {
-  const dir = await mkdtemp(join(await realpath(tmpdir()), 'clay-tools-'));
+  const dir = await mkdtemp(join(await realpath(tmpdir()), 'clodent-tools-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   return dir;
 }

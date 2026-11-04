@@ -84,7 +84,7 @@ test('an empty value is a missing value, except for --print, --system-prompt and
   assert.deepEqual(ok(['--append-system-prompt', '']).appendSystemPrompt, ['']);
 });
 
-test('a separate value that is not a clay flag is taken as is, even with a leading dash', () => {
+test('a separate value that is not a clodent flag is taken as is, even with a leading dash', () => {
   assert.equal(ok(['-p', '- list the files']).print, '- list the files');
   assert.equal(ok(['--print', '--not-a-flag']).print, '--not-a-flag');
 });
@@ -115,7 +115,7 @@ test('a value flag at the end of argv is a missing value', () => {
   assert.equal(err(['-p']), '--print needs a value');
 });
 
-test('a value flag followed by another clay flag is a missing value', () => {
+test('a value flag followed by another clodent flag is a missing value', () => {
   assert.equal(err(['--model', '--yolo']), '--model needs a value');
   assert.equal(err(['--resume', '--fork-session']), '--resume needs a value');
   assert.equal(err(['-p', '-v']), '--print needs a value');
@@ -194,7 +194,7 @@ test('a positional argument is an error', () => {
   for (const arg of ['hello', '-']) {
     assert.equal(
       err([arg]),
-      `unexpected argument "${arg}": clay takes no positional arguments (use -p <prompt>)`,
+      `unexpected argument "${arg}": clodent takes no positional arguments (use -p <prompt>)`,
     );
   }
   assert.match(err(['--yolo', 'fix it']), /^unexpected argument "fix it"/);

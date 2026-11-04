@@ -4,7 +4,7 @@ import { buildRequest } from '../src/api/request.js';
 import { streamMessage } from '../src/api/stream.js';
 
 export const DEFAULT_MODEL = 'claude-haiku-5-5';
-const SYSTEM = 'You are the clay live smoke check. Follow the user instruction exactly and do not call tools.';
+const SYSTEM = 'You are the clodent live smoke check. Follow the user instruction exactly and do not call tools.';
 const TOOLS = [
   {
     name: 'echo',

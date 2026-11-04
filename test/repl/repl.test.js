@@ -14,7 +14,7 @@ import { useTempDir } from '../tools/tmp-dir.js';
 import { count, startRepl, userTexts } from './harness.js';
 
 const GUARD = { timeout: 5000 };
-const TOTAL_LINE = /^\[clay:cost\] session total \$\d+\.\d{4} /m;
+const TOTAL_LINE = /^\[clodent:cost\] session total \$\d+\.\d{4} /m;
 
 async function dirs(t) {
   return { home: await useTempDir(t), cwd: await useTempDir(t), dir: await useTempDir(t) };
@@ -50,14 +50,14 @@ test('boot prints the session line, runs SessionStart (startup), then shows the 
   repl.stdin.type('early');
   await repl.prompts(1);
   const [id] = repl.sessionIds();
-  const warning = `clay: settings ${settings}: effortLevel "xhigh" is not low, medium or high; ignored`;
-  assert.ok(repl.out.text.startsWith(`[clay:session] ${id}\n${warning}\n${PASTE_ON}> early`), JSON.stringify(repl.out.text));
+  const warning = `clodent: settings ${settings}: effortLevel "xhigh" is not low, medium or high; ignored`;
+  assert.ok(repl.out.text.startsWith(`[clodent:session] ${id}\n${warning}\n${PASTE_ON}> early`), JSON.stringify(repl.out.text));
   assert.equal(repl.err.text, '');
   assert.deepEqual(readJsonl(log).map((input) => [input.hook_event_name, input.source]), [['SessionStart', 'startup']]);
   repl.stdin.type(' hi\r');
   await repl.prompts(2);
   assert.deepEqual(userTexts(repl.fetch.calls[0].body), ['<hook-context event="SessionStart">\nboot context\n</hook-context>', 'early hi']);
-  assert.match(repl.out.text, /\nhello\n\[clay:cost\] \$/);
+  assert.match(repl.out.text, /\nhello\n\[clodent:cost\] \$/);
   assertCleanExit(repl, await exitWith(repl, '\x04'));
 });
 
@@ -118,7 +118,7 @@ test('^C during a held request interrupts the turn; the next prompt shows and th
   await repl.fetch.called(1);
   repl.stdin.type('\x03');
   await repl.prompts(2);
-  assert.match(repl.out.text, /^clay: interrupted$/m);
+  assert.match(repl.out.text, /^clodent: interrupted$/m);
   const records = readJsonl(transcriptPath(home, cwd, repl.sessionIds()[0]));
   assert.ok(records.some((r) => r.type === 'user' && r.message.content[0]?.text === INTERRUPT_TEXT && r.isVisibleInTranscriptOnly === true));
   repl.fetch.push(textReply('ok'));
@@ -131,7 +131,7 @@ test('^C during a held request interrupts the turn; the next prompt shows and th
   await repl.fetch.called(3);
   repl.signals.SIGINT();
   await repl.prompts(4);
-  assert.equal(repl.out.text.split('clay: interrupted').length - 1, 2);
+  assert.equal(repl.out.text.split('clodent: interrupted').length - 1, 2);
   assertCleanExit(repl, await exitWith(repl, '\x04'));
 });
 
@@ -171,19 +171,19 @@ test('another key between two Ctrl-Cs cancels the pending exit: ^C x ^U ^C shows
   await repl.until(EXIT_HINT, 2);
   repl.stdin.type('/cost\r');
   await repl.prompts(4);
-  assert.match(repl.out.text, /> \/cost\n\[clay:cost\] session total /);
+  assert.match(repl.out.text, /> \/cost\n\[clodent:cost\] session total /);
   assert.equal(count(repl.out.text, EXIT_HINT), 2);
   assertCleanExit(repl, await exitWith(repl, '\x04'));
 });
 
-test('a stdin EIO error ends input as stdin closing does; any other error prints clay: <message> first', GUARD, async (t) => {
+test('a stdin EIO error ends input as stdin closing does; any other error prints clodent: <message> first', GUARD, async (t) => {
   const { home, cwd } = await dirs(t);
   for (const code of ['EIO', 'EBADF']) {
     const repl = startRepl([], { home, cwd });
     await repl.prompts(1);
     repl.stdin.emit('error', Object.assign(new Error(`read ${code}`), { code }));
     assertCleanExit(repl, await repl.done);
-    assert.equal(count(repl.out.text, `\nclay: read ${code}\n`), code === 'EIO' ? 0 : 1, code);
+    assert.equal(count(repl.out.text, `\nclodent: read ${code}\n`), code === 'EIO' ? 0 : 1, code);
   }
 });
 
@@ -224,11 +224,11 @@ test('slash commands: /help, /cost, /model, unknown names, and slash text that i
   }
   const out = repl.out.text;
   assert.ok(out.includes(`> /help\n${HELP.join('\n')}\n`));
-  assert.match(out, /> \/cost\n\[clay:cost\] session total \$0\.0000 \(in 0, cache-read 0, cache-write 0, out 0, requests 0\)\n/);
-  assert.ok(out.includes('> /model\nclay: model claude-opus-5-5\n'));
-  assert.ok(out.includes('> /model claude-haiku-5-5\nclay: model claude-haiku-5-5\n'));
-  assert.ok(out.includes('> /foo\nclay: unknown command /foo (try /help)\n'));
-  assert.ok(out.includes('> /compact\nclay: nothing to compact\n'));
+  assert.match(out, /> \/cost\n\[clodent:cost\] session total \$0\.0000 \(in 0, cache-read 0, cache-write 0, out 0, requests 0\)\n/);
+  assert.ok(out.includes('> /model\nclodent: model claude-opus-5-5\n'));
+  assert.ok(out.includes('> /model claude-haiku-5-5\nclodent: model claude-haiku-5-5\n'));
+  assert.ok(out.includes('> /foo\nclodent: unknown command /foo (try /help)\n'));
+  assert.ok(out.includes('> /compact\nclodent: nothing to compact\n'));
   const calls = repl.fetch.calls;
   assert.equal(calls.length, 3);
   assert.deepEqual(calls.map((call) => userTexts(call.body).at(-1)), ['hi', '/Users/x/y hi', '/clear']);
@@ -242,7 +242,7 @@ test('slash commands: /help, /cost, /model, unknown names, and slash text that i
   rmSync(promptFile);
   repl.stdin.type('/model claude-sonnet-5-5\r');
   await repl.prompts(steps.length + 2);
-  assert.match(repl.out.text, /> \/model claude-sonnet-5-5\nclay: [^\n]*base\.md[^\n]*\nclay: model claude-haiku-5-5\n/);
+  assert.match(repl.out.text, /> \/model claude-sonnet-5-5\nclodent: [^\n]*base\.md[^\n]*\nclodent: model claude-haiku-5-5\n/);
   assertCleanExit(repl, await exitWith(repl, '\x04'));
 });
 
@@ -294,7 +294,7 @@ test('/clear pushes a statusLine update with zero usage and the new session id',
   assert.ok(last.cost.total_cost_usd > 0);
 });
 
-test('permission ask: [clay:permit] line and Notification hook; y allows, n denies, pastes and other lines queue, ^C interrupts', GUARD, async (t) => {
+test('permission ask: [clodent:permit] line and Notification hook; y allows, n denies, pastes and other lines queue, ^C interrupts', GUARD, async (t) => {
   const { home, cwd, dir } = await dirs(t);
   const log = join(dir, 'notify.jsonl');
   const hook = await script(dir, 'notify.sh', `cat >> ${JSON.stringify(log)}`);
@@ -306,13 +306,13 @@ test('permission ask: [clay:permit] line and Notification hook; y allows, n deni
 
   repl.stdin.type('write a\r');
   await repl.until(ASK_LINE, 1);
-  assert.match(repl.out.text, /\n\[clay:permit Write toolu_1\] a\.txt\nAllow\? \[y\/n\] $/);
+  assert.match(repl.out.text, /\n\[clodent:permit Write toolu_1\] a\.txt\nAllow\? \[y\/n\] $/);
   repl.stdin.type('Y\r');
   await repl.prompts(2);
   const [notice] = readJsonl(log);
   assert.deepEqual(
     [notice.hook_event_name, notice.notification_type, notice.tool, notice.id, notice.message],
-    ['Notification', 'permission', 'Write', 'toolu_1', 'clay needs permission to use Write'],
+    ['Notification', 'permission', 'Write', 'toolu_1', 'clodent needs permission to use Write'],
   );
   assert.equal(readFileSync(join(cwd, 'a.txt'), 'utf8'), 'a.txt');
 
@@ -346,7 +346,7 @@ test('permission ask: [clay:permit] line and Notification hook; y allows, n deni
   repl.stdin.type('\x03');
   await repl.prompts(7);
   assert.equal(existsSync(join(cwd, 'd.txt')), false);
-  assert.match(repl.out.text, /^clay: interrupted$/m);
+  assert.match(repl.out.text, /^clodent: interrupted$/m);
   assert.equal(repl.fetch.calls.length, 9);
   assertCleanExit(repl, await exitWith(repl, '\x04'));
 });
@@ -361,8 +361,8 @@ test('permission ask: a y typed while the Notification hook still runs answers t
   await repl.prompts(1);
 
   repl.stdin.type('write a\r');
-  await repl.until('[clay:permit Write toolu_1]');
-  assert.match(repl.out.text, /\n\[clay:permit Write toolu_1\] a\.txt\nAllow\? \[y\/n\] $/);
+  await repl.until('[clodent:permit Write toolu_1]');
+  assert.match(repl.out.text, /\n\[clodent:permit Write toolu_1\] a\.txt\nAllow\? \[y\/n\] $/);
   repl.stdin.type('y\r');
   writeFileSync(release, '');
   await repl.prompts(2);
@@ -380,7 +380,7 @@ test('--yolo and --read-only never ask; stdin end during an ask denies with "den
     await repl.prompts(1);
     repl.stdin.type('go\r');
     await repl.prompts(2);
-    assert.equal(repl.out.text.includes('[clay:permit'), false, flag);
+    assert.equal(repl.out.text.includes('[clodent:permit'), false, flag);
     assertCleanExit(repl, await exitWith(repl, '\x04'));
   }
   rmSync(join(cwd, 'x.txt'));

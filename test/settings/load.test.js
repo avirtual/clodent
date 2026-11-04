@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { loadSettings } from '../../src/settings/load.js';
 
-const HOME = '/home/u/.clay';
+const HOME = '/home/u/.clodent';
 const HOME_FILE = `${HOME}/settings.json`;
 const CLODEX_FIXTURE = fileURLToPath(new URL('./fixtures/clodex-settings.json', import.meta.url));
 
@@ -21,27 +21,27 @@ const cmd = (command, extra = {}) => ({ type: 'command', command, ...extra });
 const norm = (command, extra = {}) => ({ type: 'command', command, timeout: null, onFailure: null, ...extra });
 
 test('no sources gives empty settings and no warnings', async () => {
-  assert.deepEqual(await loadSettings({ clayHome: HOME, files: [] }, fakeFs({})), {
+  assert.deepEqual(await loadSettings({ clodentHome: HOME, files: [] }, fakeFs({})), {
     settings: { hooks: {}, statusLine: null, env: {}, extraDirs: [] },
     warnings: [],
   });
 });
 
 test('a missing home settings file is fine', async () => {
-  const { settings, warnings } = await loadSettings({ clayHome: HOME, files: ['/a.json'] }, fakeFs({ '/a.json': { model: 'm' } }));
+  const { settings, warnings } = await loadSettings({ clodentHome: HOME, files: ['/a.json'] }, fakeFs({ '/a.json': { model: 'm' } }));
   assert.equal(settings.model, 'm');
   assert.deepEqual(warnings, []);
 });
 
 test('a missing --settings file throws with its path', async () => {
-  await assert.rejects(loadSettings({ clayHome: HOME, files: ['/nope.json'] }, fakeFs({})), {
+  await assert.rejects(loadSettings({ clodentHome: HOME, files: ['/nope.json'] }, fakeFs({})), {
     message: 'settings file not found: /nope.json',
   });
 });
 
 test('invalid JSON throws naming the path', async () => {
-  await assert.rejects(loadSettings({ clayHome: HOME, files: [] }, fakeFs({ [HOME_FILE]: '{"hooks": ' })), (err) => {
-    assert.match(err.message, /^invalid settings file \/home\/u\/\.clay\/settings\.json: /);
+  await assert.rejects(loadSettings({ clodentHome: HOME, files: [] }, fakeFs({ [HOME_FILE]: '{"hooks": ' })), (err) => {
+    assert.match(err.message, /^invalid settings file \/home\/u\/\.clodent\/settings\.json: /);
     return true;
   });
   await assert.rejects(loadSettings({ files: ['/b.json'] }, fakeFs({ '/b.json': 'not json' })), /^Error: invalid settings file \/b\.json: /);
@@ -57,7 +57,7 @@ test('a top level that is not an object throws naming the path', async () => {
 
 test('a read error other than ENOENT throws naming the path', async () => {
   const deps = { readFile: async () => { throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }); } };
-  await assert.rejects(loadSettings({ clayHome: HOME }, deps), {
+  await assert.rejects(loadSettings({ clodentHome: HOME }, deps), {
     message: `cannot read settings file ${HOME_FILE}: EACCES: permission denied`,
   });
 });
@@ -68,7 +68,7 @@ test('later files win for statusLine, model and effortLevel', async () => {
     '/1.json': { statusLine: cmd('/one-status'), model: 'one-model' },
     '/2.json': { effortLevel: 'high' },
   });
-  const { settings, warnings } = await loadSettings({ clayHome: HOME, files: ['/1.json', '/2.json'] }, fs);
+  const { settings, warnings } = await loadSettings({ clodentHome: HOME, files: ['/1.json', '/2.json'] }, fs);
   assert.deepEqual(settings.statusLine, { type: 'command', command: '/one-status' });
   assert.equal(settings.model, 'one-model');
   assert.equal(settings.effortLevel, 'high');
@@ -114,7 +114,7 @@ test('env merges shallowly and drops non-string values with a warning', async ()
     [HOME_FILE]: { env: { A: 'home', B: 'home' } },
     '/1.json': { env: { B: 'one', C: 3, D: null, E: 'e' } },
   });
-  const { settings, warnings } = await loadSettings({ clayHome: HOME, files: ['/1.json'] }, fs);
+  const { settings, warnings } = await loadSettings({ clodentHome: HOME, files: ['/1.json'] }, fs);
   assert.deepEqual(settings.env, { A: 'home', B: 'one', E: 'e' });
   assert.deepEqual(warnings, [
     'settings /1.json: env.C is not a string; dropped',
@@ -127,7 +127,7 @@ test('trustedDirectories and permissions.additionalDirectories union into extraD
     [HOME_FILE]: { trustedDirectories: ['/a', '/b'], permissions: { additionalDirectories: ['/c', '/a'] } },
     '/1.json': { trustedDirectories: ['/b', '/d'], permissions: { additionalDirectories: ['/e'], deny: ['Bash(rm:*)'] } },
   });
-  const { settings, warnings } = await loadSettings({ clayHome: HOME, files: ['/1.json'] }, fs);
+  const { settings, warnings } = await loadSettings({ clodentHome: HOME, files: ['/1.json'] }, fs);
   assert.deepEqual(settings.extraDirs, ['/a', '/b', '/c', '/d', '/e']);
   assert.deepEqual(warnings, []);
 });

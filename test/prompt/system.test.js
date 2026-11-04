@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CLAY_BASE_PROMPT } from '../../src/prompt/base.js';
+import { CLODENT_BASE_PROMPT } from '../../src/prompt/base.js';
 import { buildSystemPrompt } from '../../src/prompt/system.js';
 import { DIR, fakeFs } from './fake-fs.js';
 
@@ -32,7 +32,7 @@ test('parts run base, environment, AGENTS.md, then appends, separated by blank l
   assert.equal(
     out,
     [
-      CLAY_BASE_PROMPT,
+      CLODENT_BASE_PROMPT,
       ENV,
       '# Instructions (AGENTS.md)',
       '## /repo/AGENTS.md\n\nroot rules',
@@ -45,7 +45,7 @@ test('parts run base, environment, AGENTS.md, then appends, separated by blank l
 
 test('with no AGENTS.md and no appends the prompt is base plus environment', () => {
   const out = buildSystemPrompt(input(), deps({ '/repo/.git': DIR }));
-  assert.equal(out, `${CLAY_BASE_PROMPT}\n\n${ENV}`);
+  assert.equal(out, `${CLODENT_BASE_PROMPT}\n\n${ENV}`);
 });
 
 test('outside a git repository the environment says so', () => {
@@ -55,12 +55,12 @@ test('outside a git repository the environment says so', () => {
 
 test('--system-prompt beats --system-prompt-file, which beats the base prompt', () => {
   const d = deps({ '/repo/.git': DIR, '/repo/pkg/sys.md': 'from file' });
-  assert.ok(buildSystemPrompt(input(), d).startsWith(`${CLAY_BASE_PROMPT}\n\n# Environment`));
+  assert.ok(buildSystemPrompt(input(), d).startsWith(`${CLODENT_BASE_PROMPT}\n\n# Environment`));
   assert.ok(buildSystemPrompt(input({ systemPromptFile: 'sys.md' }), d).startsWith('from file\n\n# Environment'));
   assert.ok(buildSystemPrompt(input({ systemPromptFile: '/repo/pkg/sys.md' }), d).startsWith('from file\n\n# Environment'));
   const both = buildSystemPrompt(input({ systemPrompt: 'inline', systemPromptFile: 'sys.md' }), d);
   assert.ok(both.startsWith('inline\n\n# Environment'));
-  assert.ok(!both.includes(CLAY_BASE_PROMPT));
+  assert.ok(!both.includes(CLODENT_BASE_PROMPT));
 });
 
 test('multiple appends keep argv order, texts before files', () => {

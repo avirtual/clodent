@@ -301,11 +301,11 @@ test('the stdin JSON reaches the script intact, followed by a newline', GUARD, a
   assert.deepEqual(outcome.additionalContext, [`${JSON.stringify(input)}\n`]);
 });
 
-test('the hook env carries ctx.env, settings.env and CLAY_PROJECT_DIR, and runs in cwd', GUARD, async (t) => {
+test('the hook env carries ctx.env, settings.env and CLODENT_PROJECT_DIR, and runs in cwd', GUARD, async (t) => {
   const dir = await useTempDir(t);
-  const show = await script(dir, 'env.sh', 'printf \'{"hookSpecificOutput":{"additionalContext":"%s|%s|%s|%s"}}\' "$FROM_CTX" "$FROM_SETTINGS" "$CLAY_PROJECT_DIR" "$PWD"');
+  const show = await script(dir, 'env.sh', 'printf \'{"hookSpecificOutput":{"additionalContext":"%s|%s|%s|%s"}}\' "$FROM_CTX" "$FROM_SETTINGS" "$CLODENT_PROJECT_DIR" "$PWD"');
   const settings = settingsWith({ Stop: [group('', show)] }, { env: { FROM_SETTINGS: 'settings', FROM_CTX: 'overridden' } });
-  const ctx = { settings, cwd: dir, env: cleanEnv({ FROM_CTX: 'ctx', CLAY_PROJECT_DIR: '/wrong' }) };
+  const ctx = { settings, cwd: dir, env: cleanEnv({ FROM_CTX: 'ctx', CLODENT_PROJECT_DIR: '/wrong' }) };
   const outcome = await runHooks('Stop', {}, ctx, deps);
   assert.deepEqual(outcome.additionalContext, [`overridden|settings|${dir}|${dir}`]);
   const plain = await runHooks('Stop', {}, { ...ctx, settings: settingsWith({ Stop: [group('', show)] }) }, deps);

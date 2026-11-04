@@ -12,7 +12,7 @@ import { useTempDir } from '../tools/tmp-dir.js';
 
 const ID = '123e4567-e89b-42d3-a456-426614174000';
 const OTHER = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
-const SESSION_LINE = /^\[clay:session\] ([0-9a-f-]{36})$/;
+const SESSION_LINE = /^\[clodent:session\] ([0-9a-f-]{36})$/;
 const COMMON = ['type', 'uuid', 'parentUuid', 'sessionId', 'timestamp', 'cwd', 'isSidechain', 'version', 'entrypoint'];
 
 const textReply = (text) => ({ body: sse({ blocks: [{ type: 'text', text }] }) });
@@ -39,7 +39,7 @@ async function run(argv, { home, cwd, responses = [], onFetch }) {
   const code = await main(argv, {
     stdout: { write: (s) => out.push(s) },
     stderr: { write: (s) => err.push(s) },
-    env: { ANTHROPIC_API_KEY: 'sk-test', CLAY_HOME: home },
+    env: { ANTHROPIC_API_KEY: 'sk-test', CLODENT_HOME: home },
     cwd,
     platform: 'darwin',
     fetch,
@@ -99,7 +99,7 @@ test('-p with a tool round writes prompt, assistant, tool results, assistant and
     assert.equal(r.cwd, cwd);
     assert.equal(r.isSidechain, false);
     assert.equal(r.version, '0.2.0');
-    assert.equal(r.entrypoint, 'clay');
+    assert.equal(r.entrypoint, 'clodent');
     assert.equal(r.timestamp, '2026-11-04T00:00:00.000Z');
   });
   assert.equal(new Set(recs.map((r) => r.uuid)).size, recs.length);
@@ -123,13 +123,13 @@ test('each record is on disk before the next request is sent', async (t) => {
   assert.deepEqual(seen, [['user'], ['user', 'assistant', 'user']]);
 });
 
-test('[clay:session] is the first stderr line in print mode and never on stdout', async (t) => {
+test('[clodent:session] is the first stderr line in print mode and never on stdout', async (t) => {
   const { home, cwd } = await setup(t);
   const minted = await run(['-p', 'hi'], { home, cwd, responses: [textReply('hello')] });
   assert.match(minted.stderr.split('\n')[0], SESSION_LINE);
   assert.equal(minted.stdout, 'hello\n');
   const given = await run(['-p', 'hi', '--session-id', ID], { home, cwd, responses: [textReply('hello')] });
-  assert.equal(given.stderr.split('\n')[0], `[clay:session] ${ID}`);
+  assert.equal(given.stderr.split('\n')[0], `[clodent:session] ${ID}`);
   assert.notEqual(minted.id, ID);
 });
 
@@ -239,16 +239,16 @@ test('session errors exit 2 before any request', async (t) => {
   const { home, cwd } = await setup(t);
   await run(['-p', 'hi', '--session-id', ID], { home, cwd, responses: [textReply('one')] });
   const exists = await run(['-p', 'hi', '--session-id', ID], { home, cwd });
-  assert.deepEqual([exists.code, exists.stderr], [2, `clay: session ${ID} already exists; use --resume\n`]);
+  assert.deepEqual([exists.code, exists.stderr], [2, `clodent: session ${ID} already exists; use --resume\n`]);
   const forkOnto = await run(['-p', 'hi', '--resume', ID, '--fork-session', '--session-id', ID], { home, cwd });
-  assert.deepEqual([forkOnto.code, forkOnto.stderr], [2, `clay: session ${ID} already exists; use --resume\n`]);
+  assert.deepEqual([forkOnto.code, forkOnto.stderr], [2, `clodent: session ${ID} already exists; use --resume\n`]);
   const missing = await run(['-p', 'hi', '--resume', OTHER], { home, cwd });
-  assert.deepEqual([missing.code, missing.stderr], [2, `clay: no session ${OTHER}\n`]);
+  assert.deepEqual([missing.code, missing.stderr], [2, `clodent: no session ${OTHER}\n`]);
   const both = await run(['-p', 'hi', '--resume', ID, '--session-id', OTHER], { home, cwd });
-  assert.deepEqual([both.code, both.stderr], [2, 'clay: --session-id with --resume requires --fork-session\nclay: see --help\n']);
+  assert.deepEqual([both.code, both.stderr], [2, 'clodent: --session-id with --resume requires --fork-session\nclodent: see --help\n']);
   const elsewhere = await useTempDir(t);
   const forkAcross = await run(['-p', 'hi', '--resume', ID, '--fork-session', '--session-id', ID], { home, cwd: elsewhere });
-  assert.deepEqual([forkAcross.code, forkAcross.stderr], [2, `clay: session ${ID} already exists; use --resume\n`]);
+  assert.deepEqual([forkAcross.code, forkAcross.stderr], [2, `clodent: session ${ID} already exists; use --resume\n`]);
   assert.equal(existsSync(transcriptPath(home, elsewhere, ID)), false);
   for (const res of [exists, forkOnto, missing, both, forkAcross]) assert.equal(res.calls.length, 0);
 });
@@ -259,9 +259,9 @@ test('a --session-id whose transcript exists under another project dir is refuse
   await run(['-p', 'hi', '--session-id', ID], { home, cwd: elsewhere, responses: [textReply('one')] });
   await run(['-p', 'hi', '--session-id', OTHER], { home, cwd, responses: [textReply('two')] });
   const fresh = await run(['-p', 'hi', '--session-id', ID], { home, cwd });
-  assert.deepEqual([fresh.code, fresh.stderr], [2, `clay: session ${ID} already exists; use --resume\n`]);
+  assert.deepEqual([fresh.code, fresh.stderr], [2, `clodent: session ${ID} already exists; use --resume\n`]);
   const fork = await run(['-p', 'hi', '--resume', OTHER, '--fork-session', '--session-id', ID], { home, cwd });
-  assert.deepEqual([fork.code, fork.stderr], [2, `clay: session ${ID} already exists; use --resume\n`]);
+  assert.deepEqual([fork.code, fork.stderr], [2, `clodent: session ${ID} already exists; use --resume\n`]);
   assert.equal(existsSync(transcriptPath(home, cwd, ID)), false);
   for (const res of [fresh, fork]) assert.equal(res.calls.length, 0);
 });
@@ -274,15 +274,15 @@ test('an uppercase --session-id is stored lowercased, and the same id in either 
   assert.equal(res.id, ID);
   assert.equal(records(transcriptPath(home, cwd, ID))[0].sessionId, ID);
   const again = await run(['-p', 'hi', '--session-id', upper], { home, cwd });
-  assert.deepEqual([again.code, again.stderr], [2, `clay: session ${ID} already exists; use --resume\n`]);
+  assert.deepEqual([again.code, again.stderr], [2, `clodent: session ${ID} already exists; use --resume\n`]);
 });
 
-test('a CLAY_HOME that cannot hold a transcript exits 2 with the error, before any request', async (t) => {
+test('a CLODENT_HOME that cannot hold a transcript exits 2 with the error, before any request', async (t) => {
   const { home, cwd } = await setup(t);
   writeFileSync(join(home, 'projects'), '');
   const res = await run(['-p', 'hi'], { home, cwd, responses: [textReply('one')] });
   assert.equal(res.code, 2);
-  assert.match(res.stderr, /^clay: ENOTDIR[^\n]*\n$/);
+  assert.match(res.stderr, /^clodent: ENOTDIR[^\n]*\n$/);
   assert.equal(res.calls.length, 0);
 });
 
@@ -294,7 +294,7 @@ test('a truncated last line is dropped with a warning and the session resumes cl
   appendFileSync(path, '{"type":"assistant","uu');
   const res = await run(['-p', 'again', '--resume', ID], { home, cwd, responses: [textReply('two')] });
   assert.equal(res.code, 0, res.stderr);
-  assert.equal(res.stderr.split('\n')[1], `clay: ${path}: ignoring a truncated last line`);
+  assert.equal(res.stderr.split('\n')[1], `clodent: ${path}: ignoring a truncated last line`);
   const after = records(path);
   assert.deepEqual(after.slice(0, intact.length), intact);
   assert.equal(after[intact.length].parentUuid, intact.at(-1).uuid);
@@ -308,7 +308,7 @@ test('a corrupt middle line exits 2 naming the line number', async (t) => {
   lines[1] = '{oops';
   writeFileSync(path, lines.join('\n'));
   const res = await run(['-p', 'again', '--resume', ID], { home, cwd });
-  assert.deepEqual([res.code, res.stderr], [2, `clay: ${path}: line 2 is not valid JSON\n`]);
+  assert.deepEqual([res.code, res.stderr], [2, `clodent: ${path}: line 2 is not valid JSON\n`]);
   assert.equal(res.calls.length, 0);
 });
 
@@ -316,7 +316,7 @@ test('-p with an empty prompt exits 2 with no request and no transcript', async 
   const { home, cwd } = await setup(t);
   for (const argv of [['-p', ''], ['-p=']]) {
     const res = await run(argv, { home, cwd });
-    assert.deepEqual([res.code, res.stdout, res.stderr], [2, '', 'clay: -p needs a non-empty prompt\n']);
+    assert.deepEqual([res.code, res.stdout, res.stderr], [2, '', 'clodent: -p needs a non-empty prompt\n']);
     assert.equal(res.calls.length, 0);
   }
   assert.equal(existsSync(join(home, 'projects')), false);

@@ -9,7 +9,7 @@ export const PROMPT = '> ';
 export const CLEAR_LINE = '\r\x1b[2K';
 export const EXIT_HINT = '(press Ctrl-C again or Ctrl-D to exit)';
 export const ASK_LINE = 'Allow? [y/n] ';
-export const QUEUED_NOTE = 'clay: queued as a prompt; answer y or n';
+export const QUEUED_NOTE = 'clodent: queued as a prompt; answer y or n';
 export const CLOSED_DENIAL = 'denied: input closed';
 
 const YES = new Set(['y', 'yes']);
@@ -146,7 +146,7 @@ export async function runRepl(ctx, deps) {
 
   function onError(err) {
     onEnd();
-    if (err?.code !== 'EIO') print(`clay: ${err?.message ?? err}`);
+    if (err?.code !== 'EIO') print(`clodent: ${err?.message ?? err}`);
   }
 
   function onSignal(name) {
@@ -205,11 +205,11 @@ export async function runRepl(ctx, deps) {
   async function clearSession() {
     const next = runtime.freshSession();
     if (!next.ok) {
-      print(`clay: ${next.error}`);
+      print(`clodent: ${next.error}`);
       return;
     }
     session = next;
-    print(`[clay:session] ${session.sessionId}`);
+    print(`[clodent:session] ${session.sessionId}`);
     agent = runtime.open(session, { ask });
     runtime.resetStatus(session);
     await guarded((signal) => agent.fireSessionStart('clear', { signal }));
@@ -242,8 +242,8 @@ export async function runRepl(ctx, deps) {
   stdin.on('end', onEnd);
   stdin.on('error', onError);
   try {
-    print(`[clay:session] ${session.sessionId}`);
-    for (const warning of ctx.warnings) print(`clay: ${warning}`);
+    print(`[clodent:session] ${session.sessionId}`);
+    for (const warning of ctx.warnings) print(`clodent: ${warning}`);
     agent = runtime.open(session, { ask });
     await guarded((signal) => agent.fireSessionStart(ctx.resume ? 'resume' : 'startup', { signal }));
     while (exitCode === null) {

@@ -16,7 +16,7 @@ export function apiUrl(baseUrl) {
 }
 
 export function userAgent() {
-  return `clay/${PACKAGE_VERSION}`;
+  return `clodent/${PACKAGE_VERSION}`;
 }
 
 function withoutCacheControl(block) {

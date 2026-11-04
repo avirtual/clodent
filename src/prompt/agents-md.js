@@ -2,7 +2,7 @@ import { dirname, join } from 'node:path';
 
 export const FILE_CAP_BYTES = 32 * 1024;
 export const TOTAL_CAP_BYTES = 96 * 1024;
-export const TRUNCATED_MARKER = '[clay: AGENTS.md truncated]';
+export const TRUNCATED_MARKER = '[clodent: AGENTS.md truncated]';
 
 function exists(path, deps) {
   try {

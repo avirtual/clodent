@@ -67,7 +67,7 @@ export function createRenderer({ out, err, mode }) {
       line(summary ? `● ${name} ${summary}` : `● ${name}`);
     },
     permission_request({ id, name, summary }) {
-      line(summary ? `[clay:permit ${name} ${id}] ${summary}` : `[clay:permit ${name} ${id}]`);
+      line(summary ? `[clodent:permit ${name} ${id}] ${summary}` : `[clodent:permit ${name} ${id}]`);
     },
     permission({ id, decision, reason }) {
       if (decision !== 'deny') return;
@@ -78,16 +78,16 @@ export function createRenderer({ out, err, mode }) {
       if (isError && !denied.has(id)) line(`  ✗ ${firstLine(content)}`, 'red');
     },
     warning({ message }) {
-      line(`clay: ${message}`, 'yellow');
+      line(`clodent: ${message}`, 'yellow');
     },
     error({ message }) {
-      line(`clay: ${message}`, 'red');
+      line(`clodent: ${message}`, 'red');
     },
     budget_stop({ result }) {
       line(formatBudgetStop(result), 'yellow');
     },
     interrupted() {
-      line('clay: interrupted', 'yellow');
+      line('clodent: interrupted', 'yellow');
     },
     turn_end({ turn }) {
       warnUnpriced(turn);
@@ -97,7 +97,7 @@ export function createRenderer({ out, err, mode }) {
       denied.clear();
     },
     compacted({ preTokens, postTokens, turn }) {
-      line(`clay: conversation compacted (${preTokens} → ${postTokens} tokens)`);
+      line(`clodent: conversation compacted (${preTokens} → ${postTokens} tokens)`);
       warnUnpriced(turn);
       line(formatCost(turn), 'dim');
     },

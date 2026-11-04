@@ -28,7 +28,7 @@ export function createTranscript({ path, sessionId, cwd, version, parentUuid = n
         cwd,
         sessionId,
         version,
-        entrypoint: 'clay',
+        entrypoint: 'clodent',
       });
     },
     copy(records) {

@@ -34,7 +34,7 @@ test('ask allows read tools and marks write and exec as an ask, with the rerun h
   assert.deepEqual(decide(READ, {}, 'ask'), { allow: true });
   assert.deepEqual(decide(WRITE, {}, 'ask'), { allow: false, ask: true, reason: ASK_DENIAL });
   assert.deepEqual(decide(BASH, {}, 'ask'), { allow: false, ask: true, reason: ASK_DENIAL });
-  assert.equal(ASK_DENIAL, 'permission required: run clay without -p to approve it, or pass --yolo');
+  assert.equal(ASK_DENIAL, 'permission required: run clodent without -p to approve it, or pass --yolo');
 });
 
 test('an unknown mode or kind is treated as deny, never allow', () => {

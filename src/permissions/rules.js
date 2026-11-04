@@ -1,8 +1,8 @@
 import { homedir as osHomedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 
-export const CLAY_TOOLS = Object.freeze(['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob']);
-const CLAY_TOOL_SET = new Set(CLAY_TOOLS);
+export const CLODENT_TOOLS = Object.freeze(['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob']);
+const CLODENT_TOOL_SET = new Set(CLODENT_TOOLS);
 
 const PATH_RULES = {
   Read: { tools: ['Read', 'Edit', 'Grep', 'Glob'], bash: 'read' },
@@ -100,7 +100,7 @@ export function parseRule(text, where) {
   const trimmed = text.trim();
   const { name, specifier } = splitRule(trimmed);
   if (name.trim() === '') throw new RuleError('no tool name');
-  if (!CLAY_TOOL_SET.has(name)) return null;
+  if (!CLODENT_TOOL_SET.has(name)) return null;
   if (specifier === null) return { text, kind: 'tool', tool: name };
   if (specifier.trim() === '') throw new RuleError(`empty () on ${name}`);
   if (name === 'Bash') return { text, kind: 'bash', test: bashTest(specifier) };

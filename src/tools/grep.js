@@ -96,7 +96,7 @@ export function createGrep(deps = {}) {
       if (out.length === 0) return ok('No matches found');
       const limit = positiveInt(input.head_limit, DEFAULT_HEAD_LIMIT);
       if (out.length <= limit) return ok(out.join('\n'));
-      const note = `[clay: showing the first ${limit} of ${out.length} lines; raise head_limit to see more]`;
+      const note = `[clodent: showing the first ${limit} of ${out.length} lines; raise head_limit to see more]`;
       return ok([...out.slice(0, limit), note].join('\n'));
     },
   };

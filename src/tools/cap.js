@@ -13,7 +13,7 @@ function joinCut(head, tail, total) {
   while (tailStart < total && isContinuation(tail[tailStart - tailOffset])) tailStart += 1;
   const omitted = tailStart - headEnd;
   const kept = [head.subarray(0, headEnd), tail.subarray(tailStart - tailOffset)];
-  return `${kept[0].toString('utf8')}\n[clay: truncated ${omitted} bytes]\n${kept[1].toString('utf8')}`;
+  return `${kept[0].toString('utf8')}\n[clodent: truncated ${omitted} bytes]\n${kept[1].toString('utf8')}`;
 }
 
 export function capResult(text) {

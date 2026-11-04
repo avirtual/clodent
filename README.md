@@ -1,25 +1,25 @@
-# clay
+# clodent
 
-clay is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.2.0 has an interactive REPL built to be driven through a PTY, a print mode (`clay -p`), six built-in tools, cost accounting, JSONL session transcripts, settings files and hooks.
+clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.2.0 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), six built-in tools, cost accounting, JSONL session transcripts, settings files and hooks. clodent was named clay up to 0.2.0.
 
 Non-goals for v0.2: MCP, plugins, skills, subagents, web tools, image input, Windows, telemetry, the stream-json io (v0.3).
 
 ## Install
 
-Requires Node.js 22 or later. clay has no dependencies. From a checkout:
+Requires Node.js 22 or later. clodent has no dependencies. From a checkout:
 
 ```sh
 npm link
-clay --version   # clay 0.2.0
+clodent --version   # clodent 0.2.0
 ```
 
 ## Usage
 
 ```sh
 export ANTHROPIC_API_KEY=sk-ant-...
-clay -p "List the files in this directory"   # one prompt, answer on stdout
-clay                                         # the REPL
-clay --resume <session-id>                   # continue a session in the REPL
+clodent -p "List the files in this directory"   # one prompt, answer on stdout
+clodent                                         # the REPL
+clodent --resume <session-id>                   # continue a session in the REPL
 ```
 
 ## Development
@@ -48,31 +48,31 @@ An opt-in check against the real Messages API; the suite only runs it without a 
 
 ## Contract
 
-This section is the contract a host integrates against. It describes clay 0.2.0.
+This section is the contract a host integrates against. It describes clodent 0.2.0.
 
-### Hosting clay
+### Hosting clodent
 
 A summary for a host adapter; each point links to the section that pins it down.
 
-- Launch: `clay` without `-p`, in a PTY, in the seat's working directory. Pass `--session-id <uuid>` for a new session, or `--resume <id>`, with `--fork-session` to continue under a new id (the `--session-id` if given). Add `--settings <file>` for the host's hooks and statusLine, one `--add-dir <path>` per extra directory, `--system-prompt-file <path>` and `--append-system-prompt-file <path>` for the prompt, `--model <id>`, `--effort low|medium|high`, and `--yolo` or `--read-only` (default: ask). See [Flags](#flags) and [System prompt](#system-prompt).
-- Env: `ANTHROPIC_API_KEY` (required), `CLAY_HOME` as the per-account config dir (`settings.json` and `projects/`; default `~/.clay`), and optionally `ANTHROPIC_BASE_URL` to send requests to another origin, such as a proxy. See [Environment](#environment).
-- Transcript: `$CLAY_HOME/projects/<slug>/<session-id>.jsonl`, where `<slug>` is the working directory with every `/` and `.` replaced by `-`. `SessionStart` hooks get the path as `transcript_path`. See [Sessions](#sessions).
-- Boot-ready: the first `\x1b[?2004h` on stdout. It follows the `[clay:session] <id>` line and the `SessionStart` hook. A startup error exits 2 before it. See [REPL](#repl).
+- Launch: `clodent` without `-p`, in a PTY, in the seat's working directory. Pass `--session-id <uuid>` for a new session, or `--resume <id>`, with `--fork-session` to continue under a new id (the `--session-id` if given). Add `--settings <file>` for the host's hooks and statusLine, one `--add-dir <path>` per extra directory, `--system-prompt-file <path>` and `--append-system-prompt-file <path>` for the prompt, `--model <id>`, `--effort low|medium|high`, and `--yolo` or `--read-only` (default: ask). See [Flags](#flags) and [System prompt](#system-prompt).
+- Env: `ANTHROPIC_API_KEY` (required), `CLODENT_HOME` as the per-account config dir (`settings.json` and `projects/`; default `~/.clodent`), and optionally `ANTHROPIC_BASE_URL` to send requests to another origin, such as a proxy. See [Environment](#environment).
+- Transcript: `$CLODENT_HOME/projects/<slug>/<session-id>.jsonl`, where `<slug>` is the working directory with every `/` and `.` replaced by `-`. `SessionStart` hooks get the path as `transcript_path`. See [Sessions](#sessions).
+- Boot-ready: the first `\x1b[?2004h` on stdout. It follows the `[clodent:session] <id>` line and the `SessionStart` hook. A startup error exits 2 before it. See [REPL](#repl).
 - Inject: write `\x1b[200~<text>\x1b[201~`, then `\r`. The paste is one prompt with its newlines kept, and the `\r` submits it. A prompt submitted during a turn is queued. See [REPL](#repl).
 - Idle: a turn the model ended writes an assistant record with `message.stop_reason` `end_turn`. Every turn, including an interrupted or failed one, then writes a `system` record with `subtype: "turn_duration"` and fires `Stop`; the REPL then shows the next prompt unless it is exiting. See [Sessions](#sessions).
 - Context delivery: `hookSpecificOutput.additionalContext` from `SessionStart` (held for the next prompt), `UserPromptSubmit` (after the prompt text), and `PostToolUse` or `PostToolUseFailure` (after the tool results). See [Hooks](#hooks).
-- Permission ask (default mode only): clay prints `[clay:permit <Tool> <tool_use id>] <summary>` and `Allow? [y/n] `, then fires `Notification` with `notification_type: "permission"`, `tool` and `id` while the ask is listening. Answer once, by writing `y` or `n` then `\r`, as soon as you see the permit line or the Notification. A second answer arrives while the turn is busy and is queued as a prompt. See [REPL](#repl).
-- `/compact`: fires `PreCompact` (`trigger: "manual"`), replaces the history with a summary under the same session id, writes the `compact_boundary` and `isCompactSummary` records, and fires `SessionStart` with `source: "compact"`. `/clear`: prints a new `[clay:session] <id>`, records into a new transcript, and fires `SessionStart` with `source: "clear"`. Type either as plain text, then `\r`; a pasted `/compact` is a prompt. Like every slash command, neither writes a `turn_duration` record or fires `Stop`: its end is the next `\x1b[?2004h`. See [REPL](#repl).
+- Permission ask (default mode only): clodent prints `[clodent:permit <Tool> <tool_use id>] <summary>` and `Allow? [y/n] `, then fires `Notification` with `notification_type: "permission"`, `tool` and `id` while the ask is listening. Answer once, by writing `y` or `n` then `\r`, as soon as you see the permit line or the Notification. A second answer arrives while the turn is busy and is queued as a prompt. See [REPL](#repl).
+- `/compact`: fires `PreCompact` (`trigger: "manual"`), replaces the history with a summary under the same session id, writes the `compact_boundary` and `isCompactSummary` records, and fires `SessionStart` with `source: "compact"`. `/clear`: prints a new `[clodent:session] <id>`, records into a new transcript, and fires `SessionStart` with `source: "clear"`. Type either as plain text, then `\r`; a pasted `/compact` is a prompt. Like every slash command, neither writes a `turn_duration` record or fires `Stop`: its end is the next `\x1b[?2004h`. See [REPL](#repl).
 - statusLine: the settings `statusLine` command gets `context_window.used_tokens`, `context_window.context_window_size`, `context_window.used_percentage`, `model.id` and `cost.total_cost_usd` on stdin after each API response, after `/clear` (zero usage) and after `/compact` (`used_tokens` is the summary's size). See [Hooks](#hooks).
 - Signals: SIGINT acts as Ctrl-C: it interrupts a turn, and two in a row at an empty prompt exit 0. SIGTERM exits 143 and SIGHUP 129, after interrupting a running turn, whose `Stop` hook still fires. Ctrl-D, `/quit` and stdin closing exit 0. See [REPL](#repl).
-- Settings guard: permissions.deny/ask are enforced (see Permission rules); sandbox.enabled: true is a startup error (exit 2), so drop sandbox for clay seats.
+- Settings guard: permissions.deny/ask are enforced (see Permission rules); sandbox.enabled: true is a startup error (exit 2), so drop sandbox for clodent seats.
 - Absent in 0.2.0: the stream-json io (`--input-format`/`--output-format stream-json`, planned for v0.3), MCP and subagents, so hooks never get `agent_id`.
 
 ### Flags
 
 | flag | status | meaning |
 |---|---|---|
-| `-p`, `--print <prompt>` | works | run one prompt without the REPL, print the reply and exit; without `-p`, clay starts the [REPL](#repl) |
+| `-p`, `--print <prompt>` | works | run one prompt without the REPL, print the reply and exit; without `-p`, clodent starts the [REPL](#repl) |
 | `--model <id>` | works | model id; default the settings `model`, else `claude-opus-5-5` |
 | `--effort <level>` | works | `low`, `medium` or `high`; default the settings `effortLevel`, else none |
 | `--budget <usd>` | works | stop before the session spends more than this many US dollars |
@@ -87,19 +87,19 @@ A summary for a host adapter; each point links to the section that pins it down.
 | `--system-prompt-file <path>` | works | replace the base system prompt with this file |
 | `--append-system-prompt <text>` | works | append this text to the system prompt; repeatable |
 | `--append-system-prompt-file <path>` | works | append this file's contents to the system prompt; repeatable |
-| `-v`, `--version` | works | print `clay <version>` and exit 0 |
+| `-v`, `--version` | works | print `clodent <version>` and exit 0 |
 | `-h`, `--help` | works | print usage, one line per flag, and exit 0 |
 
 Parsing:
 
-- A value is the next argument, or the text after the first `=` (`--model=x`, `-p=x`). When the next argument is itself a clay flag, such as `--yolo` or `-p`, the value counts as missing; the `=` form passes such text.
+- A value is the next argument, or the text after the first `=` (`--model=x`, `-p=x`). When the next argument is itself a clodent flag, such as `--yolo` or `-p`, the value counts as missing; the `=` form passes such text.
 - `--settings`, `--add-dir`, `--append-system-prompt` and `--append-system-prompt-file` collect every occurrence in argv order. Any other flag given twice is an error.
 - An empty value (`--model ''` or `--model=`) counts as missing, except for `-p`, `--system-prompt` and `--append-system-prompt`, which take it. An empty `-p` prompt is a startup error (see [Print mode](#print-mode)); an empty `--system-prompt` leaves the base part out, and an empty `--append-system-prompt` adds nothing.
-- These are errors: an unknown flag, a positional argument (clay takes none), a missing value, a value on a flag that takes none, an `--effort` other than `low`, `medium` or `high`, a `--budget` that is not a decimal number greater than 0, a `--session-id` not shaped as 8-4-4-4-12 hex digits, `--yolo` with `--read-only`, `--fork-session` without `--resume`, `--session-id` with `--resume` but without `--fork-session` (`--session-id with --resume requires --fork-session`), and `--system-prompt` with `--system-prompt-file`.
+- These are errors: an unknown flag, a positional argument (clodent takes none), a missing value, a value on a flag that takes none, an `--effort` other than `low`, `medium` or `high`, a `--budget` that is not a decimal number greater than 0, a `--session-id` not shaped as 8-4-4-4-12 hex digits, `--yolo` with `--read-only`, `--fork-session` without `--resume`, `--session-id` with `--resume` but without `--fork-session` (`--session-id with --resume requires --fork-session`), and `--system-prompt` with `--system-prompt-file`.
 
 Exit codes:
 
-- A parse error prints `clay: <error>` and then `clay: see --help` to stderr, and exits 2.
+- A parse error prints `clodent: <error>` and then `clodent: see --help` to stderr, and exits 2.
 - Once the arguments parse, `--help` wins over every other flag, then `--version`.
 - Without `-p`, see [REPL](#repl).
 - With `-p`, see [Print mode](#print-mode).
@@ -108,40 +108,40 @@ Exit codes:
 
 | variable | meaning |
 |---|---|
-| `ANTHROPIC_API_KEY` | the API key, sent as `x-api-key`; clay exits 2 without it |
-| `ANTHROPIC_BASE_URL` | replaces the API origin: requests go to `<value without trailing slashes>/v1/messages`; must be an `http:` or `https:` URL, else clay prints `clay: invalid ANTHROPIC_BASE_URL` and exits 2; an empty value counts as unset |
-| `CLAY_HOME` | where clay keeps its data, such as `settings.json` and session transcripts; default `~/.clay`; an empty value counts as unset |
+| `ANTHROPIC_API_KEY` | the API key, sent as `x-api-key`; clodent exits 2 without it |
+| `ANTHROPIC_BASE_URL` | replaces the API origin: requests go to `<value without trailing slashes>/v1/messages`; must be an `http:` or `https:` URL, else clodent prints `clodent: invalid ANTHROPIC_BASE_URL` and exits 2; an empty value counts as unset |
+| `CLODENT_HOME` | where clodent keeps its data, such as `settings.json` and session transcripts; default `~/.clodent`; an empty value counts as unset |
 
-The settings `env` (see [Settings](#settings)) is laid over the process environment, and that one environment is what clay reads `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` from and what tools and hooks run in. `CLAY_HOME` alone is read from the process environment, since it locates `settings.json`.
+The settings `env` (see [Settings](#settings)) is laid over the process environment, and that one environment is what clodent reads `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` from and what tools and hooks run in. `CLODENT_HOME` alone is read from the process environment, since it locates `settings.json`.
 
 ### Print mode
 
-`clay -p "<prompt>"` runs one turn of the agent loop: it sends the prompt, runs every tool the model calls, sends the results back, and repeats until the model ends its turn.
+`clodent -p "<prompt>"` runs one turn of the agent loop: it sends the prompt, runs every tool the model calls, sends the results back, and repeats until the model ends its turn.
 
 stdout gets only the final answer: the text blocks of the turn's last assistant message whose `stop_reason` is not `tool_use`, joined, then a newline. When there is no such message or it has no text, stdout gets nothing; text the model writes alongside a tool call is never printed. Thinking is never printed. stderr gets everything else, one line each:
 
-- `[clay:session] <session-id>` first, before any other line; see [Sessions](#sessions).
-- `clay: settings <path>: <what was dropped>` for each settings warning, right after it.
+- `[clodent:session] <session-id>` first, before any other line; see [Sessions](#sessions).
+- `clodent: settings <path>: <what was dropped>` for each settings warning, right after it.
 - `● <Tool> <summary>` for each tool call; the summary is the call's main input: `file_path` for Read, Write and Edit, `command` for Bash, `pattern` for Grep and Glob. It is one line, with each line break shown as `⏎`, and is cut to 200 characters ending in `…`. With an empty summary the line is `● <Tool>`.
 - `  ✗ <reason>` when a tool call is refused, and `  ✗ <first line of the result>` when a tool returns an error.
-- `clay: <message>` for warnings and errors, hook warnings included. An API error message is printed verbatim.
-- After the turn: `[clay:cost] warning: no price for model <id>; cost not counted` once per unpriced model, then the per-turn `[clay:cost]` line. A budget stop prints the `[clay:budget]` line first.
-- On exit: the `[clay:cost] session total` line.
+- `clodent: <message>` for warnings and errors, hook warnings included. An API error message is printed verbatim.
+- After the turn: `[clodent:cost] warning: no price for model <id>; cost not counted` once per unpriced model, then the per-turn `[clodent:cost]` line. A budget stop prints the `[clodent:budget]` line first.
+- On exit: the `[clodent:cost] session total` line.
 
 ANSI colour codes are written only to a stream that is a TTY.
 
 Exit codes:
 
 - 0: the model ended its turn (`end_turn` or `stop_sequence`). A `pause_turn` response is sent back for the model to continue.
-- 1: an API error, a budget stop, a refusal, `max_tokens` (warned as `clay: response hit max_tokens`), or any other stop reason (warned as `clay: unexpected stop_reason <reason>`).
-- 2: an argument error; a settings file error, printed as `clay: <message>` (see [Settings](#settings)); an empty prompt (`-p ''` or `-p=`), printed as `clay: -p needs a non-empty prompt`; `ANTHROPIC_API_KEY` unset, printed as `clay: ANTHROPIC_API_KEY is not set`; an invalid `ANTHROPIC_BASE_URL`, printed as `clay: invalid ANTHROPIC_BASE_URL`; an unreadable prompt file, printed as `clay: <message>`; or a session error (see [Sessions](#sessions)). Settings warnings print first, as `clay: <warning>` lines. No request is sent and no `[clay:session]` line is printed.
-- 130: SIGINT; 143: SIGTERM; 129: SIGHUP. clay aborts the request, the running tool or the running hooks, waits for them to return (each process group gets SIGTERM, then SIGKILL 2 s later), prints `clay: interrupted` and the turn's cost line, fires `Stop` (a second signal kills it), prints the session total, waits for the statusLine command, sends any pending SIGKILL (see [Tools](#tools)), and exits. The transcript ends with the interrupt and `turn_duration` records, so `--resume` continues it.
+- 1: an API error, a budget stop, a refusal, `max_tokens` (warned as `clodent: response hit max_tokens`), or any other stop reason (warned as `clodent: unexpected stop_reason <reason>`).
+- 2: an argument error; a settings file error, printed as `clodent: <message>` (see [Settings](#settings)); an empty prompt (`-p ''` or `-p=`), printed as `clodent: -p needs a non-empty prompt`; `ANTHROPIC_API_KEY` unset, printed as `clodent: ANTHROPIC_API_KEY is not set`; an invalid `ANTHROPIC_BASE_URL`, printed as `clodent: invalid ANTHROPIC_BASE_URL`; an unreadable prompt file, printed as `clodent: <message>`; or a session error (see [Sessions](#sessions)). Settings warnings print first, as `clodent: <warning>` lines. No request is sent and no `[clodent:session]` line is printed.
+- 130: SIGINT; 143: SIGTERM; 129: SIGHUP. clodent aborts the request, the running tool or the running hooks, waits for them to return (each process group gets SIGTERM, then SIGKILL 2 s later), prints `clodent: interrupted` and the turn's cost line, fires `Stop` (a second signal kills it), prints the session total, waits for the statusLine command, sends any pending SIGKILL (see [Tools](#tools)), and exits. The transcript ends with the interrupt and `turn_duration` records, so `--resume` continues it.
 
 Permissions in `-p` go by the tool's kind (see [Tools](#tools)), and for `Bash` by the command (see [Read-only Bash](#read-only-bash)). A refused call is not run: the model gets the reason as an error tool result, and the turn goes on.
 
 | mode | read | write | exec (`Bash`) |
 |---|---|---|---|
-| default | runs | refused: `permission required: run clay without -p to approve it, or pass --yolo` | a read-only command runs; any other is refused, same reason |
+| default | runs | refused: `permission required: run clodent without -p to approve it, or pass --yolo` | a read-only command runs; any other is refused, same reason |
 | `--yolo` | runs | runs | runs |
 | `--read-only` | runs | refused: `--read-only: <Tool> is not allowed` | a read-only command runs; any other is refused: `--read-only: Bash command is not read-only (<reason>)` |
 
@@ -149,16 +149,16 @@ A `PreToolUse` hook can refuse any call or let a call run in the default mode; s
 
 ### REPL
 
-`clay` without `-p` starts the interactive REPL on stdin and stdout; a host such as Clodex drives it through a PTY. Everything it prints goes to stdout. Only a startup error that exits 2 (the [Print mode](#print-mode) list, settings warnings first) goes to stderr.
+`clodent` without `-p` starts the interactive REPL on stdin and stdout; a host such as Clodex drives it through a PTY. Everything it prints goes to stdout. Only a startup error that exits 2 (the [Print mode](#print-mode) list, settings warnings first) goes to stderr.
 
 Startup, in this order:
 
-1. When stdin is a TTY, clay turns raw mode on. Input that arrives from here on is parsed and kept.
-2. `[clay:session] <session-id>`, then one `clay: <warning>` line per settings or session warning.
+1. When stdin is a TTY, clodent turns raw mode on. Input that arrives from here on is parsed and kept.
+2. `[clodent:session] <session-id>`, then one `clodent: <warning>` line per settings or session warning.
 3. The `SessionStart` hook, with `source` `startup`, or `resume` with `--resume`.
 4. The first prompt.
 
-Every prompt, and every queued line's echo, is written as `\x1b[?2004h` and then `> `. A host can take the first `\x1b[?2004h` as "ready for input". Bracketed paste stays on until exit, when clay writes `\x1b[?2004l`.
+Every prompt, and every queued line's echo, is written as `\x1b[?2004h` and then `> `. A host can take the first `\x1b[?2004h` as "ready for input". Bracketed paste stays on until exit, when clodent writes `\x1b[?2004l`.
 
 Keys, with stdin read as UTF-8:
 
@@ -182,43 +182,43 @@ Paste:
 
 Queueing: during a turn, input is parsed but not echoed, and each submitted line is queued. When the turn ends, the queued lines run one at a time in order, each echoed as `> <first line>`, plus ` [+<n> lines]` for the lines after the first, and run like a typed line, slash commands included. An interrupt keeps the queue. Text typed during a turn but not submitted shows at the next prompt.
 
-A prompt runs one turn of the agent loop, as in print mode. The model's text streams as it arrives, and the tool lines, warnings and the per-turn `[clay:cost]` line follow it on stdout. Thinking is never printed; when stdout is a TTY, each thinking block shows one dim `thinking…` line instead. On a TTY, these lines carry SGR colour codes around their text, closed by `\x1b[0m`: yellow (`\x1b[33m`) for warnings, `clay: interrupted`, `[clay:budget]` and the no-price warning; red (`\x1b[31m`) for errors and `  ✗` lines; dim (`\x1b[2m`) for `thinking…` and the per-turn and session-total `[clay:cost]` lines. The `[clay:session]`, `[clay:permit …]`, `● <Tool>` and slash command lines are never coloured.
+A prompt runs one turn of the agent loop, as in print mode. The model's text streams as it arrives, and the tool lines, warnings and the per-turn `[clodent:cost]` line follow it on stdout. Thinking is never printed; when stdout is a TTY, each thinking block shows one dim `thinking…` line instead. On a TTY, these lines carry SGR colour codes around their text, closed by `\x1b[0m`: yellow (`\x1b[33m`) for warnings, `clodent: interrupted`, `[clodent:budget]` and the no-price warning; red (`\x1b[31m`) for errors and `  ✗` lines; dim (`\x1b[2m`) for `thinking…` and the per-turn and session-total `[clodent:cost]` lines. The `[clodent:session]`, `[clodent:permit …]`, `● <Tool>` and slash command lines are never coloured.
 
 Slash commands: a submitted line is a command when it was typed, with no paste in it, and its first word is `/` followed by lowercase letters. Anything else is a prompt, such as `/Users/me/x fix it` or a pasted `/clear`.
 
 | command | effect |
 |---|---|
 | `/help` | one line per command |
-| `/cost` | prints the `[clay:cost] session total …` line |
-| `/model` | prints `clay: model <id>` |
-| `/model <id>` | uses `<id>` for the next requests and rebuilds the system prompt, which names the model; the history is kept. If the rebuild fails, prints `clay: <message>` and keeps the model. Then prints `clay: model <id>`. With more than one word after `/model`, prints `clay: /model takes one model id` and changes nothing |
-| `/clear` | starts a new session with a minted id (never the `--session-id`) and an empty history: prints `[clay:session] <new id>`, records into a new transcript and leaves the old one as is, sends a statusLine update with zero usage and the new session id, and fires `SessionStart` with `source` `clear`, whose context goes into the next prompt. The cost, model and effort carry over |
+| `/cost` | prints the `[clodent:cost] session total …` line |
+| `/model` | prints `clodent: model <id>` |
+| `/model <id>` | uses `<id>` for the next requests and rebuilds the system prompt, which names the model; the history is kept. If the rebuild fails, prints `clodent: <message>` and keeps the model. Then prints `clodent: model <id>`. With more than one word after `/model`, prints `clodent: /model takes one model id` and changes nothing |
+| `/clear` | starts a new session with a minted id (never the `--session-id`) and an empty history: prints `[clodent:session] <new id>`, records into a new transcript and leaves the old one as is, sends a statusLine update with zero usage and the new session id, and fires `SessionStart` with `source` `clear`, whose context goes into the next prompt. The cost, model and effort carry over |
 | `/compact [<instructions>]` | summarises the conversation into one message, under the same session id (see below) |
 | `/quit`, `/exit` | exits, as Ctrl-D does |
-| any other `/<name>` | prints `clay: unknown command /<name> (try /help)`; no request is sent |
+| any other `/<name>` | prints `clodent: unknown command /<name> (try /help)`; no request is sent |
 
 `/compact`: everything after `/compact` on the line, trimmed, is the instructions. ^C interrupts it.
 
-1. With an empty history it prints `clay: nothing to compact` and does nothing else.
+1. With an empty history it prints `clodent: nothing to compact` and does nothing else.
 2. When the history ends in an assistant message with `tool_use` blocks and no results, it first closes them the way a turn does: it prints the `● <Tool> <summary>` and `  ✗ interrupted by user` lines for each, writes a tool results record giving each the error result `interrupted by user`, and marks the next prompt as following an interrupt until the compact succeeds. Then it fires the `PreCompact` hook with `trigger: "manual"` and `custom_instructions` (see [Hooks](#hooks)).
 3. It sends one summary request: the model, system prompt and tools of a normal turn, `tool_choice: {type: "none"}`, and the history with one user text block appended that asks for a summary a fresh context can continue from, followed by `\n\nAdditional instructions: <instructions>` when there are any. The budget check applies as before any request. The summary does not stream to the screen.
-4. On a response with `stop_reason: "end_turn"` and non-empty text, the history becomes one user message: `This session continues an earlier conversation that was compacted. Summary of it:\n\n` followed by the summary. clay prints `clay: conversation compacted (<preTokens> → <postTokens> tokens)`, the `[clay:cost] warning: no price for model <id>; cost not counted` line if this model has not been warned about yet, and the request's `[clay:cost]` line, sends a statusLine update with `used_tokens` at `<postTokens>`, and fires `SessionStart` with `source` `compact`, whose context goes into the next prompt. `<preTokens>` is the request's input, cache-read and cache-write tokens; `<postTokens>` is its output tokens. The transcript gets the two compact records (see [Sessions](#sessions)).
-5. Otherwise the history and transcript are unchanged apart from that closing of step 2, and clay prints `clay: compact failed: <reason>`: `budget` (after the `[clay:budget]` line), `interrupted`, `stop_reason <stop_reason>`, `empty summary`, or the API error message. A response's cost still counts in the session total.
+4. On a response with `stop_reason: "end_turn"` and non-empty text, the history becomes one user message: `This session continues an earlier conversation that was compacted. Summary of it:\n\n` followed by the summary. clodent prints `clodent: conversation compacted (<preTokens> → <postTokens> tokens)`, the `[clodent:cost] warning: no price for model <id>; cost not counted` line if this model has not been warned about yet, and the request's `[clodent:cost]` line, sends a statusLine update with `used_tokens` at `<postTokens>`, and fires `SessionStart` with `source` `compact`, whose context goes into the next prompt. `<preTokens>` is the request's input, cache-read and cache-write tokens; `<postTokens>` is its output tokens. The transcript gets the two compact records (see [Sessions](#sessions)).
+5. Otherwise the history and transcript are unchanged apart from that closing of step 2, and clodent prints `clodent: compact failed: <reason>`: `budget` (after the `[clodent:budget]` line), `interrupted`, `stop_reason <stop_reason>`, `empty summary`, or the API error message. A response's cost still counts in the session total.
 
 A compact is not a turn: it fires no `Stop` hook and writes no `turn_duration` record. Print mode has no compact.
 
 Permission ask: in the default mode, a write or exec tool call that no hook allowed or denied waits for an answer, unless it is a read-only `Bash` command (see [Read-only Bash](#read-only-bash)). So does any call a settings ask rule matches, even one a hook allowed; a call a deny rule matches is refused without asking (see [Permission rules](#permission-rules)). `--yolo` and `--read-only` never ask, and print mode refuses the call instead.
 
-1. clay prints `[clay:permit <Tool> <tool_use id>] <summary>` on its own line, with the summary of the `● <Tool> <summary>` line; with an empty summary the line ends at `]`.
+1. clodent prints `[clodent:permit <Tool> <tool_use id>] <summary>` on its own line, with the summary of the `● <Tool> <summary>` line; with an empty summary the line ends at `]`.
 2. It writes `Allow? [y/n] ` and starts reading one line.
-3. With the ask listening, it fires the `Notification` hook with `notification_type: "permission"`, `tool` (the tool name), `id` (the tool_use id) and `message: "clay needs permission to use <Tool>"`. A line written while the hook runs is read as the answer. The call runs or is refused once both the answer and the hook are done. A hook warning may print after `Allow? [y/n] `.
-4. `y` or `yes`, trimmed and in any case, runs the call. `n` or `no` refuses it with the reason `denied by the user`. An empty line asks again. Any other line, and any line with a paste in it, is not an answer: it is queued as a prompt, and clay prints `clay: queued as a prompt; answer y or n` and asks again.
+3. With the ask listening, it fires the `Notification` hook with `notification_type: "permission"`, `tool` (the tool name), `id` (the tool_use id) and `message: "clodent needs permission to use <Tool>"`. A line written while the hook runs is read as the answer. The call runs or is refused once both the answer and the hook are done. A hook warning may print after `Allow? [y/n] `.
+4. `y` or `yes`, trimmed and in any case, runs the call. `n` or `no` refuses it with the reason `denied by the user`. An empty line asks again. Any other line, and any line with a paste in it, is not an answer: it is queued as a prompt, and clodent prints `clodent: queued as a prompt; answer y or n` and asks again.
 5. Ctrl-C interrupts the turn, and the call does not run. stdin closing refuses the call with the reason `denied: input closed`.
 
-Exit, on every path: clay prints the session total line, waits for the statusLine command, writes `\x1b[?2004l`, turns raw mode off, stops reading stdin and sends any pending SIGKILL (see [Tools](#tools)). An unexpected error skips the session total and the wait, but still restores the terminal and sends the pending SIGKILLs. Exit codes:
+Exit, on every path: clodent prints the session total line, waits for the statusLine command, writes `\x1b[?2004l`, turns raw mode off, stops reading stdin and sends any pending SIGKILL (see [Tools](#tools)). An unexpected error skips the session total and the wait, but still restores the terminal and sends the pending SIGKILLs. Exit codes:
 
-- 0: Ctrl-D or a second Ctrl-C at an empty prompt, `/quit`, `/exit`, or stdin closing, once the running turn and the queue are done. A stdin read error counts as stdin closing; one other than `EIO` first prints `clay: <message>`.
-- 143 on SIGTERM, 129 on SIGHUP: clay interrupts the running turn, then exits. A second SIGTERM or SIGHUP kills a running `Stop` hook.
+- 0: Ctrl-D or a second Ctrl-C at an empty prompt, `/quit`, `/exit`, or stdin closing, once the running turn and the queue are done. A stdin read error counts as stdin closing; one other than `EIO` first prints `clodent: <message>`.
+- 143 on SIGTERM, 129 on SIGHUP: clodent interrupts the running turn, then exits. A second SIGTERM or SIGHUP kills a running `Stop` hook.
 - SIGINT acts as Ctrl-C.
 - 2: a startup error, as in print mode.
 
@@ -226,7 +226,7 @@ Exit, on every path: clay prints the session total line, waits for the statusLin
 
 Every request carries this system prompt. Its parts, in this order, are separated by blank lines, and an empty part is left out:
 
-1. The base: the `--system-prompt` text, else the contents of `--system-prompt-file`, else clay's own prompt.
+1. The base: the `--system-prompt` text, else the contents of `--system-prompt-file`, else clodent's own prompt.
 2. `# Environment`: the working directory; whether it is a git repository, and its root; the platform; the local date as `YYYY-MM-DD`; the model id; and, when there are extra directories, `Additional directories:` followed by one absolute path per line: every `--add-dir` in argv order, then the settings extra directories (see [Settings](#settings)), without duplicates.
 3. `# Instructions (AGENTS.md)`, when any AGENTS.md is found: each file under its own `## <absolute path>` heading.
 4. Every `--append-system-prompt` text in argv order, then the contents of every `--append-system-prompt-file` in argv order.
@@ -238,26 +238,26 @@ The date carries no time of day, so the system prompt stays byte-identical all d
 AGENTS.md discovery:
 
 - The git root is the nearest directory, from the working directory upwards, that has a `.git` entry, either a directory or a file (a git worktree has a `.git` file).
-- clay reads `AGENTS.md` in every directory from the git root down to the working directory, so the most specific file comes last. Outside a git repository only the working directory's `AGENTS.md` is read.
+- clodent reads `AGENTS.md` in every directory from the git root down to the working directory, so the most specific file comes last. Outside a git repository only the working directory's `AGENTS.md` is read.
 - A file that is empty or holds only whitespace, a directory named `AGENTS.md` and an unreadable file are skipped, with no heading.
-- Each file is capped at 32 KiB, and all of them together at 96 KiB, counted in bytes. The total is spent from the working directory upwards, so the files nearest the git root are cut first. A cut file ends with the line `[clay: AGENTS.md truncated]`.
+- Each file is capped at 32 KiB, and all of them together at 96 KiB, counted in bytes. The total is spent from the working directory upwards, so the files nearest the git root are cut first. A cut file ends with the line `[clodent: AGENTS.md truncated]`.
 
 ### API wire
 
-clay sends every request as `POST https://api.anthropic.com/v1/messages`, or `POST <ANTHROPIC_BASE_URL>/v1/messages` when that is set (see [Environment](#environment)), with exactly these headers:
+clodent sends every request as `POST https://api.anthropic.com/v1/messages`, or `POST <ANTHROPIC_BASE_URL>/v1/messages` when that is set (see [Environment](#environment)), with exactly these headers:
 
 - `x-api-key: <ANTHROPIC_API_KEY>`
 - `anthropic-version: 2026-10-21`
 - `content-type: application/json`
-- `user-agent: clay/<version>`
+- `user-agent: clodent/<version>`
 
 No `anthropic-beta` header is sent. The body always has `stream: true`, `thinking: {"type": "adaptive"}` and `max_tokens: 32000`; `output_config: {"effort": "low"|"medium"|"high"}` is present only when an effort is set. It carries exactly three `cache_control: {"type": "ephemeral"}` breakpoints: the system block, the last tool definition, and the last content block of the last message, skipping back over trailing `thinking` and `redacted_thinking` blocks. With no tools the tool breakpoint is absent and `tools` is omitted.
 
-Requests that fail before the first SSE event with status 429, 500, 502, 503, 504 or 529, or with a network error, are tried at most 4 times. The waits are 1 s, 2 s and 4 s, each with ±20% jitter, and a `retry-after` header in seconds replaces the wait, capped at 60 s. Any other status is not retried. An `error` event once the stream has started discards the partial response; when its type is `overloaded_error` or `api_error`, clay re-sends the same request at most 2 more times, after 2 s and then 4 s, each announced by a `clay: <message>; retrying in <n> s` warning. Any other `error` event is not retried. The API's error message is surfaced verbatim.
+Requests that fail before the first SSE event with status 429, 500, 502, 503, 504 or 529, or with a network error, are tried at most 4 times. The waits are 1 s, 2 s and 4 s, each with ±20% jitter, and a `retry-after` header in seconds replaces the wait, capped at 60 s. Any other status is not retried. An `error` event once the stream has started discards the partial response; when its type is `overloaded_error` or `api_error`, clodent re-sends the same request at most 2 more times, after 2 s and then 4 s, each announced by a `clodent: <message>; retrying in <n> s` warning. Any other `error` event is not retried. The API's error message is surfaced verbatim.
 
 ### Cost
 
-clay prices each Messages API response from its `usage` object, against a table keyed by the exact model id. Ids never match by prefix: `claude-opus-5-5-preview` has no price. Rates are USD per million tokens:
+clodent prices each Messages API response from its `usage` object, against a table keyed by the exact model id. Ids never match by prefix: `claude-opus-5-5-preview` has no price. Rates are USD per million tokens:
 
 | model | input | output | cache read | cache write 5m | cache write 1h |
 |---|---|---|---|---|---|
@@ -276,11 +276,11 @@ Source: wirescope's table (proxy-lab `proxylab/billing.py` `PRICES` at ee3917a, 
 Line formats. Each is one line. Amounts have exactly four decimals, rounded half up, and counts are plain integers with no separators:
 
 ```
-[clay:cost] $X.XXXX (in N, cache-read N, cache-write N, out N)
-[clay:cost] session total $X.XXXX (in N, cache-read N, cache-write N, out N, requests N)
-[clay:cost] warning: no price for model <id>; cost not counted
-[clay:budget] stopped: spent $X.XXXX, next request est. $X.XXXX, budget $X.XXXX
-[clay:budget] stopped: model <id> has no price; --budget needs a priced model
+[clodent:cost] $X.XXXX (in N, cache-read N, cache-write N, out N)
+[clodent:cost] session total $X.XXXX (in N, cache-read N, cache-write N, out N, requests N)
+[clodent:cost] warning: no price for model <id>; cost not counted
+[clodent:budget] stopped: spent $X.XXXX, next request est. $X.XXXX, budget $X.XXXX
+[clodent:budget] stopped: model <id> has no price; --budget needs a priced model
 ```
 
 `in` is `input_tokens`, `cache-read` is `cache_read_input_tokens`, `cache-write` is all cache-write tokens and `out` is `output_tokens`, summed over the turn's requests, or over the session for the total. The per-turn line prints after every turn, and the session total prints on exit.
@@ -288,12 +288,12 @@ Line formats. Each is one line. Amounts have exactly four decimals, rounded half
 `--budget <usd>` is checked before every API request:
 
 - The estimate for the next request is the cost of the previous request, or 0 before the first.
-- clay stops with the `spent` line when the session total spent plus that estimate exceeds the budget. A projected total exactly equal to the budget proceeds.
-- When any request in the session was for a model with no price, clay stops with the `has no price` line, naming the first such model. A budget is never run unmetered.
+- clodent stops with the `spent` line when the session total spent plus that estimate exceeds the budget. A projected total exactly equal to the budget proceeds.
+- When any request in the session was for a model with no price, clodent stops with the `has no price` line, naming the first such model. A budget is never run unmetered.
 
 ### Tools
 
-clay gives the model six built-in tools, in this order; a bare-name deny rule in settings removes one (see [Permission rules](#permission-rules)). `kind` decides how permissions treat a tool. Input names follow the common agent-tool convention, so a hook reading `tool_input` sees the same fields. Relative paths resolve against the working directory, and every path in a result is absolute.
+clodent gives the model six built-in tools, in this order; a bare-name deny rule in settings removes one (see [Permission rules](#permission-rules)). `kind` decides how permissions treat a tool. Input names follow the common agent-tool convention, so a hook reading `tool_input` sees the same fields. Relative paths resolve against the working directory, and every path in a result is absolute.
 
 | Tool | Kind | Inputs | Result |
 |---|---|---|---|
@@ -301,19 +301,19 @@ clay gives the model six built-in tools, in this order; a bare-name deny rule in
 | `Write` | write | `file_path`; `content` | Creates parent directories and overwrites. `Wrote <n> bytes to <path>`. |
 | `Edit` | write | `file_path`; `old_string`; `new_string`; `replace_all` (default false) | Exact string replacement, no regex; the rest of the file stays byte-identical. `Edited <path>: <n> replacement(s)`. Errors: missing file, empty `old_string`, `old_string` equal to `new_string`, no match, more than one match without `replace_all` (the message gives the count). |
 | `Bash` | exec | `command`; `timeout` (ms, default 120000, clamped to 600000); `description` (ignored) | Runs `bash -c <command>` in its own process group with stdin closed; stdout and stderr interleaved in arrival order, then a trailer line `[exit <code>]`, `[timed out after <ms> ms]` or `[killed by <signal>]`. A timeout or interrupt sends SIGTERM to the group, then SIGKILL 2 s later. An error unless the exit code is 0. |
-| `Grep` | read | `pattern` (JavaScript RegExp source); `path` (file or directory, default cwd); `glob`; `output_mode` (`files_with_matches` default, `content`, `count`); `ignore_case` (default false); `head_limit` (output lines, default 250) | `files_with_matches`: sorted paths. `content`: `<path>:<line>:<text>`. `count`: `<path>:<n>`. A `glob` without `/` matches the file name, with `/` the path relative to `path`. Binary files are skipped. No match: `No matches found` (not an error). An invalid pattern is an error carrying the SyntaxError message. Cut output ends with `[clay: showing the first <limit> of <n> lines; raise head_limit to see more]`. |
-| `Glob` | read | `pattern`; `path` (directory, default cwd) | Paths whose path relative to `path` matches: `*` and `?` never cross `/`, `**` spans directories, `{a,b}` and `[abc]` / `[!abc]` are supported. Newest mtime first, at most 1000, followed by `[clay: showing the 1000 newest of <n> matches; narrow the pattern]` when cut. No match: `No files matched` (not an error). |
+| `Grep` | read | `pattern` (JavaScript RegExp source); `path` (file or directory, default cwd); `glob`; `output_mode` (`files_with_matches` default, `content`, `count`); `ignore_case` (default false); `head_limit` (output lines, default 250) | `files_with_matches`: sorted paths. `content`: `<path>:<line>:<text>`. `count`: `<path>:<n>`. A `glob` without `/` matches the file name, with `/` the path relative to `path`. Binary files are skipped. No match: `No matches found` (not an error). An invalid pattern is an error carrying the SyntaxError message. Cut output ends with `[clodent: showing the first <limit> of <n> lines; raise head_limit to see more]`. |
+| `Glob` | read | `pattern`; `path` (directory, default cwd) | Paths whose path relative to `path` matches: `*` and `?` never cross `/`, `**` spans directories, `{a,b}` and `[abc]` / `[!abc]` are supported. Newest mtime first, at most 1000, followed by `[clodent: showing the 1000 newest of <n> matches; narrow the pattern]` when cut. No match: `No files matched` (not an error). |
 
 Grep and Glob list files with `git ls-files --cached --others --exclude-standard` inside a git work tree, so `.gitignore` is respected; elsewhere they walk the directory, skipping `.git` and `node_modules`. A `path` that is itself git-ignored (such as `node_modules/pkg` or `dist`) is walked instead, so its files are listed. A malformed glob is an error, `Invalid glob <glob>: <message>`.
 
-A Bash call returns once bash has exited and its stdout and stderr are closed. A background process that keeps them open (`server &`) holds the call until the timeout, which then ends it with the timed-out trailer even when bash exited 0. A descendant that has left the process group is not killed; 2 s after the SIGTERM clay closes its end of the pipes and returns.
+A Bash call returns once bash has exited and its stdout and stderr are closed. A background process that keeps them open (`server &`) holds the call until the timeout, which then ends it with the timed-out trailer even when bash exited 0. A descendant that has left the process group is not killed; 2 s after the SIGTERM clodent closes its end of the pipes and returns.
 
-When clay exits, in either mode and on every exit path after startup, every process group of a tool, hook or statusLine command that got SIGTERM and is still waiting for its SIGKILL gets the SIGKILL at once, so a process that ignores SIGTERM does not outlive clay.
+When clodent exits, in either mode and on every exit path after startup, every process group of a tool, hook or statusLine command that got SIGTERM and is still waiting for its SIGKILL gets the SIGKILL at once, so a process that ignores SIGTERM does not outlive clodent.
 
 Every tool result is capped at 32768 bytes (UTF-8). A longer result keeps its first 16384 and last 16384 bytes, cut back to whole characters, joined by:
 
 ```
-\n[clay: truncated <n> bytes]\n
+\n[clodent: truncated <n> bytes]\n
 ```
 
 where `<n>` is the exact number of bytes removed.
@@ -328,7 +328,7 @@ Under the default mode and `--read-only`, a `Bash` call whose command is read-on
 
 `<reason>` names the first offending part, such as `rm is not a read-only command`, `output redirection`, `command substitution`, `find -delete` or `git -c`.
 
-clay splits the command into simple commands on `|`, `||`, `&&`, `;` and newlines, honouring single quotes, double quotes, backslash escapes and `#` comments. The command is read-only when every simple command is. Blank lines, a trailing `;` and a newline right after `|`, `||` or `&&` are fine; any other empty command (`;;`, a leading `|`, a trailing `&&`, an empty or comment-only string), and a simple command made only of redirections, is not read-only.
+clodent splits the command into simple commands on `|`, `||`, `&&`, `;` and newlines, honouring single quotes, double quotes, backslash escapes and `#` comments. The command is read-only when every simple command is. Blank lines, a trailing `;` and a newline right after `|`, `||` or `&&` are fine; any other empty command (`;;`, a leading `|`, a trailing `&&`, an empty or comment-only string), and a simple command made only of redirections, is not read-only.
 
 Each simple command must start with one of these names, with no `/` and no expansion, glob or brace expansion in it (quoting it is fine):
 
@@ -404,7 +404,7 @@ When a response that does not stop for `tool_use` still holds `tool_use` blocks,
 
 ### Sessions
 
-Every run, `-p` or REPL, records its session as a JSONL transcript, one record per line, at `$CLAY_HOME/projects/<slug>/<session-id>.jsonl` (see [Environment](#environment) for `CLAY_HOME`).
+Every run, `-p` or REPL, records its session as a JSONL transcript, one record per line, at `$CLODENT_HOME/projects/<slug>/<session-id>.jsonl` (see [Environment](#environment) for `CLODENT_HOME`).
 
 - `<slug>` is the working directory with every `/` and `.` replaced by `-`, and no other character changed: `/Users/a/my.proj/x_y` becomes `-Users-a-my-proj-x_y`.
 - Directories are created mode 0700, the file mode 0600. The file appears with the first record.
@@ -412,21 +412,21 @@ Every run, `-p` or REPL, records its session as a JSONL transcript, one record p
 
 Session id:
 
-- `[clay:session] <session-id>` is printed at start, once the arguments, the API key and the session check out. In print mode it is the first line on stderr; in the REPL, the first line on stdout, and `/clear` prints a new one.
-- Without `--session-id`, clay mints a random UUID.
-- `--session-id <uuid>` uses that id, lowercased. When a transcript with that id exists under any project dir, as `--resume` would find it, clay prints `clay: session <id> already exists; use --resume` and exits 2.
-- `--resume <id>` lowercases a UUID-shaped id and keeps any other id as given. It looks for `$CLAY_HOME/projects/<slug of cwd>/<id>.jsonl`, then for `$CLAY_HOME/projects/*/<id>.jsonl` in sorted dir order. With no such file, or an id that is not made of letters, digits, `_` and `-`, clay prints `clay: no session <id>` and exits 2. Otherwise it loads the history and appends to that same file under the same id; the first new record's `parentUuid` is the `uuid` of the file's last record.
+- `[clodent:session] <session-id>` is printed at start, once the arguments, the API key and the session check out. In print mode it is the first line on stderr; in the REPL, the first line on stdout, and `/clear` prints a new one.
+- Without `--session-id`, clodent mints a random UUID.
+- `--session-id <uuid>` uses that id, lowercased. When a transcript with that id exists under any project dir, as `--resume` would find it, clodent prints `clodent: session <id> already exists; use --resume` and exits 2.
+- `--resume <id>` lowercases a UUID-shaped id and keeps any other id as given. It looks for `$CLODENT_HOME/projects/<slug of cwd>/<id>.jsonl`, then for `$CLODENT_HOME/projects/*/<id>.jsonl` in sorted dir order. With no such file, or an id that is not made of letters, digits, `_` and `-`, clodent prints `clodent: no session <id>` and exits 2. Otherwise it loads the history and appends to that same file under the same id; the first new record's `parentUuid` is the `uuid` of the file's last record.
 - `--fork-session` (with `--resume`) records into a new file under a new id: the `--session-id` if given, else a minted one; an existing `--session-id` transcript exits 2 as above. It first copies every record of the source with `sessionId` set to the new id and every other field, `uuid` and `parentUuid` included, unchanged; then it continues. The source file is never written.
 - `-p` with `--resume` loads the session, then runs the one prompt.
 
 Loading a transcript:
 
 - User and assistant records that carry neither `isMeta: true` nor `isVisibleInTranscriptOnly: true` are replayed in file order into the history, consecutive records of one role joining one message, exactly as the live history merged them. Other record types and records with either flag are skipped, apart from the compact records below.
-- A last line without its `\n` is a write cut short by a crash. clay prints `clay: <path>: ignoring a truncated last line` right after the `[clay:session]` line; when resuming in place, it cuts the file back to its last complete line before appending.
-- Any other line that is not a JSON object, or a user or assistant record that would be replayed but has no `message.content` array, prints `clay: <path>: line <n> is not valid JSON`, `… is not a record` or `… has no message content` and exits 2.
+- A last line without its `\n` is a write cut short by a crash. clodent prints `clodent: <path>: ignoring a truncated last line` right after the `[clodent:session]` line; when resuming in place, it cuts the file back to its last complete line before appending.
+- Any other line that is not a JSON object, or a user or assistant record that would be replayed but has no `message.content` array, prints `clodent: <path>: line <n> is not valid JSON`, `… is not a record` or `… has no message content` and exits 2.
 - A `system` record with `subtype: "compact_boundary"` empties the history built so far, and a user record with `isCompactSummary: true` is replayed even though it is `isVisibleInTranscriptOnly`. `--resume` and `--fork-session` of a compacted session therefore start from the summary; `--fork-session` still copies every record.
-- When the last user record is the interrupt record, the next prompt goes to the API prefixed with the text block `[clay: previous turn interrupted by the user]`, as it would have in the interrupted run.
-- When the history ends in an assistant record with `tool_use` blocks and no results (clay was killed while a tool ran), the next turn first writes a tool results record giving each of them the error result `interrupted by user`, then the prompt, prefixed with that same text block.
+- When the last user record is the interrupt record, the next prompt goes to the API prefixed with the text block `[clodent: previous turn interrupted by the user]`, as it would have in the interrupted run.
+- When the history ends in an assistant record with `tool_use` blocks and no results (clodent was killed while a tool ran), the next turn first writes a tool results record giving each of them the error result `interrupted by user`, then the prompt, prefixed with that same text block.
 
 Every record carries:
 
@@ -439,14 +439,14 @@ Every record carries:
 | `timestamp` | ISO 8601 in UTC |
 | `cwd` | the working directory |
 | `isSidechain` | `false` |
-| `version` | clay's version |
-| `entrypoint` | `clay` |
+| `version` | clodent's version |
+| `entrypoint` | `clodent` |
 
 Record kinds, in the order a turn writes them:
 
 | kind | fields besides the common ones |
 |---|---|
-| prompt | `type: "user"`, `message: {role: "user", content: [text blocks]}`: the `[clay: previous turn interrupted by the user]` block after an interrupted turn, then any `SessionStart` context block, the prompt, then any `UserPromptSubmit` context block (see [Hooks](#hooks)) |
+| prompt | `type: "user"`, `message: {role: "user", content: [text blocks]}`: the `[clodent: previous turn interrupted by the user]` block after an interrupted turn, then any `SessionStart` context block, the prompt, then any `UserPromptSubmit` context block (see [Hooks](#hooks)) |
 | assistant | `type: "assistant"`, `message` (the API message: `id`, `model`, `role`, `content`, `stop_reason`, `stop_sequence`, `usage` as the API reported it), `requestId` (the `request-id` response header, or null), `costUsd` (this request's cost; 0 for an unpriced model), `durationMs` (this request's duration in whole milliseconds). A response with empty content is recorded too. |
 | tool results | `type: "user"`, `message: {role: "user", content: [tool_result blocks, then any PostToolUse and PostToolUseFailure context blocks]}`, `toolUseResult: {name, isError, input}` describing the first block; `input` is the input the tool ran with, after any hook `updatedInput` |
 | partial assistant | `type: "assistant"`, `message: {role: "assistant", content: [the completed text blocks], stop_reason: null}`; written on an interrupt that kept text |
@@ -459,14 +459,14 @@ A turn the model ended has `stop_reason: "end_turn"` on its last assistant recor
 
 ### Settings
 
-clay loads settings before anything else runs, in `-p` and the REPL alike. The file shape follows the settings files Clodex writes for Claude Code, so those load unchanged.
+clodent loads settings before anything else runs, in `-p` and the REPL alike. The file shape follows the settings files Clodex writes for Claude Code, so those load unchanged.
 
 Sources, in this order:
 
-1. `<CLAY_HOME>/settings.json`, where `CLAY_HOME` defaults to `~/.clay`. A missing file counts as empty.
+1. `<CLODENT_HOME>/settings.json`, where `CLODENT_HOME` defaults to `~/.clodent`. A missing file counts as empty.
 2. Each `--settings <file>`, in argv order; a relative path resolves against the working directory. A missing one is an error: `settings file not found: <path>`.
 
-A file that is not valid JSON, or whose top level is not an object, is an error: `invalid settings file <path>: <reason>`. Any other read failure is `cannot read settings file <path>: <reason>`. A malformed permission rule list and `sandbox.enabled: true` are errors too, `settings <path>: <message>` (see [Permission rules](#permission-rules)). An error prints `clay: <error>` and exits 2 before any request.
+A file that is not valid JSON, or whose top level is not an object, is an error: `invalid settings file <path>: <reason>`. Any other read failure is `cannot read settings file <path>: <reason>`. A malformed permission rule list and `sandbox.enabled: true` are errors too, `settings <path>: <message>` (see [Permission rules](#permission-rules)). An error prints `clodent: <error>` and exits 2 before any request.
 
 Honored keys and how they merge across sources; later sources win unless the row says otherwise:
 
@@ -485,7 +485,7 @@ Every other key, such as `voice`, `voiceEnabled`, `skillOverrides`, `permissions
 
 ### Permission rules
 
-`permissions.deny` and `permissions.ask` in settings hold rules in Claude Code's syntax, so the lists Clodex writes for a seat load unchanged. clay enforces them on its six tools; `permissions.allow` and `permissions.defaultMode` are ignored.
+`permissions.deny` and `permissions.ask` in settings hold rules in Claude Code's syntax, so the lists Clodex writes for a seat load unchanged. clodent enforces them on its six tools; `permissions.allow` and `permissions.defaultMode` are ignored.
 
 A rule is `Tool` or `Tool(specifier)`:
 
@@ -504,7 +504,7 @@ Names are case-sensitive. A path specifier expands to an absolute pattern:
 - `//abs/path` is `/abs/path`.
 - `~/p` is `$HOME/p` and `~` is `$HOME`, from the `HOME` environment variable, else the OS home directory.
 - `/p` is relative to the directory of the settings file that holds the rule.
-- `./p` and a bare `p` are relative to the directory clay started in.
+- `./p` and a bare `p` are relative to the directory clodent started in.
 
 In a pattern, `*` matches within one path segment and `**` matches zero or more segments; every other character, a space included, is literal. A rule matches a path when it matches the path itself or any ancestor directory, so `Read(~/.ssh)` also matches `~/.ssh/id_rsa`, and `X/**` also matches `X`.
 
@@ -520,16 +520,16 @@ A file tool's path is checked twice, lexically (resolved against the working dir
 - A command that mentions a `Read` rule matches it. One that mentions an `Edit` or `Write` rule matches it unless it is read-only by the rules of [Read-only Bash](#read-only-bash): `cat ~/.clodex/messages/x` passes an `Edit` rule for that directory, `rm ~/.clodex/messages/x` does not.
 - It cannot see a path built at run time, through a variable other than `HOME`, a glob, a relative spelling (`cd ~; cat .ssh/id_rsa`), split quoting, a script or an alias, nor a command hidden by quoting from the split.
 
-Deny rules come first: a call a deny rule matches is refused in every mode, `--yolo` included, whatever a `PreToolUse` hook decided apart from its own `deny`, and without an ask, so an interactive `y` never runs it. The model gets `denied by settings rule <rule as written>` as an error tool result, and the turn goes on. A call an ask rule matches asks in the REPL's default mode as a write tool does (see [REPL](#repl)), even a read tool's call or one a hook allowed; `-p` and `--read-only` refuse it with `permission required: run clay without -p to approve it, or pass --yolo`, and `--yolo` runs it. See [Hooks](#hooks) for the full order.
+Deny rules come first: a call a deny rule matches is refused in every mode, `--yolo` included, whatever a `PreToolUse` hook decided apart from its own `deny`, and without an ask, so an interactive `y` never runs it. The model gets `denied by settings rule <rule as written>` as an error tool result, and the turn goes on. A call an ask rule matches asks in the REPL's default mode as a write tool does (see [REPL](#repl)), even a read tool's call or one a hook allowed; `-p` and `--read-only` refuse it with `permission required: run clodent without -p to approve it, or pass --yolo`, and `--yolo` runs it. See [Hooks](#hooks) for the full order.
 
-A bare-name deny of a clay tool also removes the tool from the request's `tools`, so a call of it is an unknown tool (`unknown tool <name>`).
+A bare-name deny of a clodent tool also removes the tool from the request's `tools`, so a call of it is an unknown tool (`unknown tool <name>`).
 
-Startup errors: each of these prints `clay: settings <path>: <message>` and exits 2, before the `[clay:session]` line, any hook, any request and the first `\x1b[?2004h`:
+Startup errors: each of these prints `clodent: settings <path>: <message>` and exits 2, before the `[clodent:session]` line, any hook, any request and the first `\x1b[?2004h`:
 
 - `permissions` that is not an object: `permissions is not an object`.
 - `deny` or `ask` that is not an array: `permissions.<list> is not an array`; an entry that is not a string: `permissions.<list>[<i>] is not a string`.
-- A malformed rule, `permissions.<list>[<i>] "<rule>": <reason>`, where the reason is `unbalanced parenthesis`, `text after the closing parenthesis`, `no tool name`, `empty () on <Tool>` (for a clay tool only), or `the path expands to nothing (HOME is not set)`.
-- `sandbox.enabled: true` in any source: `sandbox.enabled is not supported: clay does not sandbox Bash; remove the sandbox block`.
+- A malformed rule, `permissions.<list>[<i>] "<rule>": <reason>`, where the reason is `unbalanced parenthesis`, `text after the closing parenthesis`, `no tool name`, `empty () on <Tool>` (for a clodent tool only), or `the path expands to nothing (HOME is not set)`.
+- `sandbox.enabled: true` in any source: `sandbox.enabled is not supported: clodent does not sandbox Bash; remove the sandbox block`.
 
 ### Hooks
 
@@ -547,13 +547,13 @@ When each event fires:
 
 | event | fires |
 |---|---|
-| `SessionStart` | once, after the `[clay:session]` line and before the prompt: `source` is `resume` with `--resume`, else `startup`; in the REPL, again after `/clear` with `source` `clear`, and after a successful `/compact` with `source` `compact` |
+| `SessionStart` | once, after the `[clodent:session]` line and before the prompt: `source` is `resume` with `--resume`, else `startup`; in the REPL, again after `/clear` with `source` `clear`, and after a successful `/compact` with `source` `compact` |
 | `UserPromptSubmit` | before the prompt joins the history |
 | `PreToolUse` | before each call of a known tool, before the permission decision; a call of an unknown tool fires no hook |
 | `PostToolUse` | after a tool that ran returns a result that is not an error |
 | `PostToolUseFailure` | instead of `PostToolUse`, when that result is an error; a refused call never ran, so neither fires |
 | `Stop` | once at the end of the turn, after the `turn_duration` record; its output is ignored apart from warnings |
-| `Notification` | in the REPL, when a tool call waits for a permission answer: after the `[clay:permit]` line and `Allow? [y/n] `, while the ask is listening (see [REPL](#repl)) |
+| `Notification` | in the REPL, when a tool call waits for a permission answer: after the `[clodent:permit]` line and `Allow? [y/n] `, while the ask is listening (see [REPL](#repl)) |
 | `PreCompact` | in the REPL, at `/compact` on a non-empty history, before the summary request; its output is ignored apart from warnings |
 
 `permission_mode` names the mode as Claude Code does: `default` (the default ask mode), `bypassPermissions` (`--yolo`) or `plan` (`--read-only`).
@@ -577,12 +577,12 @@ Context, from `additionalContext` or plain stdout (see Results below), reaches t
 </hook-context>
 ```
 
-- `SessionStart` context is held and goes into the next user message, before the prompt text and after the `[clay: previous turn interrupted by the user]` block when that is present.
+- `SessionStart` context is held and goes into the next user message, before the prompt text and after the `[clodent: previous turn interrupted by the user]` block when that is present.
 - `UserPromptSubmit` context goes right after the prompt text.
 - `PostToolUse` and `PostToolUseFailure` context goes after every `tool_result` block of that tool round's user message, one block per event in that order, since the API needs the `tool_result` blocks first.
 - `PreToolUse`, `PreCompact` and `Stop` context is dropped. No hook can block a prompt or a compact.
 
-Hook warnings print as `clay: <warning>` lines. Hooks get the turn's interrupt: a signal kills running hooks, and a hook that would start after it does not run. `Stop` runs even after an interrupt, under its own abort: a second SIGTERM or SIGHUP kills it (in `-p`, any second signal).
+Hook warnings print as `clodent: <warning>` lines. Hooks get the turn's interrupt: a signal kills running hooks, and a hook that would start after it does not run. `Stop` runs even after an interrupt, under its own abort: a second SIGTERM or SIGHUP kills it (in `-p`, any second signal).
 
 Matchers:
 
@@ -609,7 +609,7 @@ stdin is one JSON object followed by a newline, then closed. Every event sends `
 
 Running:
 
-- Each matched command runs as `bash -c <command>` in the working directory, in its own process group. Its environment is clay's, then the settings `env` on top, then `CLAY_PROJECT_DIR` set to the working directory.
+- Each matched command runs as `bash -c <command>` in the working directory, in its own process group. Its environment is clodent's, then the settings `env` on top, then `CLODENT_PROJECT_DIR` set to the working directory.
 - All matched commands of one firing run at the same time. Their results combine in config order (source order, then group order, then entry order), not in the order they finish.
 - A command string matched more than once in one firing runs once, at its first config position, with the longest of the entries' timeouts (an unset `timeout` counts as the default) and with `onFailure: "block"` when any of the entries sets it.
 - `timeout` is in seconds, default 60. On expiry, or when the turn is interrupted, the process group gets SIGTERM, then SIGKILL 2 s later.
@@ -617,7 +617,7 @@ Running:
 
 Results, per command:
 
-- Exit 0 with stdout that is a JSON object: clay reads `hookSpecificOutput.additionalContext` (a string, added to the model's context) on every event. On `PreToolUse` only it also reads `hookSpecificOutput.permissionDecision` (`allow`, `deny` or `ask`), `hookSpecificOutput.permissionDecisionReason` and `hookSpecificOutput.updatedInput` (an object that replaces the tool input).
+- Exit 0 with stdout that is a JSON object: clodent reads `hookSpecificOutput.additionalContext` (a string, added to the model's context) on every event. On `PreToolUse` only it also reads `hookSpecificOutput.permissionDecision` (`allow`, `deny` or `ask`), `hookSpecificOutput.permissionDecisionReason` and `hookSpecificOutput.updatedInput` (an object that replaces the tool input).
 - Exit 0 with non-empty stdout that is not a JSON object: on `SessionStart` and `UserPromptSubmit` the text, without trailing whitespace, is added as context. On any other event it is ignored with the warning `invalid JSON ignored`.
 - Exit 2: on `PreToolUse` the tool call is denied, with stderr (trimmed) as the reason, or `blocked by hook` when stderr is empty. On any other event it is a warning.
 - Any other exit code, death by a signal, a timeout or a failure to start is a failure. On `PreToolUse`, an entry with `"onFailure": "block"` turns it into a deny with the reason `hook failed: <exit <n>|timeout|aborted|killed by <signal>|<error message>>`. Otherwise it is a warning and the turn continues. Only `PreToolUse` can block.
@@ -630,14 +630,14 @@ Warnings are one line each:
 hook <Event> "<first 60 characters of the command>": <exit <n>|timeout|aborted|killed by <signal>|<error message>|invalid JSON ignored|stdout over 1 MiB truncated>
 ```
 
-statusLine: after each API response other than a compact's summary request, and in the REPL after `/clear` and a successful `/compact` (see [REPL](#repl)), clay runs the `statusLine` command the same way, with a 5 s timeout, and this JSON on stdin:
+statusLine: after each API response other than a compact's summary request, and in the REPL after `/clear` and a successful `/compact` (see [REPL](#repl)), clodent runs the `statusLine` command the same way, with a 5 s timeout, and this JSON on stdin:
 
 ```json
 {
   "session_id": "<uuid>",
   "transcript_path": "<path>",
   "cwd": "<working directory>",
-  "version": "<clay version>",
+  "version": "<clodent version>",
   "model": { "id": "<model id>", "display_name": "<model id>" },
   "workspace": { "current_dir": "<working directory>" },
   "context_window": { "used_tokens": 0, "total_input_tokens": 0, "context_window_size": 200000, "used_percentage": 0 },
@@ -651,4 +651,4 @@ statusLine: after each API response other than a compact's summary request, and 
 - `used_percentage` is `used_tokens` over `context_window_size`, as a number from 0 to 100 with at most one decimal.
 - At most one statusLine command runs at a time. An update that arrives while one runs replaces any update already waiting, so only the latest runs next.
 - stdout is discarded. The first failure prints one warning, `statusLine "<first 60 characters of the command>": <reason>`; later failures are silent.
-- Before exit, clay waits for the running statusLine command and the latest waiting update to finish.
+- Before exit, clodent waits for the running statusLine command and the latest waiting update to finish.

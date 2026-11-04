@@ -39,7 +39,7 @@ export function createStatusLine(ctx, deps = {}) {
     return { update() {}, flush: () => Promise.resolve() };
   }
   const warn = deps.warn ?? (() => {});
-  const env = { ...ctx.env, ...settings.env, CLAY_PROJECT_DIR: ctx.cwd };
+  const env = { ...ctx.env, ...settings.env, CLODENT_PROJECT_DIR: ctx.cwd };
   let queued = null;
   let running = null;
   let warned = false;

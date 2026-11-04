@@ -7,7 +7,7 @@ import { COMPACT_TOOL_CHOICE, compactMessages, compactTokens, NOTHING_TO_COMPACT
 import { appendMessage } from './history.js';
 import { ASK_DENIAL, decide } from './permission.js';
 
-export const INTERRUPT_MARKER = '[clay: previous turn interrupted by the user]';
+export const INTERRUPT_MARKER = '[clodent: previous turn interrupted by the user]';
 export const INTERRUPTED_RESULT = 'interrupted by user';
 export const USER_DENIAL = 'denied by the user';
 export const MID_STREAM_DELAYS_MS = Object.freeze([2000, 4000]);
@@ -115,7 +115,7 @@ export function createAgent(config, deps) {
   async function askUser(tool, use, input, signal) {
     const request = { id: use.id, name: use.name, input, summary: tool.summary?.(input) ?? '' };
     emit({ type: 'permission_request', ...request });
-    const notice = { notification_type: 'permission', tool: use.name, id: use.id, message: `clay needs permission to use ${use.name}` };
+    const notice = { notification_type: 'permission', tool: use.name, id: use.id, message: `clodent needs permission to use ${use.name}` };
     const [answer] = await Promise.all([config.ask(request, signal), fireHook('Notification', notice, signal)]);
     if (signal?.aborted) return { allow: false, reason: INTERRUPTED_RESULT };
     return answer?.allow ? ALLOWED : { allow: false, reason: answer?.reason ?? USER_DENIAL };

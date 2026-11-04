@@ -14,8 +14,8 @@ function setup(mode, tty = false) {
 }
 
 const agg = (unpriced = []) => ({ usd: 0.0123, tokens: { in: 10, cacheRead: 2, cacheWrite: 3, out: 4 }, requests: 1, unpriced });
-const COST = '[clay:cost] $0.0123 (in 10, cache-read 2, cache-write 3, out 4)';
-const TOTAL = '[clay:cost] session total $0.0123 (in 10, cache-read 2, cache-write 3, out 4, requests 1)';
+const COST = '[clodent:cost] $0.0123 (in 10, cache-read 2, cache-write 3, out 4)';
+const TOTAL = '[clodent:cost] session total $0.0123 (in 10, cache-read 2, cache-write 3, out 4, requests 1)';
 const message = (...texts) => ({
   role: 'assistant',
   content: [{ type: 'thinking', thinking: 'secret' }, ...texts.map((text) => ({ type: 'text', text })), { type: 'tool_use', id: 't', name: 'Read', input: {} }],
@@ -57,8 +57,8 @@ test('print mode: stdout is only the last message text plus a newline; the rest 
       '● Write out.txt',
       '  ✗ permission required: rerun with --yolo',
       '● Glob',
-      'clay: response hit max_tokens',
-      'clay: Overloaded',
+      'clodent: response hit max_tokens',
+      'clodent: Overloaded',
       COST,
       TOTAL,
       '',
@@ -71,7 +71,7 @@ test('print mode: a turn with no assistant message writes nothing to stdout', ()
   render({ type: 'budget_stop', result: { ok: false, spentUsd: 0.5, nextEstimateUsd: 0.25, budgetUsd: 0.6 } });
   render({ type: 'turn_end', stopReason: 'budget', turn: agg() });
   assert.equal(out.text(), '');
-  assert.equal(err.text(), `[clay:budget] stopped: spent $0.5000, next request est. $0.2500, budget $0.6000\n${COST}\n`);
+  assert.equal(err.text(), `[clodent:budget] stopped: spent $0.5000, next request est. $0.2500, budget $0.6000\n${COST}\n`);
 });
 
 test('print mode: narration from a tool round never reaches stdout', () => {
@@ -103,8 +103,8 @@ test('the unpriced warning prints once per model', () => {
   render({ type: 'turn_end', stopReason: 'end_turn', turn: agg(['x-model', 'y-model']) });
   const warnings = err.text().split('\n').filter((l) => l.includes('no price'));
   assert.deepEqual(warnings, [
-    '[clay:cost] warning: no price for model x-model; cost not counted',
-    '[clay:cost] warning: no price for model y-model; cost not counted',
+    '[clodent:cost] warning: no price for model x-model; cost not counted',
+    '[clodent:cost] warning: no price for model y-model; cost not counted',
   ]);
 });
 
@@ -124,8 +124,8 @@ test('repl mode: text streams to out as it arrives, thinking never prints, every
       '  ✗ permission required: rerun with --yolo',
       '● Glob',
       'Final answer.',
-      'clay: response hit max_tokens',
-      'clay: Overloaded',
+      'clodent: response hit max_tokens',
+      'clodent: Overloaded',
       COST,
       TOTAL,
       '',
@@ -139,7 +139,7 @@ test('repl mode: a line event mid-text starts on a fresh line', () => {
   render({ type: 'warning', message: 'w' });
   render({ type: 'text_delta', text: 'whole\n', index: 0 });
   render({ type: 'interrupted' });
-  assert.equal(out.text(), 'half\nclay: w\nwhole\nclay: interrupted\n');
+  assert.equal(out.text(), 'half\nclodent: w\nwhole\nclodent: interrupted\n');
 });
 
 test('repl mode on a TTY marks thinking once per block, dimmed', () => {
@@ -179,23 +179,23 @@ test('a permission_request with an empty summary has no trailing space, as the t
   const { out, render } = setup('repl');
   render({ type: 'permission_request', id: 'toolu_1', name: 'Bash', input: {}, summary: '' });
   render({ type: 'permission_request', id: 'toolu_2', name: 'Bash', input: {}, summary: 'ls' });
-  assert.equal(out.text(), '[clay:permit Bash toolu_1]\n[clay:permit Bash toolu_2] ls\n');
+  assert.equal(out.text(), '[clodent:permit Bash toolu_1]\n[clodent:permit Bash toolu_2] ls\n');
 });
 
 test('compacted prints the compacted line, then the cost line of the summary request', () => {
   const { out, render } = setup('repl');
   render({ type: 'compacted', trigger: 'manual', summary: 'secret summary', preTokens: 1200, postTokens: 45, turn: agg() });
-  assert.equal(out.text(), `clay: conversation compacted (1200 → 45 tokens)\n${COST}\n`);
+  assert.equal(out.text(), `clodent: conversation compacted (1200 → 45 tokens)\n${COST}\n`);
 });
 
 test('a compact on an unpriced model prints the unpriced warning once, before its cost line', () => {
   const { out, render } = setup('repl');
-  const WARN = '[clay:cost] warning: no price for model x-model; cost not counted';
+  const WARN = '[clodent:cost] warning: no price for model x-model; cost not counted';
   render({ type: 'compacted', trigger: 'manual', summary: 's', preTokens: 1200, postTokens: 45, turn: agg(['x-model']) });
   render({ type: 'turn_end', stopReason: 'end_turn', turn: agg(['x-model']) });
   render({ type: 'compacted', trigger: 'manual', summary: 's', preTokens: 50, postTokens: 5, turn: agg(['x-model']) });
   const lines = out.text().split('\n');
-  assert.deepEqual(lines.slice(0, 3), ['clay: conversation compacted (1200 → 45 tokens)', WARN, COST]);
+  assert.deepEqual(lines.slice(0, 3), ['clodent: conversation compacted (1200 → 45 tokens)', WARN, COST]);
   assert.equal(lines.filter((l) => l === WARN).length, 1);
 });
 
@@ -212,13 +212,13 @@ test('repl mode on a TTY colours warnings yellow, errors red and cost lines dim,
   render({ type: 'session_end', session: agg() });
   assert.deepEqual(out.text().split('\n').slice(0, -1), [
     '● Bash ls',
-    '[clay:permit Bash t1] ls',
-    '\x1b[33mclay: w\x1b[0m',
-    '\x1b[33mclay: interrupted\x1b[0m',
-    '\x1b[33m[clay:budget] stopped: model x has no price; --budget needs a priced model\x1b[0m',
-    '\x1b[31mclay: e\x1b[0m',
+    '[clodent:permit Bash t1] ls',
+    '\x1b[33mclodent: w\x1b[0m',
+    '\x1b[33mclodent: interrupted\x1b[0m',
+    '\x1b[33m[clodent:budget] stopped: model x has no price; --budget needs a priced model\x1b[0m',
+    '\x1b[31mclodent: e\x1b[0m',
     '\x1b[31m  ✗ bad\x1b[0m',
-    '\x1b[33m[clay:cost] warning: no price for model x-model; cost not counted\x1b[0m',
+    '\x1b[33m[clodent:cost] warning: no price for model x-model; cost not counted\x1b[0m',
     `\x1b[2m${COST}\x1b[0m`,
     `\x1b[2m${TOTAL}\x1b[0m`,
   ]);
