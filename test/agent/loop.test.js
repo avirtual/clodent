@@ -128,7 +128,8 @@ test('tool definitions go on the wire without kind, summary or run', async () =>
   await h.agent.runTurn('hi');
   const sent = strip(h.fetch.calls[0].body.tools);
   assert.deepEqual(sent.map((t) => Object.keys(t)), sent.map(() => ['name', 'description', 'input_schema']));
-  assert.deepEqual(sent.map((t) => t.name), ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob']);
+  assert.deepEqual(sent.map((t) => t.name), ['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'Write']);
+  assert.deepEqual(h.of('session_start')[0].tools, ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob']);
 });
 
 test('tool_use runs a real Read, then the next request carries thinking, tool_use and tool_result', async (t) => {
