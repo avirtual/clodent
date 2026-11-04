@@ -1,8 +1,8 @@
 # clodent
 
-clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.4.0 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), a stream-json mode for hosts, six built-in tools, cost accounting, JSONL session transcripts, settings files and hooks. clodent was named clay up to 0.2.0.
+clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.5.0 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), a stream-json mode for hosts, six built-in tools, cost accounting, JSONL session transcripts, settings files, hooks and post-compact file reload. clodent was named clay up to 0.2.0.
 
-Non-goals for v0.4: MCP, plugins, skills, subagents, web tools, image input, Windows, telemetry.
+Non-goals for v0.5: MCP, plugins, skills, subagents, web tools, image input, Windows, telemetry.
 
 ## Install
 
@@ -10,7 +10,7 @@ Requires Node.js 22 or later. clodent has no dependencies. From a checkout:
 
 ```sh
 npm link
-clodent --version   # clodent 0.4.0
+clodent --version   # clodent 0.5.0
 ```
 
 ## Usage
@@ -48,7 +48,7 @@ An opt-in check against the real Messages API; the suite only runs it without a 
 
 ## Contract
 
-This section is the contract a host integrates against. It describes clodent 0.4.0.
+This section is the contract a host integrates against. It describes clodent 0.5.0.
 
 ### Hosting clodent
 
@@ -69,7 +69,7 @@ A summary for a host adapter; each point links to the section that pins it down.
 - statusLine: the settings `statusLine` command gets `context_window.used_tokens`, `context_window.context_window_size`, `context_window.used_percentage`, `model.id` and `cost.total_cost_usd` on stdin after each API response, after `/clear` (zero usage) and after `/compact` (`used_tokens` is the summary's size). See [Hooks](#hooks).
 - Signals: SIGINT acts as Ctrl-C: it interrupts a turn, and two in a row at an empty prompt exit 0. SIGTERM exits 143 and SIGHUP 129, after interrupting a running turn, whose `Stop` hook still fires. Ctrl-D, `/quit` and stdin closing exit 0. See [REPL](#repl).
 - Settings guard: `permissions.deny`/`ask` are enforced (see [Permission rules](#permission-rules)). A `sandbox` block with `enabled: true` is never fatal: its `filesystem.denyRead`, `filesystem.denyWrite` and deny `credentials.files` entries are enforced as deny rules, its deny `credentials.envVars` are removed from the Bash tool's environment, and its other keys are ignored with one warning; clodent does not sandbox Bash. A malformed sandbox shape is a startup error (exit 2).
-- Absent in 0.4.0: MCP and subagents, so hooks never get `agent_id`.
+- Absent in 0.5.0: MCP and subagents, so hooks never get `agent_id`.
 
 ### Flags
 
@@ -317,7 +317,7 @@ Slash commands: a submitted line is a command when it was typed, with no paste i
 
 Reloading files after a compact, unless `compactReloadFiles` is 0 or the `Read` tool is not sent:
 
-- The files: the text after the colon of the summary's last line whose trim starts with `Files to reload:`, then the lines after that line, up to the first blank line or the end, each trimmed, less one leading `- ` or `* ` and surrounding backticks; empty entries left are dropped. When the text after that line's colon is `none` (in any case), no file. When no line starts so, the `file_path` of the history's `Read`, `Edit` and `Write` calls, most recent first. A relative path resolves against the working directory; duplicates are dropped and the first `compactReloadFiles` kept. The summary text stays as the model wrote it, the list included.
+- The files: the text after the colon of the summary's last line whose trim starts with `Files to reload:` once leading `` ` ``, `*`, `#` and spaces are dropped (a `` ` `` or `*` among those is also dropped from both ends of that text), then the lines after that line, up to the first blank line or the end, each trimmed, less one leading `- ` or `* ` and surrounding backticks; empty entries left are dropped. When that text, cleaned, is `none` (in any case), no file. When no line starts so, the `file_path` of the history's `Read`, `Edit` and `Write` calls, most recent first. A relative path resolves against the working directory; duplicates are dropped and the first `compactReloadFiles` kept. The summary text stays as the model wrote it, the list included.
 - Each file, in order, is read with the `Read` tool's defaults (its 32 KiB cap included) after the screen a model `Read` gets: the settings deny rules (the `sandbox` block's included), the ask rules and the mode. Nothing asks: a file a deny rule matches is skipped as `denied`, and one an ask rule matches as `ask` unless the mode is `--yolo`, which never asks. A missing file, a directory or any other `Read` error is skipped with the error text as the reason.
 - The outputs may total 64 KiB (65536 bytes). A file that would pass that is skipped as `budget`; a later, smaller one may still fit. The `SessionStart` context does not count.
 - Each reloaded file's block is `Contents of <absolute path> at compact time (Read tool output):\n\n<output>`. A skipped file's content goes nowhere, and the message does not name the skipped files.

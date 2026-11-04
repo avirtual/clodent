@@ -108,6 +108,25 @@ test('"Files to reload: none", in any case, picks nothing and skips the fallback
   }
 });
 
+test('"`Files to reload: none`", copied with the request\'s backticks, picks nothing and skips the fallback', () => {
+  const history = [{ role: 'assistant', content: [use('Read', { file_path: 'x.js' }, 't1')] }];
+  for (const line of ['`Files to reload: none`', '**Files to reload:** none']) {
+    assert.deepEqual(pick(`S\n${line}`, { history }), [], line);
+  }
+});
+
+test('a heading wrapped in ** or led by # still heads the list below it', () => {
+  assert.deepEqual(pick('S\n**Files to reload:**\nsrc/a.js\nsrc/b.js'), ['/w/src/a.js', '/w/src/b.js']);
+  assert.deepEqual(pick('S\n## Files to reload:\nsrc/a.js'), ['/w/src/a.js']);
+});
+
+test('"none" is matched after the inline text is cleaned', () => {
+  const history = [{ role: 'assistant', content: [use('Read', { file_path: 'x.js' }, 't1')] }];
+  for (const line of ['Files to reload: `none`', 'Files to reload: - none']) {
+    assert.deepEqual(pick(`S\n${line}`, { history }), [], line);
+  }
+});
+
 test('one leading "- " or "* " and surrounding backticks are stripped, and entries left empty are dropped', () => {
   const summary = 'Files to reload:\n- `src/a.js`\n  * src/b.js\n`src/c.js`\n- ``\n-   src/d.js  ';
   assert.deepEqual(pick(summary), ['/w/src/a.js', '/w/src/b.js', '/w/src/c.js', '/w/src/d.js']);
