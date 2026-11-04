@@ -10,6 +10,10 @@ clodent was named clay up to 0.2.0.
 - A `SessionStart` that fires again before the next prompt, such as after two `/compact`s, replaces the held `SessionStart` context instead of adding to it.
 - An unknown `permissionDecision` warns, and denies under `onFailure: "block"`; an `onFailure` other than `"block"` or `"warn"` and a hook event name clodent does not know warn at startup.
 - Security: in `acceptEdits`, a `Write` or `Edit` runs without asking only inside the working directory and the `--add-dir`/`trustedDirectories`/`additionalDirectories` dirs; it asks, or is refused under `-p`, for a path under `.git`, `.clodent` or `.claude` and for a file a hook or statusLine command names (avirtual/clodent #6, #7).
+- Every request attempt that got its `message_start` is charged, also when it fails mid-stream, is re-sent or is interrupted: its `message_start` input and cache tokens and its last `message_delta` output count in the per-turn `[clodent:cost]` line, the session total, `/cost` and `--budget`.
+- `--budget` is also checked before each mid-stream re-send; one it does not cover is not sent, and the turn stops with the `[clodent:budget]` line.
+- A response body that sends no bytes for 300 s fails as a network error `stream idle for 300s`, retried before the first SSE event as other network errors are.
+- SSE parsing runs in linear time on events split over many chunks, and an event whose unterminated text passes 16 MiB fails as a network error `SSE event over 16 MiB`.
 
 ## 0.5.1 — 2026-11-04
 
