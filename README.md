@@ -142,7 +142,7 @@ Exit codes:
 | `ANTHROPIC_BASE_URL` | replaces the API origin: requests go to `<value without trailing slashes>/v1/messages`; must be an `http:` or `https:` URL, else clodent prints `clodent: invalid ANTHROPIC_BASE_URL` and exits 2; an empty value counts as unset |
 | `CLODENT_HOME` | where clodent keeps its data, such as `settings.json` and session transcripts; default `~/.clodent`; an empty value counts as unset |
 
-The settings `env` (see [Settings](#settings)) is laid over the process environment, and that one environment is what clodent reads `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` from and what tools and hooks run in, less `ANTHROPIC_API_KEY` and the settings sandbox `credentials.envVars` names for the Bash tool (see [Permission rules](#permission-rules)). `CLODENT_HOME` alone is read from the process environment, since it locates `settings.json`.
+The settings `env` (see [Settings](#settings)) is laid over the process environment, and that one environment is what clodent reads `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` from and what tools, hooks and the statusLine command run in, less `ANTHROPIC_API_KEY` and the settings sandbox `credentials.envVars` names for the Bash tool, Grep and Glob's git calls, hooks and the statusLine command (see [Permission rules](#permission-rules) and [Hooks](#hooks)). `CLODENT_HOME` alone is read from the process environment, since it locates `settings.json`.
 
 ### Print mode
 
@@ -207,6 +207,7 @@ Output lines. Every `session_id` is the session's id, as on the `[clodent:sessio
 | `{"type":"control_response",…}` | `response`: `subtype` (`success` or `error`), `request_id` (the request's, echoed), `error` (with `error` only) | in reply to each stdin `control_request` |
 | `{"type":"system","subtype":"status",…}` | `status` (`"compacting"`, or `null` with `compact_result` `"success"` or `"failed"`), `session_id`, `uuid` | at the start and the end of a `/compact` |
 | `{"type":"system","subtype":"compact_boundary",…}` | `session_id`, `uuid`, `compact_metadata`: `trigger` (`"manual"`), `pre_tokens`, `post_tokens` (the numbers of the `clodent: conversation compacted (<pre> → <post> tokens)` line) | when a `/compact` succeeds |
+| `{"type":"system","subtype":"hook_context_truncated",…}` | `hook_event` (the event name), `scope` (`"hook"` for one command's context, `"event"` for a firing's joined context), `bytes` (the size before the cut), `limit` (the cap), `session_id`, `uuid` | each hook context cut (see [Hooks](#hooks)), with its warning on stderr; one from a `SessionStart` before the first `init` waits and follows it |
 | `{"type":"conversation_reset",…}` | `new_conversation_id` (the new session id), `trigger` (`"clear"`), `session_id` (the old id), `uuid` | at a `/clear`, before its `init` |
 | `{"type":"result",…}` | below | once per turn, as its last line; once per empty prompt; once per slash command other than `/quit` and `/exit`, as its last line |
 
@@ -438,7 +439,7 @@ clodent has six built-in tools, in this order (the request sends them sorted by 
 
 Grep and Glob list files with `git ls-files --cached --others --exclude-standard` inside a git work tree, so `.gitignore` is respected; elsewhere they walk the directory, skipping `.git` and `node_modules`. A `path` that is itself git-ignored (such as `node_modules/pkg` or `dist`) is walked instead, so its files are listed. Both git calls, `git ls-files` and `git check-ignore`, run with `-c core.fsmonitor=` (empty, which every git with fsmonitor reads as off), so a repository's `.git/config` cannot make them run a program, and in clodent's environment minus `ANTHROPIC_API_KEY` and each deny `credentials.envVars` name, as a Bash command does. A malformed glob is an error, `Invalid glob <glob>: <message>`.
 
-A Bash command's environment is clodent's, with the settings `env` applied, minus `ANTHROPIC_API_KEY` and minus each deny `credentials.envVars` name (see [Permission rules](#permission-rules)); the key is removed from the Bash tool's environment also when it comes from settings `env`, but a command can still read clodent's own startup environment, for example with `ps eww $PPID` on macOS (see the `credentials.envVars` limit in [Permission rules](#permission-rules)). API requests still send the key, and hooks and the statusLine get the full environment.
+A Bash command's environment is clodent's, with the settings `env` applied, minus `ANTHROPIC_API_KEY` and minus each deny `credentials.envVars` name (see [Permission rules](#permission-rules)); the key is removed from the Bash tool's environment also when it comes from settings `env`, but a command can still read clodent's own startup environment, for example with `ps eww $PPID` on macOS (see the `credentials.envVars` limit in [Permission rules](#permission-rules)). API requests still send the key; hooks and the statusLine command run without it and without those names too (see [Hooks](#hooks)).
 
 A Bash call returns once bash has exited and its stdout and stderr are closed. A background process that keeps them open (`server &`) holds the call until the timeout, which then ends it with the timed-out trailer even when bash exited 0. A descendant that has left the process group is not killed; 2 s after the SIGTERM clodent closes its end of the pipes and returns.
 
@@ -539,7 +540,7 @@ Internal; [Stream JSON](#stream-json) writes its lines from them. The agent loop
 | `tool_result` | `id`, `name`, `content`, `isError`, `durationMs` | after each tool call, including refused, unknown and interrupted calls |
 | `turn_end` | `stopReason`, `turn` (the turn's cost aggregate) | last, once per turn |
 | `budget_stop` | `result` (the budget check that failed) | instead of a request the budget does not cover |
-| `warning` | `message` | |
+| `warning` | `message`; `hookContext` (`{event, scope, bytes, limit}`) for a hook context cut | |
 | `error` | `message`, `errorType`, `status` (HTTP status, or null mid-stream) | when the turn ends on an error |
 | `interrupted` | none | when the turn's signal aborts |
 | `compacted` | `trigger`, `summary` (the summary text), `message` (the history's new user message: the summary block, then one block per reloaded file), `reloaded` (`[{path, bytes}]`: each reloaded file's absolute path and the byte length of its `Read` output), `skipped` (`[{path, reason}]`), `preTokens`, `postTokens`, `turn` (the summary request's cost aggregate) | when a compact replaced the history, before the `SessionStart` (`compact`) hook; a compact emits no `turn_end` |
@@ -615,7 +616,7 @@ Sources, in this order:
 1. `<CLODENT_HOME>/settings.json`, where `CLODENT_HOME` defaults to `~/.clodent`. A missing file counts as empty.
 2. Each `--settings <file>`, in argv order; a relative path resolves against the working directory. A missing one is an error: `settings file not found: <path>`.
 
-A file that is not valid JSON, or whose top level is not an object, is an error: `invalid settings file <path>: <reason>`. Any other read failure is `cannot read settings file <path>: <reason>`. A malformed permission rule list, a malformed `sandbox` block under `enabled: true` and a `compactReloadFiles` value that is not an integer from 0 to 20 are errors too, `settings <path>: <message>` (see [Permission rules](#permission-rules)). An error prints `clodent: <error>` and exits 2 before any request.
+A file that is not valid JSON, or whose top level is not an object, is an error: `invalid settings file <path>: <reason>`. Any other read failure is `cannot read settings file <path>: <reason>`. A malformed permission rule list, a malformed `sandbox` block under `enabled: true` a `compactReloadFiles` value that is not an integer from 0 to 20 and a malformed `hookContextMaxBytes` are errors too, `settings <path>: <message>` (see [Permission rules](#permission-rules)). An error prints `clodent: <error>` and exits 2 before any request.
 
 Honored keys and how they merge across sources; later sources win unless the row says otherwise:
 
@@ -629,8 +630,9 @@ Honored keys and how they merge across sources; later sources win unless the row
 | `cacheTtl` | `5m` or `1h`; the last valid one wins; any other value is ignored with a warning. The cache TTL when `--cache-ttl` is absent |
 | `model` | the last one wins, less one trailing bracketed suffix such as `[1m]`. The model when `--model` is absent |
 | `compactReloadFiles` | an integer from 0 to 20, default 5; the last one wins; any other value is an error, `compactReloadFiles <value> is not an integer from 0 to 20`. How many files `/compact` re-reads into the summary message (see [REPL](#repl)); 0 turns the reload off, and so does a bare-name `Read` deny, which removes the `Read` tool |
+| `hookContextMaxBytes` | an object with `perHook` and `perEvent`, each optional, an integer from 1024 to 16777216; defaults `65536` and `262144`. Each key merges on its own: the last source that sets it wins. A value that is not an object is an error, `hookContextMaxBytes <value> is not an object {perHook, perEvent}`; any other key, `hookContextMaxBytes.<key> is not perHook or perEvent`; a bad number, `hookContextMaxBytes.<key> <value> is not an integer from 1024 to 16777216`. The caps on hook context, in UTF-8 bytes (see [Hooks](#hooks)) |
 | `permissions.deny`, `permissions.ask` | rule lists, concatenated in source order; see [Permission rules](#permission-rules). A malformed list or rule is an error |
-| `sandbox` | per source, with `enabled: true`: `filesystem.denyRead`, `filesystem.denyWrite` and `credentials.files` become deny rules and `credentials.envVars` names leave the Bash tool's environment, joined across sources; see [Permission rules](#permission-rules). Without `enabled: true` the block is ignored silently |
+| `sandbox` | per source, with `enabled: true`: `filesystem.denyRead`, `filesystem.denyWrite` and `credentials.files` become deny rules and `credentials.envVars` names leave the environment of the Bash tool, Grep and Glob's git calls, hooks and the statusLine command, joined across sources; see [Permission rules](#permission-rules). Without `enabled: true` the block is ignored silently |
 
 Every other key, such as `voice`, `voiceEnabled`, `skillOverrides`, `permissions.allow` or `permissions.defaultMode`, is ignored silently. A malformed value of an honored key is dropped with a warning `settings <path>: <what was dropped>`, and loading continues. A hook entry whose `type` is not `"command"` is dropped with such a warning.
 
@@ -701,7 +703,7 @@ Sandbox block: clodent does not sandbox Bash. A settings source with `sandbox.en
 
 - Each `filesystem.denyRead` path becomes a `Read(<path>)` rule and each `filesystem.denyWrite` path an `Edit(<path>)` rule. Each `credentials.files` entry `{path, mode: "deny"}` becomes both.
 - A path `/abs` becomes `//abs`, `~` and `~/x` stay home-relative, and any other path is relative to the working directory; `*` and `**` work as above.
-- Each `credentials.envVars` entry `{name, mode: "deny"}` removes that variable from the environment of the Bash tool's commands and of Grep and Glob's git calls only, as clodent always does with `ANTHROPIC_API_KEY` (see [Tools](#tools)). Hooks and the statusLine keep it, and so does clodent's own process. A Bash command that mentions `/proc/<pid>/environ` is denied by a built-in rule (see above), but a command can still read clodent's startup environment in other ways, for example with `ps eww $PPID` on macOS, so a credential that must stay hidden must not be in clodent's environment at all.
+- Each `credentials.envVars` entry `{name, mode: "deny"}` removes that variable from the environment of the Bash tool's commands, of Grep and Glob's git calls, and of hooks and the statusLine command, as clodent always does with `ANTHROPIC_API_KEY` (see [Tools](#tools) and [Hooks](#hooks)). clodent's own process keeps it. A Bash command that mentions `/proc/<pid>/environ` is denied by a built-in rule (see above), but a command can still read clodent's startup environment in other ways, for example with `ps eww $PPID` on macOS, so a credential that must stay hidden must not be in clodent's environment at all.
 - A `credentials` entry whose `mode` is not `"deny"` is ignored with the warning `settings <path>: sandbox: ignored entry <entry as JSON>`.
 - Every other key (`allowWrite`, `network`, `allowUnsandboxedCommands`, `excludedCommands`, …) is ignored. Every source with `enabled: true` prints one warning, `settings <path>: sandbox: clodent does not sandbox Bash; filesystem and credentials entries are enforced as permission rules, other keys ignored`.
 - These rules are path rules: they never remove a tool from the request's `tools` or the system prompt.
@@ -717,7 +719,9 @@ Shape, under `hooks` in settings:
 { "<Event>": [ { "matcher": "<regex>", "hooks": [ { "type": "command", "command": "<cmd>", "timeout": 15, "onFailure": "block" } ] } ] }
 ```
 
-Events: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Notification`, `PreCompact`, `Stop`. Other event names in settings are kept but never fire.
+Events: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Notification`, `PreCompact`, `Stop`. Other event names in settings are kept but never fire. The Claude Code events `SubagentStart`, `SubagentStop`, `SessionEnd` and `PermissionRequest` load silently; any other name adds the startup warning `settings <path>: hooks.<name> is not a known event; it never fires`.
+
+`onFailure` is `"block"` or `"warn"` (the default). Any other value adds the startup warning `settings <path>: hooks.<Event>[<i>].hooks[<j>].onFailure <value as JSON> is not "block" or "warn"; treated as "warn"` and counts as `"warn"`.
 
 When each event fires:
 
@@ -753,10 +757,18 @@ Context, from `additionalContext` or plain stdout (see Results below), reaches t
 </hook-context>
 ```
 
-- `SessionStart` context is held and goes into the next user message, before the prompt text and after the `[clodent: previous turn interrupted by the user]` block when that is present.
+- `SessionStart` context is held and goes into the next user message, before the prompt text and after the `[clodent: previous turn interrupted by the user]` block when that is present. A `SessionStart` that fires again before that prompt, such as after a second `/compact`, replaces the held context.
 - `UserPromptSubmit` context goes right after the prompt text.
 - `PostToolUse` and `PostToolUseFailure` context goes after every `tool_result` block of that tool round's user message, one block per event in that order, since the API needs the `tool_result` blocks first.
 - `PreToolUse`, `PreCompact` and `Stop` context is dropped. No hook can block a prompt or a compact.
+
+Inside each text, every `<hook-context` and `</hook-context`, in any letter case, is written with `&lt;` for its `<`, so a hook cannot close the frame or open another event's.
+
+Context is capped in UTF-8 bytes by the settings `hookContextMaxBytes` (see [Settings](#settings)):
+
+- `perHook` (default 65536): one command's context over it is cut to its first and last bytes around the line `[clodent: hook context of <bytes> bytes truncated to <limit>]`, all of it within the cap; a cut never splits a character.
+- `perEvent` (default 262144): after the per-command cuts, the texts of one firing joined by a blank line, when over it, are cut the same way into one text. `SessionStart` is exempt from `perEvent`, not from `perHook`.
+- Each cut adds a warning, `hook <Event> "<first 60 characters of the command>": context of <bytes> bytes truncated to <limit>` for a command and `hook <Event>: context of <bytes> bytes truncated to <limit>` for a firing; [Stream JSON](#stream-json) also writes it to stdout as a `hook_context_truncated` record.
 
 Hook warnings print as `clodent: <warning>` lines. Hooks get the turn's interrupt: a signal kills running hooks, and a hook that would start after it does not run. `Stop` runs even after an interrupt, under its own abort: a second SIGTERM or SIGHUP kills it (in `-p`, any second signal).
 
@@ -785,7 +797,8 @@ stdin is one JSON object followed by a newline, then closed. Every event sends `
 
 Running:
 
-- Each matched command runs as `bash -c <command>` in the working directory, in its own process group. Its environment is clodent's, then the settings `env` on top, then `CLODENT_PROJECT_DIR` set to the working directory.
+- Each matched command runs as `bash -c <command>` in the working directory, in its own process group. Its environment is clodent's, then the settings `env` on top, less `ANTHROPIC_API_KEY` and each deny `credentials.envVars` name (see [Permission rules](#permission-rules)), also when the settings `env` sets them, then `CLODENT_PROJECT_DIR` set to the working directory.
+- In the context, deny reasons and warnings a firing returns, the value of `ANTHROPIC_API_KEY` and of each deny `credentials.envVars` name, read from that environment before the names are removed, is replaced with `[redacted]` when it is 8 or more characters long.
 - All matched commands of one firing run at the same time. Their results combine in config order (source order, then group order, then entry order), not in the order they finish.
 - A command string matched more than once in one firing runs once, at its first config position, with the longest of the entries' timeouts (an unset `timeout` counts as the default) and with `onFailure: "block"` when any of the entries sets it.
 - `timeout` is in seconds, default 60. On expiry, or when the turn is interrupted, the process group gets SIGTERM, then SIGKILL 2 s later.
@@ -793,17 +806,18 @@ Running:
 
 Results, per command:
 
-- Exit 0 with stdout that is a JSON object: clodent reads `hookSpecificOutput.additionalContext` (a string, added to the model's context) on every event. On `PreToolUse` only it also reads `hookSpecificOutput.permissionDecision` (`allow`, `deny` or `ask`), `hookSpecificOutput.permissionDecisionReason` and `hookSpecificOutput.updatedInput` (an object that replaces the tool input), and a top-level `"decision": "block"`, Claude's older shape, is a deny whatever `permissionDecision` says, with the top-level `reason` as its reason (`blocked by hook` when that is missing or empty), unless `permissionDecision` is already `deny`, which keeps its `permissionDecisionReason` (`blocked by hook` when that is missing or empty); `"decision": "approve"` is ignored.
+- Exit 0 with stdout that is a JSON object: clodent reads `hookSpecificOutput.additionalContext` (a string, added to the model's context) on every event. On `PreToolUse` only it also reads `hookSpecificOutput.permissionDecision` (`allow`, `deny` or `ask`), `hookSpecificOutput.permissionDecisionReason` and `hookSpecificOutput.updatedInput` (an object that replaces the tool input), and a `permissionDecision` of any other value, compared case-sensitively, is ignored with the warning `unknown permissionDecision <value as JSON> ignored`, or is a failure (below) under `"onFailure": "block"`; a top-level `"decision": "block"`, Claude's older shape, is a deny whatever `permissionDecision` says, with the top-level `reason` as its reason (`blocked by hook` when that is missing or empty), unless `permissionDecision` is already `deny`, which keeps its `permissionDecisionReason` (`blocked by hook` when that is missing or empty); `"decision": "approve"` is ignored.
 - Exit 0 with non-empty stdout that is not a JSON object: on `SessionStart` and `UserPromptSubmit` the text, without trailing whitespace, is added as context. On any other event it is ignored with the warning `invalid JSON ignored`; on `PreToolUse` it is also a failure (below).
 - Exit 2: on `PreToolUse` the tool call is denied, with stderr (trimmed) as the reason, or `blocked by hook` when stderr is empty. On any other event it is a warning.
-- Any other exit code, death by a signal, a timeout or a failure to start is a failure; on `PreToolUse`, so is exit 0 with stdout cut at 1 MiB, or non-empty and not a JSON object. On `PreToolUse`, an entry with `"onFailure": "block"` turns a failure into a deny with the reason `hook failed: <exit <n>|timeout|aborted|killed by <signal>|<error message>|stdout over 1 MiB truncated|invalid JSON>`. Otherwise a failure is a warning (for those exit-0 cases, the warnings above) and the turn continues. Only `PreToolUse` can block.
+- Any other exit code, death by a signal, a timeout or a failure to start is a failure; on `PreToolUse`, so is exit 0 with stdout cut at 1 MiB, or non-empty and not a JSON object. On `PreToolUse`, an entry with `"onFailure": "block"` turns a failure into a deny with the reason `hook failed: <exit <n>|timeout|aborted|killed by <signal>|<error message>|stdout over 1 MiB truncated|invalid JSON|unknown permissionDecision <value as JSON>>`. Otherwise a failure is a warning (for those exit-0 cases, the warnings above) and the turn continues. Only `PreToolUse` can block.
 
 Combining: a deny beats an ask, and an ask beats an allow. The reason comes from the first command, in config order, that gave the winning decision; a JSON deny without a reason reads `blocked by hook`. The last `updatedInput` in config order wins. Context strings keep config order, and empty or whitespace-only ones are dropped.
 
 Warnings are one line each:
 
 ```
-hook <Event> "<first 60 characters of the command>": <exit <n>|timeout|aborted|killed by <signal>|<error message>|invalid JSON ignored|stdout over 1 MiB truncated>
+hook <Event> "<first 60 characters of the command>": <exit <n>|timeout|aborted|killed by <signal>|<error message>|invalid JSON ignored|stdout over 1 MiB truncated|unknown permissionDecision <value as JSON> ignored|context of <bytes> bytes truncated to <limit>>
+hook <Event>: context of <bytes> bytes truncated to <limit>
 ```
 
 statusLine: after each API response other than a compact's summary request, and from the REPL or a stream-json slash command after `/clear` and a successful `/compact` (see [REPL](#repl) and [Stream JSON](#stream-json)), clodent runs the `statusLine` command the same way, with a 5 s timeout, and this JSON on stdin:
