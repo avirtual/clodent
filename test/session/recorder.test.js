@@ -51,7 +51,7 @@ test('the recorder maps appends, the interrupt and turn_end to transcript record
           { type: 'tool_result', tool_use_id: 'other', content: 'ok', is_error: false },
         ],
       },
-      toolUseResult: { name: 'Read', isError: true },
+      toolUseResult: { name: 'Read', isError: true, input: {} },
     },
     { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Kept.' }], stop_reason: null } },
     { type: 'user', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] }, isVisibleInTranscriptOnly: true },

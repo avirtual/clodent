@@ -107,17 +107,15 @@ test('NOT_YET names only real flags and never --version or --help', () => {
   assert.equal(NOT_YET.has('help'), false);
 });
 
-test('a flag that is not implemented yet is refused with exit 2, even with -p', async () => {
-  const one = await run(['--settings', 'x.json'], { env: KEY });
-  assert.deepEqual([one.code, one.stdout, one.stderr], [2, '', 'clay: --settings is not implemented yet\n']);
-  const two = await run(['--session-id', '01234567-89ab-cdef-0123-456789abcdef', '-p', 'go', '--settings', 's'], { env: KEY });
-  assert.equal(two.code, 2);
-  assert.equal(two.stderr, 'clay: --settings is not implemented yet\n');
-  assert.equal(two.fetch.calls.length, 0);
+test('a missing --settings file exits 2 with the loader error, before any request', async (t) => {
+  const cwd = await useTempDir(t);
+  const res = await run(['-p', 'go', '--settings', 'missing.json'], { env: KEY, cwd });
+  assert.deepEqual([res.code, res.stdout, res.stderr], [2, '', `clay: settings file not found: ${join(cwd, 'missing.json')}\n`]);
+  assert.equal(res.fetch.calls.length, 0);
 });
 
-test('NOT_YET holds only the settings flag', () => {
-  assert.deepEqual([...NOT_YET].sort(), ['settings']);
+test('NOT_YET is empty: every flag is implemented', () => {
+  assert.deepEqual([...NOT_YET], []);
 });
 
 test('valid arguments with nothing to run return 1 with a message on stderr', async () => {

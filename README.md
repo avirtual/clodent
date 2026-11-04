@@ -51,7 +51,7 @@ Hook events and settings keys are documented here as they land; this section is 
 | `--session-id <uuid>` | works | use this session id instead of minting one; see [Sessions](#sessions) |
 | `--resume <id>` | works | resume the session with this id |
 | `--fork-session` | works | with `--resume`, continue under a new session id in a new transcript |
-| `--settings <file>` | parsed; not yet implemented | merge settings from this JSON file; repeatable |
+| `--settings <file>` | works | merge settings from this JSON file; repeatable; see [Settings](#settings) |
 | `--add-dir <path>` | works | give the agent an additional directory; repeatable |
 | `--system-prompt <text>` | works | replace the base system prompt with this text |
 | `--system-prompt-file <path>` | works | replace the base system prompt with this file |
