@@ -307,7 +307,7 @@ function lex(src) {
     }
   };
   const redirect = (j) => {
-    if (word && /^\{.*\}$/s.test(src.slice(word.start, j))) refuse('variable redirection');
+    if (word && /^\{.*\}$/s.test(src.slice(word.start, j).replace(/\\\n/g, ''))) refuse('variable redirection');
     if (word && DIGITS.test(src.slice(word.start, j))) word = null;
     else end();
     const next = src[j + 1];

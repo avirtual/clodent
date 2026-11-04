@@ -179,6 +179,8 @@ const NOT_READ_ONLY = [
   ['[ -n "$x" ]', '[ argument "$x" is an expansion or glob'],
   ["ls {a['$(touch pwned)']}>/dev/null", 'variable redirection'],
   ['ls {PATH}</dev/null; cat x', 'variable redirection'],
+  ["ls {a['$(touch pwned)']}\\\n>/dev/null", 'variable redirection'],
+  ['echo {PATH}\\\n</dev/null; cat x', 'variable redirection'],
   ['rm -rf x', 'rm is not a read-only command'],
   ['env ls', 'env is not a read-only command'],
   ['bash -c ls', 'bash is not a read-only command'],
