@@ -105,6 +105,66 @@ test('Grep and Glob at a symlink to a directory above a denied path do not list 
   assert.deepEqual(results(res), [`${join(cwd, 'h/notes.txt')}:1:BEGIN note`, join(cwd, 'h/notes.txt')]);
 });
 
+test('Grep and Glob hide files an ask rule matches unless --yolo, and never ask per file', GUARD, async (t) => {
+  const { home, cwd, dir } = await setup(t);
+  await plant(cwd, { 'a.txt': 'needle', 'secret/b.txt': 'needle' });
+  const settings = writeSettings(dir, { permissions: { ask: ['Read(./secret)'] } });
+  const uses = () => toolsReply([['Grep', { pattern: 'needle' }], ['Glob', { pattern: '**/*' }]]);
+  const both = `${join(cwd, 'a.txt')}\n${join(cwd, 'secret/b.txt')}`;
+  for (const [flags, expected] of [[[], join(cwd, 'a.txt')], [['--read-only'], join(cwd, 'a.txt')], [['--yolo'], both]]) {
+    const res = await runMain(['-p', 'go', ...flags, '--settings', settings], { home, cwd, responses: [uses(), textReply('done')] });
+    assert.equal(res.code, 0, res.stderr);
+    const [grep, glob] = results(res);
+    assert.equal(grep, expected, flags.join(' '));
+    assert.deepEqual(glob.split('\n').sort(), expected.split('\n'), flags.join(' '));
+  }
+  const repl = startRepl(['--settings', settings], { home, cwd, replies: [uses(), textReply('done')] });
+  await repl.prompts(1);
+  repl.stdin.type('look\r');
+  await repl.prompts(2);
+  assert.deepEqual(repl.fetch.calls[1].body.messages.at(-1).content.map((block) => block.content), [join(cwd, 'a.txt'), join(cwd, 'a.txt')]);
+  assert.equal(repl.out.text.includes(ASK_LINE), false);
+  repl.stdin.type('\x04');
+  assert.equal(await repl.done, 0);
+});
+
+test('in the REPL, a Grep or Glob whose root an ask rule matches asks once and, allowed, lists the files under it', GUARD, async (t) => {
+  const { home, cwd, dir } = await setup(t);
+  await plant(cwd, { 'secret/b.txt': 'needle' });
+  const settings = writeSettings(dir, { permissions: { ask: ['Read(./secret)'] } });
+  const grep = toolsReply([['Grep', { pattern: 'needle', path: 'secret' }]]);
+  const glob = toolsReply([['Glob', { pattern: '*', path: 'secret' }]]);
+  const repl = startRepl(['--settings', settings], { home, cwd, replies: [grep, textReply('done'), glob, textReply('done')] });
+  for (const [n, call] of [[1, 1], [2, 3]]) {
+    await repl.prompts(n);
+    repl.stdin.type('look\r');
+    await repl.until(ASK_LINE, n);
+    repl.stdin.type('y\r');
+    await repl.prompts(n + 1);
+    assert.equal(repl.fetch.calls[call].body.messages.at(-1).content[0].content, join(cwd, 'secret/b.txt'), `call ${call}`);
+  }
+  repl.stdin.type('\x04');
+  assert.equal(await repl.done, 0);
+});
+
+test('Grep and Glob hide a symlink in the searched tree whose target a Read rule denies', GUARD, async (t) => {
+  const { home, cwd, dir, user } = await setup(t);
+  await plant(user, { '.ssh/id_rsa': 'BEGIN KEY' });
+  await plant(cwd, { 'notes.txt': 'BEGIN note' });
+  symlinkSync(join(user, '.ssh/id_rsa'), join(cwd, 'k'));
+  symlinkSync(join(cwd, 'notes.txt'), join(cwd, 'n'));
+  const settings = writeSettings(dir, { permissions: { deny: ['Read(~/.ssh)'] } });
+  const uses = [
+    ['Grep', { pattern: 'BEGIN', output_mode: 'content' }],
+    ['Glob', { pattern: '*' }],
+  ];
+  const res = await runMain(['-p', 'go', '--settings', settings], { home, cwd, env: { HOME: user }, responses: [toolsReply(uses), textReply('done')] });
+  assert.equal(res.code, 0, res.stderr);
+  const [grep, glob] = results(res);
+  assert.deepEqual(grep.split('\n'), [`${join(cwd, 'n')}:1:BEGIN note`, `${join(cwd, 'notes.txt')}:1:BEGIN note`]);
+  assert.deepEqual(glob.split('\n').sort(), [join(cwd, 'n'), join(cwd, 'notes.txt')]);
+});
+
 test('an ask rule refuses in -p and under --read-only, runs under --yolo, and asks in the REPL; a deny never asks', GUARD, async (t) => {
   const { home, cwd, dir } = await setup(t);
   await plant(cwd, { 'a.txt': 'alpha' });
@@ -141,6 +201,19 @@ test('a bare Bash deny drops Bash from the request tools, so a call takes the un
   assert.equal(res.code, 0, res.stderr);
   assert.deepEqual(res.calls[0].body.tools.map((tool) => tool.name), ['Read', 'Write', 'Edit', 'Grep', 'Glob']);
   assert.deepEqual(results(res), ['unknown tool Bash']);
+});
+
+test('the system prompt names only the tools in the request: a bare Bash or Grep deny drops the name from it', GUARD, async (t) => {
+  const { home, cwd, dir } = await setup(t);
+  for (const removed of ['Bash', 'Grep']) {
+    const settings = writeSettings(dir, { permissions: { deny: [removed] } }, `${removed}.json`);
+    const res = await runMain(['-p', 'go', '--settings', settings], { home, cwd, responses: [textReply('done')] });
+    assert.equal(res.code, 0, res.stderr);
+    const [system] = res.calls[0].body.system;
+    assert.match(system.text, /^- (Reach for the file tools first|Use the file tools): Read to view a file/m, removed);
+    assert.doesNotMatch(system.text, new RegExp(`\\b${removed}\\b`), removed);
+    assert.equal(res.calls[0].body.tools.some((tool) => tool.name === removed), false, removed);
+  }
 });
 
 test('Bash under --yolo: a Read path mention and a Bash(prefix:*) rule deny; an Edit path passes a read-only command only', GUARD, async (t) => {

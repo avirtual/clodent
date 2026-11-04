@@ -68,7 +68,7 @@ test('a specifier may contain spaces', () => {
 });
 
 test('rules for tools clodent does not have are ignored, bare or with a specifier', () => {
-  const list = ['WebFetch', 'NotebookEdit', 'Agent(claude-code-guide)', 'mcp__clodex__dm', 'Skill', 'Agent()', 'read(/x)', 'Read(/x)'];
+  const list = ['WebFetch', 'NotebookEdit', 'Agent(claude-code-guide)', 'mcp__clodex__dm', 'Skill', 'Agent()', 'Reads(/x)', 'Bash_(x)', 'Read(/x)'];
   assert.deepEqual(parseRules(list, 'permissions.deny', WHERE).map((r) => r.text), ['Read(/x)']);
   assert.deepEqual(parseRules(undefined, 'permissions.deny', WHERE), []);
 });
@@ -86,6 +86,11 @@ test('each malformed rule list is an error naming the key, the index and the rul
     [['Read()'], 'permissions.deny[0] "Read()": empty () on Read'],
     [['Bash( )'], 'permissions.deny[0] "Bash( )": empty () on Bash'],
     [['(x)'], 'permissions.deny[0] "(x)": no tool name'],
+    [['Read (x)'], 'permissions.deny[0] "Read (x)": tool name "Read " is not exactly Read'],
+    [['read(x)'], 'permissions.deny[0] "read(x)": tool name "read" is not exactly Read'],
+    [['BASH'], 'permissions.deny[0] "BASH": tool name "BASH" is not exactly Bash'],
+    [['Read(/x)', ' glob '], 'permissions.deny[1] " glob ": tool name "glob" is not exactly Glob'],
+    [['WRITE(./x)'], 'permissions.deny[0] "WRITE(./x)": tool name "WRITE" is not exactly Write'],
   ];
   for (const [list, message] of bad) {
     assert.throws(() => parseRules(list, 'permissions.deny', WHERE), (err) => err instanceof RuleError && err.message === message, message);

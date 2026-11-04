@@ -50,7 +50,7 @@ export function createGlob(deps = {}) {
         if (ctx.signal?.aborted) return fail('Search aborted');
         if (!regex.test(rel)) continue;
         const path = join(root, rel);
-        if (ctx.hidden?.(path)) continue;
+        if (await ctx.hidden?.(path)) continue;
         try {
           const found = await stat(path);
           if (found.isFile()) hits.push({ path, mtime: found.mtimeMs });

@@ -130,13 +130,16 @@ export function createAgent(config, deps) {
   async function execute(tool, use, input, pre, signal) {
     let ruled = null;
     let hidden = null;
+    let approved = null;
     if (guard.active) {
-      ruled = await guard.check(tool.name, input, deps.cwd);
-      hidden = await guard.hidden(tool.name, input, deps.cwd);
+      ({ ruled, hidden, approved } = await guard.screen(tool.name, input, deps.cwd, permission));
       if (signal?.aborted) return { content: INTERRUPTED_RESULT, isError: true, ran: false };
     }
     let verdict = verdictFor(tool, input, pre, ruled);
-    if (verdict.ask && config.ask) verdict = await askUser(tool, use, input, signal);
+    if (verdict.ask && config.ask) {
+      verdict = await askUser(tool, use, input, signal);
+      if (verdict.allow) hidden = approved;
+    }
     emit({
       type: 'permission',
       id: use.id,

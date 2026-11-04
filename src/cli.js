@@ -8,7 +8,7 @@ import { createLedger } from './cost/ledger.js';
 import { createHookFirer } from './hooks/fire.js';
 import { createStatusLine } from './hooks/status-line.js';
 import { flagRules } from './permissions/flag-rules.js';
-import { createGuard } from './permissions/guard.js';
+import { createGuard, sentTools } from './permissions/guard.js';
 import { RuleError, ruleHome } from './permissions/rules.js';
 import { killPendingGroups } from './proc/run.js';
 import { buildSystemPrompt } from './prompt/system.js';
@@ -71,11 +71,12 @@ function statusState(usage = {}, base, ledger) {
   return { ...base, usedTokens: input + (usage.output_tokens ?? 0), totalInputTokens: input, totalCostUsd: ledger.session().usd };
 }
 
-function systemPrompt(opts, model, addDirs, deps) {
+function systemPrompt(opts, model, addDirs, deps, permissions) {
   return buildSystemPrompt(
     {
       cwd: deps.cwd,
       model,
+      tools: sentTools(permissions),
       systemPrompt: opts.systemPrompt,
       systemPromptFile: opts.systemPromptFile,
       addDirs,
@@ -148,7 +149,7 @@ async function prepare(opts, deps) {
   const addDirs = extraDirs(opts, settings, cwd);
   let system;
   try {
-    system = systemPrompt(opts, model, addDirs, deps);
+    system = systemPrompt(opts, model, addDirs, deps, settings.permissions);
   } catch (err) {
     return fail(err.message);
   }
@@ -222,7 +223,7 @@ function createRuntime(prep, opts, deps, render) {
     open,
     model: () => current.model,
     setModel(model) {
-      const system = systemPrompt(opts, model, addDirs, deps);
+      const system = systemPrompt(opts, model, addDirs, deps, settings.permissions);
       Object.assign(current, { model, system });
       return system;
     },
