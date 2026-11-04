@@ -10,9 +10,9 @@ export const FLAGS = [
   { long: 'effort', key: 'effort', arg: 'level', check: checkEffort, help: 'reasoning effort: low, medium or high' },
   { long: 'budget', key: 'budgetUsd', arg: 'usd', check: checkBudget, help: 'stop before the session spends more than this many US dollars' },
   { long: 'yolo', key: 'permission', value: 'yolo', help: 'run every tool without asking' },
-  { long: 'read-only', key: 'permission', value: 'read-only', help: 'refuse write tools and every Bash command' },
+  { long: 'read-only', key: 'permission', value: 'read-only', help: 'refuse write tools and any Bash command that is not read-only' },
   { long: 'session-id', key: 'sessionId', arg: 'uuid', check: checkUuid, help: 'use this session id instead of minting one' },
-  { long: 'resume', key: 'resume', arg: 'id', help: 'resume the session with this id' },
+  { long: 'resume', key: 'resume', arg: 'id', check: checkResume, help: 'resume the session with this id' },
   { long: 'fork-session', key: 'forkSession', value: true, help: 'with --resume, continue under a new session id' },
   { long: 'settings', key: 'settings', arg: 'file', repeat: true, help: 'merge settings from this JSON file (repeatable)' },
   { long: 'add-dir', key: 'addDirs', arg: 'path', repeat: true, help: 'give the agent an additional directory (repeatable)' },
@@ -41,6 +41,10 @@ function checkBudget(raw) {
 function checkUuid(raw) {
   if (UUID.test(raw)) return { value: raw.toLowerCase() };
   return { error: `--session-id must be a UUID (8-4-4-4-12 hex digits), got "${raw}"` };
+}
+
+function checkResume(raw) {
+  return { value: UUID.test(raw) ? raw.toLowerCase() : raw };
 }
 
 function split(arg) {

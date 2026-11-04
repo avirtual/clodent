@@ -160,8 +160,13 @@ test('--session-id with --resume needs --fork-session', () => {
   assert.deepEqual(ok(['--resume', 'x', '--session-id', UUID, '--fork-session']).sessionId, UUID);
 });
 
-test('the --read-only help says every Bash command is refused', () => {
-  assert.equal(FLAGS.find((f) => f.long === 'read-only').help, 'refuse write tools and every Bash command');
+test('the --read-only help says only Bash commands that are not read-only are refused', () => {
+  assert.equal(FLAGS.find((f) => f.long === 'read-only').help, 'refuse write tools and any Bash command that is not read-only');
+});
+
+test('a UUID-shaped --resume is lowercased and any other id is kept as given', () => {
+  assert.equal(ok(['--resume', UUID.toUpperCase()]).resume, UUID);
+  assert.equal(ok(['--resume', 'Not-A-UUID']).resume, 'Not-A-UUID');
 });
 
 test('--system-prompt with --system-prompt-file is an error', () => {
