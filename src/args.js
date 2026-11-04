@@ -1,4 +1,4 @@
-import { EFFORTS } from './api/request.js';
+import { CACHE_TTLS, EFFORTS } from './api/request.js';
 
 export const DEFAULT_MODEL = 'claude-opus-5-5';
 export const PERMISSION_MODE_NAMES = Object.freeze({ default: 'ask', plan: 'read-only', acceptEdits: 'accept-edits', bypassPermissions: 'yolo' });
@@ -11,6 +11,7 @@ export const FLAGS = [
   { long: 'print', short: 'p', key: 'print', arg: 'prompt', allowEmpty: true, help: 'run one prompt without the REPL, print the reply and exit' },
   { long: 'model', key: 'model', arg: 'id', check: checkModel, help: `model id (default ${DEFAULT_MODEL}); a trailing [suffix] such as [1m] is dropped` },
   { long: 'effort', key: 'effort', arg: 'level', check: checkEffort, help: 'reasoning effort: low, medium, high, xhigh or max' },
+  { long: 'cache-ttl', key: 'cacheTtl', arg: 'ttl', check: checkCacheTtl, help: 'prompt-cache lifetime for the system prompt, tools and settled history: 5m (default) or 1h' },
   { long: 'budget', key: 'budgetUsd', arg: 'usd', check: checkBudget, help: 'stop before the session spends more than this many US dollars' },
   { long: 'yolo', key: 'yolo', value: true, mode: 'yolo', help: 'run every tool without asking' },
   { long: 'read-only', key: 'readOnly', value: true, mode: 'read-only', help: 'refuse write tools and any Bash command that is not read-only' },
@@ -56,6 +57,11 @@ function checkPermissionMode(raw) {
 function checkEffort(raw) {
   if (EFFORTS.includes(raw)) return { value: raw };
   return { error: `--effort must be low, medium, high, xhigh or max, got "${raw}"` };
+}
+
+function checkCacheTtl(raw) {
+  if (CACHE_TTLS.includes(raw)) return { value: raw };
+  return { error: `--cache-ttl must be 5m or 1h, got "${raw}"` };
 }
 
 function checkBudget(raw) {
