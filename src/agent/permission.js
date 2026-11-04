@@ -1,26 +1,51 @@
 import { resolve, sep } from 'node:path';
+import { shellWords } from '../permissions/guard.js';
 import { classifyBash } from '../tools/bash-readonly.js';
 
 const ALLOW = Object.freeze({ allow: true });
 export const ASK_DENIAL = 'permission required: run clodent without -p to approve it, or pass --yolo';
 
 const MODES = new Set(['ask', 'read-only', 'accept-edits']);
+const PROTECTED_PARTS = new Set(['.git', '.clodent', '.claude']);
+const LEADING_VAR = /^(?:~(?=\/|$)|\$(HOME|CLODENT_PROJECT_DIR|CLAUDE_PROJECT_DIR)(?![A-Za-z0-9_])|\$\{(HOME|CLODENT_PROJECT_DIR|CLAUDE_PROJECT_DIR)\})/;
 
 export function asksInMode(mode) {
   return mode === 'ask' || mode === 'accept-edits';
 }
 
-function insideGitDir(input, cwd) {
-  const path = input?.file_path;
-  if (typeof path !== 'string') return false;
-  return resolve(cwd ?? sep, path).split(sep).some((part) => part.toLowerCase() === '.git');
+function hookCommands(settings) {
+  const commands = Object.values(settings?.hooks ?? {}).flatMap((groups) => groups.flatMap((group) => group.hooks.map((entry) => entry.command)));
+  return [...commands, settings?.statusLine?.command].filter((command) => typeof command === 'string');
 }
 
-export function decide(tool, input, mode, cwd) {
+export function hookPaths(settings, { cwd, env = {}, home }) {
+  const vars = { ...env, ...settings?.env, CLODENT_PROJECT_DIR: cwd };
+  vars.HOME ||= home;
+  const expand = (word) => {
+    const match = LEADING_VAR.exec(word);
+    return match ? (vars[match[1] ?? match[2] ?? 'HOME'] ?? '') + word.slice(match[0].length) : word;
+  };
+  const words = hookCommands(settings).flatMap((command) => shellWords(command).map(expand));
+  return [...new Set(words.filter((word) => word.includes('/')).map((word) => resolve(cwd, word)))];
+}
+
+const within = (path, dir) => path === dir || path.startsWith(dir.endsWith(sep) ? dir : dir + sep);
+
+function editsFreely(input, cwd, scope) {
+  const file = input?.file_path;
+  if (typeof file !== 'string') return false;
+  const base = cwd ?? sep;
+  const path = resolve(base, file);
+  if (path.split(sep).some((part) => PROTECTED_PARTS.has(part.toLowerCase()))) return false;
+  if ((scope?.protect ?? []).some((hook) => hook.toLowerCase() === path.toLowerCase())) return false;
+  return [base, ...(scope?.dirs ?? [])].some((dir) => within(path, resolve(base, dir)));
+}
+
+export function decide(tool, input, mode, cwd, scope) {
   if (mode === 'yolo') return ALLOW;
   if (!MODES.has(mode)) return { allow: false, reason: `unknown permission mode ${mode}` };
   if (tool.kind === 'read') return ALLOW;
-  if (mode === 'accept-edits' && tool.kind === 'write' && !insideGitDir(input, cwd)) return ALLOW;
+  if (mode === 'accept-edits' && tool.kind === 'write' && editsFreely(input, cwd, scope)) return ALLOW;
   if (tool.name === 'Bash' && classifyBash(input?.command ?? '', cwd).readOnly) return ALLOW;
   if (mode === 'read-only' && tool.name === 'Bash') return { allow: false, reason: `--read-only: Bash command is not read-only (${classifyBash(input?.command ?? '', cwd).reason})` };
   if (mode === 'read-only') return { allow: false, reason: `--read-only: ${tool.name} is not allowed` };

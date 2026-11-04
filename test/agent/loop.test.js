@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { EVENT_TYPES } from '../../src/agent/events.js';
 import { createAgent, INTERRUPT_MARKER, INTERRUPTED_RESULT } from '../../src/agent/loop.js';
-import { ASK_DENIAL } from '../../src/agent/permission.js';
+import { ASK_DENIAL, hookPaths } from '../../src/agent/permission.js';
 import { emptyOutcome } from '../../src/hooks/fire.js';
 import { createLedger } from '../../src/cost/ledger.js';
 import { createTools } from '../../src/tools/index.js';
@@ -15,7 +15,7 @@ import { plant, useTempDir } from '../tools/tmp-dir.js';
 
 const MODEL = 'claude-opus-5-5';
 
-function harness(responses, { tools = [], permission = 'yolo', budgetUsd, cwd = '/work', onEvent, sleep, history, interrupted, hooks, cacheTtl, ask } = {}) {
+function harness(responses, { tools = [], permission = 'yolo', budgetUsd, cwd = '/work', onEvent, sleep, history, interrupted, hooks, cacheTtl, ask, scope } = {}) {
   const events = [];
   const sleeps = [];
   const fetch = createFakeFetch(responses);
@@ -34,6 +34,7 @@ function harness(responses, { tools = [], permission = 'yolo', budgetUsd, cwd = 
       now: () => 0,
       ledger,
       hooks,
+      scope,
       emit: (e) => {
         events.push(e);
         onEvent?.(e);
@@ -222,6 +223,22 @@ test('under accept-edits, a Write whose path resolves inside .git from the sessi
   await h.agent.runTurn('write');
   assert.deepEqual(log, []);
   assert.deepEqual(h.of('permission'), [{ type: 'permission', id: 'toolu_1', name: 'Write', decision: 'deny', reason: ASK_DENIAL }]);
+});
+
+test('under accept-edits, a Write to the script a hook command names asks once', async () => {
+  const log = [];
+  const asked = [];
+  const settings = { hooks: { PreToolUse: [{ matcher: '', hooks: [{ type: 'command', command: 'bash "$CLODENT_PROJECT_DIR/scripts/pre.sh"' }] }] } };
+  const scope = { dirs: [], protect: hookPaths(settings, { cwd: '/work', home: '/home/u' }) };
+  const ask = async (request) => (asked.push(request.id), { allow: false });
+  const h = harness([toolReply([{ name: 'Write', input: { file_path: 'scripts/pre.sh' } }]), textReply('ok')], {
+    tools: [fakeTool('Write', 'write', log)],
+    permission: 'accept-edits',
+    scope,
+    ask,
+  });
+  await h.agent.runTurn('write');
+  assert.deepEqual([asked, log], [['toolu_1'], []]);
 });
 
 test('under yolo, Write creates the file', async (t) => {
