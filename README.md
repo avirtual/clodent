@@ -1,13 +1,25 @@
 # clay
 
-clay is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. This release runs one prompt in print mode (`clay -p`) with the built-in tools, cost accounting, a JSONL session transcript, settings files and hooks; the REPL lands in a later release.
+clay is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.1.0 has an interactive REPL built to be driven through a PTY, a print mode (`clay -p`), six built-in tools, cost accounting, JSONL session transcripts, settings files and hooks.
+
+Non-goals for v0.1: MCP, plugins, skills, subagents, web tools, image input, Windows, telemetry, the stream-json io (v0.2).
 
 ## Install
 
-Requires Node.js 22 or later. clay has no dependencies.
+Requires Node.js 22 or later. clay has no dependencies. From a checkout:
 
 ```sh
 npm link
+clay --version   # clay 0.1.0
+```
+
+## Usage
+
+```sh
+export ANTHROPIC_API_KEY=sk-ant-...
+clay -p "List the files in this directory"   # one prompt, answer on stdout
+clay                                         # the REPL
+clay --resume <session-id>                   # continue a session in the REPL
 ```
 
 ## Development
@@ -36,7 +48,24 @@ An opt-in check against the real Messages API; the suite only runs it without a 
 
 ## Contract
 
-Hook events and settings keys are documented here as they land; this section is the contract a host integrates against.
+This section is the contract a host integrates against. It describes clay 0.1.0.
+
+### Hosting clay
+
+A summary for a host adapter; each point links to the section that pins it down.
+
+- Launch: `clay` without `-p`, in a PTY, in the seat's working directory. Pass `--session-id <uuid>` for a new session, or `--resume <id>`, with `--fork-session` to continue under a new id (the `--session-id` if given). Add `--settings <file>` for the host's hooks and statusLine, one `--add-dir <path>` per extra directory, `--system-prompt-file <path>` and `--append-system-prompt-file <path>` for the prompt, `--model <id>`, `--effort low|medium|high`, and `--yolo` or `--read-only` (default: ask). See [Flags](#flags) and [System prompt](#system-prompt).
+- Env: `ANTHROPIC_API_KEY` (required), `CLAY_HOME` as the per-account config dir (`settings.json` and `projects/`; default `~/.clay`), and optionally `ANTHROPIC_BASE_URL` to send requests to another origin, such as a proxy. See [Environment](#environment).
+- Transcript: `$CLAY_HOME/projects/<slug>/<session-id>.jsonl`, where `<slug>` is the working directory with every `/` and `.` replaced by `-`. `SessionStart` hooks get the path as `transcript_path`. See [Sessions](#sessions).
+- Boot-ready: the first `\x1b[?2004h` on stdout. It follows the `[clay:session] <id>` line and the `SessionStart` hook. A startup error exits 2 before it. See [REPL](#repl).
+- Inject: write `\x1b[200~<text>\x1b[201~`, then `\r`. The paste is one prompt with its newlines kept, and the `\r` submits it. A prompt submitted during a turn is queued. See [REPL](#repl).
+- Idle: a turn the model ended writes an assistant record with `message.stop_reason` `end_turn`. Every turn, including an interrupted or failed one, then writes a `system` record with `subtype: "turn_duration"`, fires `Stop` and shows the next prompt. See [Sessions](#sessions).
+- Context delivery: `hookSpecificOutput.additionalContext` from `SessionStart` (held for the next prompt), `UserPromptSubmit` (after the prompt text), and `PostToolUse` or `PostToolUseFailure` (after the tool results). See [Hooks](#hooks).
+- Permission ask (default mode only): clay prints `[clay:permit <Tool> <tool_use id>] <summary>`, fires `Notification` with `notification_type: "permission"`, `tool` and `id`, then prints `Allow? [y/n] `. Answer by writing `y` or `n`, then `\r`. See [REPL](#repl).
+- `/compact`: fires `PreCompact` (`trigger: "manual"`), replaces the history with a summary under the same session id, writes the `compact_boundary` and `isCompactSummary` records, and fires `SessionStart` with `source: "compact"`. `/clear`: prints a new `[clay:session] <id>`, records into a new transcript, and fires `SessionStart` with `source: "clear"`. Type either as plain text, then `\r`; a pasted `/compact` is a prompt. See [REPL](#repl).
+- statusLine: the settings `statusLine` command gets `context_window.used_tokens`, `context_window.context_window_size`, `context_window.used_percentage`, `model.id` and `cost.total_cost_usd` on stdin after each API response, after `/clear` (zero usage) and after `/compact` (`used_tokens` is the summary's size). See [Hooks](#hooks).
+- Signals: SIGINT acts as Ctrl-C: it interrupts a turn, and a second one at an empty prompt exits 0. SIGTERM exits 143 and SIGHUP 129, after interrupting a running turn, whose `Stop` hook still fires. Ctrl-D, `/quit` and stdin closing exit 0. See [REPL](#repl).
+- Absent in 0.1.0: the stream-json io (`--input-format`/`--output-format stream-json`, planned for v0.2), MCP and subagents, so hooks never get `agent_id`.
 
 ### Flags
 
@@ -64,6 +93,7 @@ Parsing:
 
 - A value is the next argument, or the text after the first `=` (`--model=x`, `-p=x`). When the next argument is itself a clay flag, such as `--yolo` or `-p`, the value counts as missing; the `=` form passes such text.
 - `--settings`, `--add-dir`, `--append-system-prompt` and `--append-system-prompt-file` collect every occurrence in argv order. Any other flag given twice is an error.
+- An empty value (`--model ''` or `--model=`) counts as missing, except for `-p`, `--system-prompt` and `--append-system-prompt`, which take it. An empty `-p` prompt is a startup error (see [Print mode](#print-mode)); an empty `--system-prompt` leaves the base part out, and an empty `--append-system-prompt` adds nothing.
 - These are errors: an unknown flag, a positional argument (clay takes none), a missing value, a value on a flag that takes none, an `--effort` other than `low`, `medium` or `high`, a `--budget` that is not a decimal number greater than 0, a `--session-id` not shaped as 8-4-4-4-12 hex digits, `--yolo` with `--read-only`, `--fork-session` without `--resume`, `--session-id` with `--resume` but without `--fork-session` (`--session-id with --resume requires --fork-session`), and `--system-prompt` with `--system-prompt-file`.
 
 Exit codes:
@@ -91,7 +121,7 @@ stdout gets only the final answer: the text blocks of the turn's last assistant 
 
 - `[clay:session] <session-id>` first, before any other line; see [Sessions](#sessions).
 - `clay: settings <path>: <what was dropped>` for each settings warning, right after it.
-- `● <Tool> <summary>` for each tool call; the summary is the call's main input, such as the path or the command.
+- `● <Tool> <summary>` for each tool call; the summary is the call's main input: `file_path` for Read, Write and Edit, `command` for Bash, `pattern` for Grep and Glob. It is one line, with each line break shown as `⏎`, and is cut to 200 characters ending in `…`. With an empty summary the line is `● <Tool>`.
 - `  ✗ <reason>` when a tool call is refused, and `  ✗ <first line of the result>` when a tool returns an error.
 - `clay: <message>` for warnings and errors, hook warnings included. An API error message is printed verbatim.
 - After the turn: `[clay:cost] warning: no price for model <id>; cost not counted` once per unpriced model, then the per-turn `[clay:cost]` line. A budget stop prints the `[clay:budget]` line first.
@@ -101,10 +131,10 @@ ANSI colour codes are written only to a stream that is a TTY.
 
 Exit codes:
 
-- 0: the model ended its turn (`end_turn` or `stop_sequence`).
+- 0: the model ended its turn (`end_turn` or `stop_sequence`). A `pause_turn` response is sent back for the model to continue, with no new user content.
 - 1: an API error, a budget stop, a refusal, `max_tokens` (warned as `clay: response hit max_tokens`), or any other stop reason (warned as `clay: unexpected stop_reason <reason>`).
 - 2: an argument error; a settings file error, printed as `clay: <message>` (see [Settings](#settings)); an empty prompt (`-p ''` or `-p=`), printed as `clay: -p needs a non-empty prompt`; `ANTHROPIC_API_KEY` unset, printed as `clay: ANTHROPIC_API_KEY is not set`; an invalid `ANTHROPIC_BASE_URL`, printed as `clay: invalid ANTHROPIC_BASE_URL`; an unreadable prompt file, printed as `clay: <message>`; or a session error (see [Sessions](#sessions)). Settings warnings print first, as `clay: <warning>` lines. No request is sent and no `[clay:session]` line is printed.
-- 130: SIGINT; 143: SIGTERM; 129: SIGHUP. clay aborts the request, the running tool or the running hooks, waits for them to return (each process group gets SIGTERM, then SIGKILL 2 s later), prints `clay: interrupted` and the turn's cost line, fires `Stop` (a second signal kills it), prints the session total, waits for the statusLine command, and exits. The transcript ends with the interrupt and `turn_duration` records, so `--resume` continues it.
+- 130: SIGINT; 143: SIGTERM; 129: SIGHUP. clay aborts the request, the running tool or the running hooks, waits for them to return (each process group gets SIGTERM, then SIGKILL 2 s later), prints `clay: interrupted` and the turn's cost line, fires `Stop` (a second signal kills it), prints the session total, waits for the statusLine command, sends any pending SIGKILL (see [Tools](#tools)), and exits. The transcript ends with the interrupt and `turn_duration` records, so `--resume` continues it.
 
 Permissions in `-p` go by the tool's kind (see [Tools](#tools)), and for `Bash` by the command (see [Read-only Bash](#read-only-bash)). A refused call is not run: the model gets the reason as an error tool result, and the turn goes on.
 
@@ -151,7 +181,7 @@ Paste:
 
 Queueing: during a turn, input is parsed but not echoed, and each submitted line is queued. When the turn ends, the queued lines run one at a time in order, each echoed as `> <first line>`, plus ` [+<n> lines]` for the lines after the first, and run like a typed line, slash commands included. An interrupt keeps the queue. Text typed during a turn but not submitted shows at the next prompt.
 
-A prompt runs one turn of the agent loop, as in print mode. The model's text streams as it arrives, and the tool lines, warnings and the per-turn `[clay:cost]` line follow it on stdout.
+A prompt runs one turn of the agent loop, as in print mode. The model's text streams as it arrives, and the tool lines, warnings and the per-turn `[clay:cost]` line follow it on stdout. Thinking is never printed; when stdout is a TTY, each thinking block shows one dim `thinking…` line instead. On a TTY, these lines carry SGR colour codes around their text, closed by `\x1b[0m`: yellow (`\x1b[33m`) for warnings, `clay: interrupted`, `[clay:budget]` and the no-price warning; red (`\x1b[31m`) for errors and `  ✗` lines; dim (`\x1b[2m`) for `thinking…` and the per-turn and session-total `[clay:cost]` lines. The `[clay:session]`, `[clay:permit …]`, `● <Tool>` and slash command lines are never coloured.
 
 Slash commands: a submitted line is a command when it was typed, with no paste in it, and its first word is `/` followed by lowercase letters. Anything else is a prompt, such as `/Users/me/x fix it` or a pasted `/clear`.
 
@@ -160,7 +190,7 @@ Slash commands: a submitted line is a command when it was typed, with no paste i
 | `/help` | one line per command |
 | `/cost` | prints the `[clay:cost] session total …` line |
 | `/model` | prints `clay: model <id>` |
-| `/model <id>` | uses `<id>` for the next requests and rebuilds the system prompt, which names the model; the history is kept. If the rebuild fails, prints `clay: <message>` and keeps the model. Then prints `clay: model <id>` |
+| `/model <id>` | uses `<id>` for the next requests and rebuilds the system prompt, which names the model; the history is kept. If the rebuild fails, prints `clay: <message>` and keeps the model. Then prints `clay: model <id>`. With more than one word after `/model`, prints `clay: /model takes one model id` and changes nothing |
 | `/clear` | starts a new session with a minted id (never the `--session-id`) and an empty history: prints `[clay:session] <new id>`, records into a new transcript and leaves the old one as is, sends a statusLine update with zero usage and the new session id, and fires `SessionStart` with `source` `clear`, whose context goes into the next prompt. The cost, model and effort carry over |
 | `/compact [<instructions>]` | summarises the conversation into one message, under the same session id (see below) |
 | `/quit`, `/exit` | exits, as Ctrl-D does |
@@ -169,10 +199,10 @@ Slash commands: a submitted line is a command when it was typed, with no paste i
 `/compact`: everything after `/compact` on the line, trimmed, is the instructions. ^C interrupts it.
 
 1. With an empty history it prints `clay: nothing to compact` and does nothing else.
-2. It fires the `PreCompact` hook with `trigger: "manual"` and `custom_instructions` (see [Hooks](#hooks)).
+2. When the history ends in an assistant message with `tool_use` blocks and no results, it first closes them the way a turn does: it writes a tool results record giving each the error result `interrupted by user`, and marks the next prompt as following an interrupt. Then it fires the `PreCompact` hook with `trigger: "manual"` and `custom_instructions` (see [Hooks](#hooks)).
 3. It sends one summary request: the model, system prompt and tools of a normal turn, `tool_choice: {type: "none"}`, and the history with one user text block appended that asks for a summary a fresh context can continue from, followed by `\n\nAdditional instructions: <instructions>` when there are any. The budget check applies as before any request. The summary does not stream to the screen.
-4. On a response with `stop_reason: "end_turn"` and non-empty text, the history becomes one user message: `This session continues an earlier conversation that was compacted. Summary of it:\n\n` followed by the summary. clay prints `clay: conversation compacted (<preTokens> → <postTokens> tokens)` and the request's `[clay:cost]` line, sends a statusLine update with `used_tokens` at `<postTokens>`, and fires `SessionStart` with `source` `compact`, whose context goes into the next prompt. `<preTokens>` is the request's input, cache-read and cache-write tokens; `<postTokens>` is its output tokens. The transcript gets the two compact records (see [Sessions](#sessions)).
-5. Otherwise the history and transcript are unchanged and clay prints `clay: compact failed: <reason>`: `budget` (after the `[clay:budget]` line), `interrupted`, `stop_reason <stop_reason>`, `empty summary`, or the API error message. A response's cost still counts in the session total.
+4. On a response with `stop_reason: "end_turn"` and non-empty text, the history becomes one user message: `This session continues an earlier conversation that was compacted. Summary of it:\n\n` followed by the summary. clay prints `clay: conversation compacted (<preTokens> → <postTokens> tokens)`, the `[clay:cost] warning: no price for model <id>; cost not counted` line if this model has not been warned about yet, and the request's `[clay:cost]` line, sends a statusLine update with `used_tokens` at `<postTokens>`, and fires `SessionStart` with `source` `compact`, whose context goes into the next prompt. `<preTokens>` is the request's input, cache-read and cache-write tokens; `<postTokens>` is its output tokens. The transcript gets the two compact records (see [Sessions](#sessions)).
+5. Otherwise the history and transcript are unchanged apart from that closing of step 2, and clay prints `clay: compact failed: <reason>`: `budget` (after the `[clay:budget]` line), `interrupted`, `stop_reason <stop_reason>`, `empty summary`, or the API error message. A response's cost still counts in the session total.
 
 A compact is not a turn: it fires no `Stop` hook and writes no `turn_duration` record. Print mode has no compact.
 
@@ -183,7 +213,7 @@ Permission ask: in the default mode, a write or exec tool call that no hook allo
 3. It writes `Allow? [y/n] ` and reads one line. `y` or `yes`, trimmed and in any case, runs the call. `n` or `no` refuses it with the reason `denied by the user`. An empty line asks again. Any other line, and any line with a paste in it, is not an answer: it is queued as a prompt, and clay prints `clay: queued as a prompt; answer y or n` and asks again.
 4. Ctrl-C interrupts the turn, and the call does not run. stdin closing refuses the call with the reason `denied: input closed`.
 
-Exit, on every path: clay prints the session total line, waits for the statusLine command, writes `\x1b[?2004l`, turns raw mode off and stops reading stdin. An unexpected error skips the session total and the wait, but still restores the terminal. Exit codes:
+Exit, on every path: clay prints the session total line, waits for the statusLine command, writes `\x1b[?2004l`, turns raw mode off, stops reading stdin and sends any pending SIGKILL (see [Tools](#tools)). An unexpected error skips the session total and the wait, but still restores the terminal and sends the pending SIGKILLs. Exit codes:
 
 - 0: Ctrl-D or a second Ctrl-C at an empty prompt, `/quit`, `/exit`, or stdin closing, once the running turn and the queue are done. A stdin read error counts as stdin closing; one other than `EIO` first prints `clay: <message>`.
 - 143 on SIGTERM, 129 on SIGHUP: clay interrupts the running turn, then exits. A second SIGTERM or SIGHUP kills a running `Stop` hook.
@@ -207,6 +237,7 @@ AGENTS.md discovery:
 
 - The git root is the nearest directory, from the working directory upwards, that has a `.git` entry, either a directory or a file (a git worktree has a `.git` file).
 - clay reads `AGENTS.md` in every directory from the git root down to the working directory, so the most specific file comes last. Outside a git repository only the working directory's `AGENTS.md` is read.
+- A file that is empty or holds only whitespace, a directory named `AGENTS.md` and an unreadable file are skipped, with no heading.
 - Each file is capped at 32 KiB, and all of them together at 96 KiB, counted in bytes. The total is spent from the working directory upwards, so the files nearest the git root are cut first. A cut file ends with the line `[clay: AGENTS.md truncated]`.
 
 ### API wire
@@ -218,7 +249,7 @@ clay sends every request as `POST https://api.anthropic.com/v1/messages`, or `PO
 - `content-type: application/json`
 - `user-agent: clay/<version>`
 
-No `anthropic-beta` header is sent. The body always has `stream: true`, `thinking: {"type": "adaptive"}` and `max_tokens` 32000 unless overridden; `output_config: {"effort": "low"|"medium"|"high"}` is present only when an effort is set. It carries exactly three `cache_control: {"type": "ephemeral"}` breakpoints: the system block, the last tool definition, and the last content block of the last message, skipping back over trailing `thinking` and `redacted_thinking` blocks. With no tools the tool breakpoint is absent and `tools` is omitted.
+No `anthropic-beta` header is sent. The body always has `stream: true`, `thinking: {"type": "adaptive"}` and `max_tokens: 32000`; `output_config: {"effort": "low"|"medium"|"high"}` is present only when an effort is set. It carries exactly three `cache_control: {"type": "ephemeral"}` breakpoints: the system block, the last tool definition, and the last content block of the last message, skipping back over trailing `thinking` and `redacted_thinking` blocks. With no tools the tool breakpoint is absent and `tools` is omitted.
 
 Requests that fail before the first SSE event with status 429, 500, 502, 503, 504 or 529, or with a network error, are tried at most 4 times. The waits are 1 s, 2 s and 4 s, each with ±20% jitter, and a `retry-after` header in seconds replaces the wait, capped at 60 s. Any other status is not retried. An `error` event once the stream has started discards the partial response; when its type is `overloaded_error` or `api_error`, clay re-sends the same request at most 2 more times, after 2 s and then 4 s, each announced by a `clay: <message>; retrying in <n> s` warning. Any other `error` event is not retried. The API's error message is surfaced verbatim.
 
@@ -275,6 +306,8 @@ Grep and Glob list files with `git ls-files --cached --others --exclude-standard
 
 A Bash call returns once bash has exited and its stdout and stderr are closed. A background process that keeps them open (`server &`) holds the call until the timeout, which then ends it with the timed-out trailer even when bash exited 0. A descendant that has left the process group is not killed; 2 s after the SIGTERM clay closes its end of the pipes and returns.
 
+When clay exits, in either mode and on every exit path after startup, every process group of a tool, hook or statusLine command that got SIGTERM and is still waiting for its SIGKILL gets the SIGKILL at once, so a process that ignores SIGTERM does not outlive clay.
+
 Every tool result is capped at 32768 bytes (UTF-8). A longer result keeps its first 16384 and last 16384 bytes, cut back to whole characters, joined by:
 
 ```
@@ -310,7 +343,7 @@ These make the command not read-only wherever they appear outside single quotes,
 - a leading `NAME=value` assignment;
 - a word in braces right before `<` or `>`, such as `{fd}>/dev/null` (bash assigns the fd to that variable);
 - an unterminated quote or a trailing backslash;
-- a line continuation (a backslash right before a newline);
+- a line continuation;
 - a control character: U+0000–U+001F other than tab and newline, and U+007F–U+009F.
 
 Per-command rules. Any match makes the command not read-only. For every command in this table, so does an argument holding an expansion (`$NAME`), a glob (`*`, `?`, `[…]`) or a brace expansion (`{a,b}`, `{1..3}`), since its value cannot be checked. A long option `--name` in these rules also matches its abbreviations (`--outp`), its extensions (`--output-x`) and any of them with `=value`, unless the rule says exactly.
@@ -331,7 +364,7 @@ Per-command rules. Any match makes the command not read-only. For every command 
 
 `sed`: every option comes before the first operand and is `-n`, `-E`, `-r`, `-s`, `-u` or `-z` (clustered or not), `-e <script>`, `--regexp-extended`, `--separate`, `--null-data`, `--unbuffered`, `--debug` or `--sandbox`. An option holding `i` or `I` (`-i`, `-I`, `--in-place`) is not read-only. The script, each `-e` value or else the first operand, is commands separated by `;`. Each command is an optional address (`N`, `$`, `/re/`, or two of them joined by `,`) and then `p`, `d`, `=`, `q`, or `s/re/replacement/` with flags only from `g`, `p`, `I`, `i` and digits. A regex may not hold an unescaped `[`, because GNU and BSD sed disagree on where a bracket expression ends. Any other script, with `w`, `r` or `e` among them, is not read-only.
 
-`git`: optional `-C <dir>`, `--no-pager` and `--git-dir=<dir>`, then a subcommand. Any other global option, `-c` included, is not read-only.
+`git`: optional `-C <dir>` and `--no-pager`, then a subcommand. Any other global option, `-c` and `--git-dir` included, is not read-only.
 
 - `status` `log` `diff` `show` `rev-parse` `ls-files` `ls-tree` `blame` `grep` `describe` `shortlog` `cat-file` `merge-base` `rev-list` take any arguments.
 - `branch`, `tag` and `remote` take only these flags and no operand: `branch` `-a` `-r` `-v` `-vv` `--list` `--show-current` `--contains` `--merged` `--no-merged`; `tag` `-l` `--list`; `remote` `-v`.
@@ -363,7 +396,7 @@ Internal; serialized by a later stream-json mode. The agent loop reports everyth
 | `compacted` | `trigger`, `summary` (the summary text), `preTokens`, `postTokens`, `turn` (the summary request's cost aggregate) | when a compact replaced the history, before the `SessionStart` (`compact`) hook; a compact emits no `turn_end` |
 | `session_end` | `session` (the session's cost aggregate) | once, on exit |
 
-`stopReason` is the API's `stop_reason` (`end_turn`, `stop_sequence`, `max_tokens`, `refusal`, or another value), or one of `budget`, `interrupted`, `error` and `unknown` (the response carried no `stop_reason`).
+`stopReason` is the API's `stop_reason` (`end_turn`, `stop_sequence`, `max_tokens`, `refusal`, or another value other than `pause_turn`, which the loop re-sends), or one of `budget`, `interrupted`, `error` and `unknown` (the response carried no `stop_reason`).
 
 When a response that does not stop for `tool_use` still holds `tool_use` blocks, none of them runs: each gets a `tool_use` event and an error result `interrupted by user`, so the next request stays valid. A turn that starts on a history ending in an assistant message with `tool_use` blocks (a resumed session that was killed while a tool ran) does the same for those blocks before it adds the prompt.
 
@@ -388,7 +421,7 @@ Loading a transcript:
 
 - User and assistant records that carry neither `isMeta: true` nor `isVisibleInTranscriptOnly: true` are replayed in file order into the history, consecutive records of one role joining one message, exactly as the live history merged them. Other record types and records with either flag are skipped, apart from the compact records below.
 - A last line without its `\n` is a write cut short by a crash. clay prints `clay: <path>: ignoring a truncated last line` right after the `[clay:session]` line; when resuming in place, it cuts the file back to its last complete line before appending.
-- Any other line that is not a JSON object, or a user or assistant record without a `message.content` array, prints `clay: <path>: line <n> is not valid JSON`, `… is not a record` or `… has no message content` and exits 2.
+- Any other line that is not a JSON object, or a user or assistant record that would be replayed but has no `message.content` array, prints `clay: <path>: line <n> is not valid JSON`, `… is not a record` or `… has no message content` and exits 2.
 - A `system` record with `subtype: "compact_boundary"` empties the history built so far, and a user record with `isCompactSummary: true` is replayed even though it is `isVisibleInTranscriptOnly`. `--resume` and `--fork-session` of a compacted session therefore start from the summary; `--fork-session` still copies every record.
 - When the last user record is the interrupt record, the next prompt goes to the API prefixed with the text block `[clay: previous turn interrupted by the user]`, as it would have in the interrupted run.
 - When the history ends in an assistant record with `tool_use` blocks and no results (clay was killed while a tool ran), the next turn first writes a tool results record giving each of them the error result `interrupted by user`, then the prompt, prefixed with that same text block.
@@ -424,7 +457,7 @@ A turn the model ended has `stop_reason: "end_turn"` on its last assistant recor
 
 ### Settings
 
-`-p` loads settings before anything else runs. The file shape follows the settings files Clodex writes for Claude Code, so those load unchanged.
+clay loads settings before anything else runs, in `-p` and the REPL alike. The file shape follows the settings files Clodex writes for Claude Code, so those load unchanged.
 
 Sources, in this order:
 
@@ -535,7 +568,7 @@ Results, per command:
 - Exit 2: on `PreToolUse` the tool call is denied, with stderr (trimmed) as the reason, or `blocked by hook` when stderr is empty. On any other event it is a warning.
 - Any other exit code, death by a signal, a timeout or a failure to start is a failure. On `PreToolUse`, an entry with `"onFailure": "block"` turns it into a deny with the reason `hook failed: <exit <n>|timeout|aborted|killed by <signal>|<error message>>`. Otherwise it is a warning and the turn continues. Only `PreToolUse` can block.
 
-Combining: a deny beats an ask, and an ask beats an allow. The reason comes from the first command, in config order, that gave the winning decision; a JSON deny without a reason reads `blocked by hook`. The last `updatedInput` in config order wins. Context strings keep config order, and empty ones are dropped.
+Combining: a deny beats an ask, and an ask beats an allow. The reason comes from the first command, in config order, that gave the winning decision; a JSON deny without a reason reads `blocked by hook`. The last `updatedInput` in config order wins. Context strings keep config order, and empty or whitespace-only ones are dropped.
 
 Warnings are one line each:
 
