@@ -27,7 +27,7 @@ function resultBlock({ id, content, isError }) {
 }
 
 export function createAgent(config, deps) {
-  const { effort, permission, baseUrl } = config;
+  const { effort, permission, baseUrl, sessionId } = config;
   let { model, system } = config;
   const tools = config.tools ?? [];
   const { emit, ledger, now } = deps;
@@ -79,7 +79,7 @@ export function createAgent(config, deps) {
   }
 
   async function request(signal, partial, { messages = history, toolChoice, quiet = false } = {}) {
-    const req = buildRequest({ model, system, tools: definitions, messages, effort, baseUrl, toolChoice }, { env: deps.env });
+    const req = buildRequest({ model, system, tools: definitions, messages, effort, baseUrl, toolChoice, sessionId }, { env: deps.env });
     const streamDeps = { fetch: deps.fetch, sleep: deps.sleep, random: deps.random, now, signal };
     const stream = quiet ? () => {} : emit;
     const handlers = {
