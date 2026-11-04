@@ -91,9 +91,11 @@ test('a glob that visits over 10000 entries is uncertain and asks where it could
 
 test('$PWD, $USER, $LOGNAME and $TMPDIR expand; $OLDPWD and any other variable is uncertain; a quoted $ is literal', async () => {
   const guard = guardOf();
-  for (const command of ['cat $PWD/../h/.ssh/id_rsa', 'cat ${PWD}/../h/.ssh/id_rsa', 'cat /$USER/.ssh/id_rsa', 'cat /${LOGNAME}/.ssh/id_rsa', 'cat $TMPDIR/../h/.ssh/id_rsa', 'cat "$PWD"/../h/.ssh/id_rsa']) {
-    assert.equal(await ruling(guard, command), SSH, command);
+  for (const command of ['cat $PWD/../.ssh/id_rsa', 'cat ${PWD}/../.ssh/id_rsa', 'cat "$PWD"/../.ssh/id_rsa', 'cat "${PWD}"/../.ssh/id_rsa']) {
+    assert.equal(await ruling(guard, command, '/h/notes'), SSH, command);
   }
+  for (const command of ['cat /$USER/.ssh/id_rsa', 'cat /${LOGNAME}/.ssh/id_rsa']) assert.equal(await ruling(guard, command), SSH, command);
+  assert.equal(await ruling(guardOf({ env: { ...ENV, TMPDIR: '/h/notes' } }), 'cat $TMPDIR/../.ssh/id_rsa'), SSH);
   assert.equal(await ruling(guard, 'cat $OLDPWD/id_rsa'), 'ask Read(~/.ssh)');
   assert.equal(await ruling(guard, 'cat ~-/id_rsa'), 'ask Read(~/.ssh)');
   assert.equal(await ruling(guard, 'cat ~/$X'), 'ask Read(~/.ssh)');
@@ -116,6 +118,7 @@ test('cd and pushd change the directory later relative words resolve against, ke
   assert.equal(await ruling(guard, 'pushd ~; cat .ssh/id_rsa'), SSH);
   assert.equal(await ruling(guard, 'cd /nowhere; cat .ssh/id_rsa', HOME), SSH);
   assert.equal(await ruling(guard, 'cd $PWD/.. && cat h/.ssh/id_rsa'), SSH);
+  assert.equal(await ruling(guard, 'echo "$(cd ~; cat .ssh/id_rsa)"'), SSH);
   assert.equal(await ruling(guard, 'cd - && cat id_rsa'), 'ask Read(~/.ssh)');
   assert.equal(await ruling(guard, 'cd src && cat a.js'), null);
   assert.equal(await ruling(guard, 'cd .ssh && cat id_rsa', '/work'), null);
@@ -208,4 +211,28 @@ test('any other variable, and a relative word after cd $X, is weakly uncertain: 
   assert.equal(await ruling(guard, 'echo $PATH', '/work', 'yolo'), null);
   assert.equal(await ruling(guard, 'X=~/.ssh; cat $X/id_rsa', '/work', 'yolo'), SSH);
   assert.equal(await ruling(guard, 'cat "$OLDPWD$X"/id_rsa', '/work', 'yolo'), SSH);
+});
+
+test('an uncertain directory from cd - holds only for the commands after it, or for every word of a loop; a certain one holds for every word', async () => {
+  const guard = guardOf();
+  for (const command of ['cd src && make; cd -', 'cd -', 'cat id_rsa; cd -', 'grep -r foo src; cd -']) {
+    assert.equal(await ruling(guard, command, '/work', 'yolo'), null, command);
+  }
+  assert.equal(await ruling(guard, 'cd - && cat id_rsa', '/work', 'yolo'), SSH);
+  assert.equal(await ruling(guard, 'cd -; grep -r foo src', '/work', 'yolo'), SSH);
+  assert.equal(await ruling(guard, 'cd $X; cd -; cat a.txt', '/work', 'yolo'), SSH);
+  for (const command of ['for i in 1 2; do cat id_rsa; cd -; done', 'while true; do cat id_rsa; cd -; done', 'until false; do cat id_rsa; cd -; done']) {
+    assert.equal(await ruling(guard, command, '/work', 'yolo'), SSH, command);
+  }
+  assert.equal(await ruling(guard, 'cat .ssh/id_rsa; cd ~'), SSH);
+});
+
+test('${NAME<op>…} takes its name from the leading identifier, and the word after :-, := or :+ is also a candidate', async () => {
+  const guard = guardOf();
+  for (const command of ['cat ${OLDPWD%/}/id_rsa', 'cat ${OLDPWD:-x}/id_rsa']) assert.equal(await ruling(guard, command, '/work', 'yolo'), SSH, command);
+  for (const command of ['cat ${X:-~/.ssh}/id_rsa', 'cat ${X:=~/.ssh}/id_rsa', 'cat ${X:+~/.ssh}/id_rsa', 'cat ${X-~/.ssh}/id_rsa']) {
+    assert.equal(await ruling(guard, command), SSH, command);
+    assert.equal(await ruling(guard, command, '/work', 'yolo'), SSH, command);
+  }
+  assert.equal(await ruling(guard, 'cat ${HOME%/}/notes/a.txt', '/work', 'yolo'), 'ask Read(~/.ssh)');
 });
