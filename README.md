@@ -47,7 +47,7 @@ Hook events and settings keys are documented here as they land; this section is 
 | `--effort <level>` | works | `low`, `medium` or `high`; default the settings `effortLevel`, else none |
 | `--budget <usd>` | works | stop before the session spends more than this many US dollars |
 | `--yolo` | works | run every tool without asking |
-| `--read-only` | works | refuse write tools and every Bash command |
+| `--read-only` | works | refuse write tools and any Bash command that is not read-only (see [Read-only Bash](#read-only-bash)) |
 | `--session-id <uuid>` | works | use this session id instead of minting one; see [Sessions](#sessions) |
 | `--resume <id>` | works | resume the session with this id |
 | `--fork-session` | works | with `--resume`, continue under a new session id in a new transcript |
@@ -106,13 +106,13 @@ Exit codes:
 - 2: an argument error; a settings file error, printed as `clay: <message>` (see [Settings](#settings)); an empty prompt (`-p ''` or `-p=`), printed as `clay: -p needs a non-empty prompt`; `ANTHROPIC_API_KEY` unset, printed as `clay: ANTHROPIC_API_KEY is not set`; an invalid `ANTHROPIC_BASE_URL`, printed as `clay: invalid ANTHROPIC_BASE_URL`; an unreadable prompt file, printed as `clay: <message>`; or a session error (see [Sessions](#sessions)). No request is sent and no `[clay:session]` line is printed.
 - 130: SIGINT; 143: SIGTERM; 129: SIGHUP. clay aborts the request, the running tool or the running hooks, waits for them to return (each process group gets SIGTERM, then SIGKILL 2 s later), prints `clay: interrupted` and the turn's cost line, fires `Stop`, prints the session total, waits for the statusLine command, and exits. The transcript ends with the interrupt and `turn_duration` records, so `--resume` continues it.
 
-Permissions in `-p` go by the tool's kind (see [Tools](#tools)). A refused call is not run: the model gets the reason as an error tool result, and the turn goes on.
+Permissions in `-p` go by the tool's kind (see [Tools](#tools)), and for `Bash` by the command (see [Read-only Bash](#read-only-bash)). A refused call is not run: the model gets the reason as an error tool result, and the turn goes on.
 
 | mode | read | write | exec (`Bash`) |
 |---|---|---|---|
-| default | runs | refused: `permission required: rerun with --yolo (interactive approval lands in the REPL)` | refused, same reason |
+| default | runs | refused: `permission required: rerun with --yolo (interactive approval lands in the REPL)` | a read-only command runs; any other is refused, same reason |
 | `--yolo` | runs | runs | runs |
-| `--read-only` | runs | refused: `--read-only: <Tool> is not allowed` | refused: `--read-only: Bash is not allowed` |
+| `--read-only` | runs | refused: `--read-only: <Tool> is not allowed` | a read-only command runs; any other is refused: `--read-only: Bash command is not read-only (<reason>)` |
 
 A `PreToolUse` hook can refuse any call or let a call run in the default mode; see [Hooks](#hooks) for the order.
 
@@ -208,6 +208,58 @@ Every tool result is capped at 32768 bytes (UTF-8). A longer result keeps its fi
 ```
 
 where `<n>` is the exact number of bytes removed.
+
+### Read-only Bash
+
+Under the default mode and `--read-only`, a `Bash` call whose command is read-only runs without asking. Any other command gets the default mode's refusal, or under `--read-only`:
+
+```
+--read-only: Bash command is not read-only (<reason>)
+```
+
+`<reason>` names the first offending part, such as `rm is not a read-only command`, `output redirection`, `command substitution`, `find -delete` or `git -c`.
+
+clay splits the command into simple commands on `|`, `||`, `&&`, `;` and newlines, honouring single quotes, double quotes, backslash escapes, line continuations and `#` comments. The command is read-only when every simple command is. Blank lines, a trailing `;` and a newline right after `|`, `||` or `&&` are fine; any other empty command (`;;`, a leading `|`, a trailing `&&`, an empty or comment-only string), and a simple command made only of redirections, is not read-only.
+
+Each simple command must start with one of these names, with no `/` and no expansion, glob or brace expansion in it (quoting it is fine):
+
+`cat` `head` `tail` `wc` `ls` `pwd` `echo` `printf` `true` `false` `grep` `egrep` `fgrep` `rg` `file` `stat` `du` `df` `which` `type` `whoami` `id` `uname` `date` `basename` `dirname` `realpath` `readlink` `sort` `uniq` `cut` `tr` `diff` `cmp` `comm` `tree` `jq` `od` `hexdump` `xxd` `strings` `column` `nl` `fold` `paste` `seq` `test` `[` `cd` `sha256sum` `sha1sum` `shasum` `md5` `md5sum` `cksum` `find` `sed` `git`
+
+Arguments may use `$NAME`, `${NAME}`, `$1` and the other special parameters. `<file` is allowed. Output redirection (`>`, `>>`, `>|`, `&>`, `&>>`, `n>`, `n>>`, `>&file`) is allowed only to `/dev/null`, written out, or as an fd duplication (`2>&1`, `>&2`, `n>&m`); anything else is `output redirection`.
+
+These make the command not read-only wherever they appear outside single quotes, double quotes included:
+
+- `$(…)`, `$((…))`, a backtick (escaped or not), `<(…)`, `>(…)`;
+- `${…}` other than `${NAME}`, `$[…]`, and the `$'…'` and `$"…"` quotings;
+- a lone `&`; `(` or `)`; `{` or `}` as a word;
+- `<<`, `<<<`, `<>` and `<&`;
+- a leading `NAME=value` assignment;
+- an unterminated quote or a trailing backslash;
+- a control character: U+0000–U+001F other than tab and newline, and U+007F–U+009F.
+
+Per-command rules. Any match makes the command not read-only. For every command in this table, so does an argument holding an expansion (`$NAME`), a glob (`*`, `?`, `[…]`) or a brace expansion (`{a,b}`, `{1..3}`), since its value cannot be checked. A long option `--name` in these rules also matches its abbreviations (`--outp`), its extensions (`--output-x`) and any of them with `=value`, unless the rule says exactly.
+
+| command | not read-only when an argument is |
+|---|---|
+| `find` | `-exec`, `-execdir`, `-ok`, `-okdir`, `-delete`, `-fprint`, `-fprint0`, `-fprintf` or `-fls` |
+| `sort` | a short option cluster holding `o`, `--output` or `--compress-program` |
+| `tree` | a short option cluster holding `o` or `R` |
+| `rg` | `--pre` or `--hostname-bin`, exactly or with `=value` |
+| `date` | a short option cluster holding `s`, `--set`, or digits with an optional `.` and more digits (a time to set) |
+| `file` | a short option cluster holding `C`, or `--compile` |
+| `uniq`, `xxd` | a second operand (an output file); `-`, every argument after `--` and every argument after the first operand count as operands |
+| `sed` | see below |
+| `git` | see below |
+
+`sed`: every option comes before the first operand and is `-n`, `-E`, `-r`, `-s`, `-u` or `-z` (clustered or not), `-e <script>`, `--regexp-extended`, `--separate`, `--null-data`, `--unbuffered`, `--debug` or `--sandbox`. An option holding `i` or `I` (`-i`, `-I`, `--in-place`) is not read-only. The script, each `-e` value or else the first operand, is commands separated by `;`. Each command is an optional address (`N`, `$`, `/re/`, or two of them joined by `,`) and then `p`, `d`, `=`, `q`, or `s/re/replacement/` with flags only from `g`, `p`, `I`, `i` and digits. A regex may not hold an unescaped `[`, because GNU and BSD sed disagree on where a bracket expression ends. Any other script, with `w`, `r` or `e` among them, is not read-only.
+
+`git`: optional `-C <dir>`, `--no-pager` and `--git-dir=<dir>`, then a subcommand. Any other global option, `-c` included, is not read-only.
+
+- `status` `log` `diff` `show` `rev-parse` `ls-files` `ls-tree` `blame` `grep` `describe` `shortlog` `cat-file` `merge-base` `rev-list` take any arguments.
+- `branch`, `tag` and `remote` take only these flags and no operand: `branch` `-a` `-r` `-v` `-vv` `--list` `--show-current` `--contains` `--merged` `--no-merged`; `tag` `-l` `--list`; `remote` `-v`.
+- `config` needs `--get`, `--get-all`, `--list` or `-l`, and takes no other option.
+- Under every subcommand, an argument matching `--output` or `--ext-diff` is not read-only. Under `grep`, so is a short option cluster holding `O`, and `--open-files-in-pager`.
+- Any other subcommand is not read-only.
 
 ### Events
 
@@ -340,7 +392,7 @@ When each event fires in `-p`:
 The permission decision for a tool call goes in this order:
 
 1. A hook `deny` wins: the call does not run and the model gets the hook's reason as an error tool result.
-2. `--read-only` refuses write and exec tools; a hook `allow` does not override it.
+2. `--read-only` refuses write tools and any Bash command that is not read-only; a hook `allow` does not override it.
 3. A hook `allow` runs the call without the default mode's refusal.
 4. A hook `ask`, or no decision, leaves it to the mode (see [Print mode](#print-mode)).
 
@@ -388,7 +440,7 @@ Running:
 
 - Each matched command runs as `bash -c <command>` in the working directory, in its own process group. Its environment is clay's, then the settings `env` on top, then `CLAY_PROJECT_DIR` set to the working directory.
 - All matched commands of one firing run at the same time. Their results combine in config order (source order, then group order, then entry order), not in the order they finish.
-- A command string matched more than once in one firing runs once, at its first config position, with that entry's `timeout` and `onFailure`.
+- A command string matched more than once in one firing runs once, at its first config position, with the longest of the entries' timeouts (an unset `timeout` counts as the default) and with `onFailure: "block"` when any of the entries sets it.
 - `timeout` is in seconds, default 60. On expiry, or when the turn is interrupted, the process group gets SIGTERM, then SIGKILL 2 s later.
 - stdout is read up to 1 MiB and stderr up to 64 KiB; the rest is discarded. Cut stdout adds the warning `stdout over 1 MiB truncated`.
 
