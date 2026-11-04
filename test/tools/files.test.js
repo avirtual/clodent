@@ -15,7 +15,7 @@ test('Grep and Glob list a work tree whose .git/config sets core.fsmonitor to a 
   const marker = join(dir, 'marker');
   const hook = join(dir, 'fsmonitor.sh');
   await writeFile(hook, `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
-  await plant(repo, { 'a.txt': 'needle\n', 'b.txt': 'hay\n' });
+  await plant(repo, { 'a.txt': 'needle\n', 'b.txt': 'hay\n', '.gitignore': 'skip.txt\n', 'skip.txt': 'needle\n' });
   gitInit(repo);
   gitAdd(repo, 'a.txt');
   execFileSync('git', ['config', 'core.fsmonitor', hook], { cwd: repo, env: cleanEnv(), stdio: 'ignore' });
@@ -29,7 +29,7 @@ test('Grep and Glob list a work tree whose .git/config sets core.fsmonitor to a 
   assert.equal(existsSync(marker), true);
 });
 
-test('the git calls run with core.fsmonitor=false, without ANTHROPIC_API_KEY and the credentials.envVars names in their env', async (t) => {
+test('the git calls run with an empty core.fsmonitor, without ANTHROPIC_API_KEY and the credentials.envVars names in their env', async (t) => {
   const dir = await useTempDir(t);
   await plant(dir, { 'a.txt': 'x\n' });
   const calls = [];
@@ -45,10 +45,10 @@ test('the git calls run with core.fsmonitor=false, without ANTHROPIC_API_KEY and
   assert.deepEqual(
     calls.map(({ file, args }) => [file, ...args.slice(0, 3)]),
     [
-      ['git', '-c', 'core.fsmonitor=false', 'check-ignore'],
-      ['git', '-c', 'core.fsmonitor=false', 'ls-files'],
-      ['git', '-c', 'core.fsmonitor=false', 'check-ignore'],
-      ['git', '-c', 'core.fsmonitor=false', 'ls-files'],
+      ['git', '-c', 'core.fsmonitor=', 'check-ignore'],
+      ['git', '-c', 'core.fsmonitor=', 'ls-files'],
+      ['git', '-c', 'core.fsmonitor=', 'check-ignore'],
+      ['git', '-c', 'core.fsmonitor=', 'ls-files'],
     ],
   );
   for (const { env } of calls) {

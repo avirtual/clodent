@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { toolEnv } from './env.js';
 
 const SKIP_DIRS = new Set(['.git', 'node_modules']);
-const GIT_SAFE = ['-c', 'core.fsmonitor=false'];
-const GIT_ARGS = [...GIT_SAFE, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'];
+const NO_FSMONITOR = ['-c', 'core.fsmonitor='];
+const GIT_ARGS = [...NO_FSMONITOR, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'];
 
 function gitFiles(root, { env, signal, execFile }) {
   return new Promise((done) => {
@@ -18,7 +18,7 @@ function gitFiles(root, { env, signal, execFile }) {
 
 function gitIgnored(root, { env, signal, execFile }) {
   return new Promise((done) => {
-    execFile('git', [...GIT_SAFE, 'check-ignore', '-q', '.'], { cwd: root, env, signal }, (err) => done(!err));
+    execFile('git', [...NO_FSMONITOR, 'check-ignore', '-q', '.'], { cwd: root, env, signal }, (err) => done(!err));
   });
 }
 
