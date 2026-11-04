@@ -4,6 +4,10 @@ clodent was named clay up to 0.2.0.
 
 ## Unreleased
 
+- Security: read-only Bash no longer reads the environment or `/proc`. A variable outside `HOME`, `PWD`, `OLDPWD`, `USER`, `LOGNAME`, `SHELL`, `PATH` and `TMPDIR` (such as `$ANTHROPIC_API_KEY` or `$PPID`), any special parameter (`$1`, `$$`…), `jq` with `env`, `$ENV`, a module or a program file, a word that may reach `/proc` (globs, `..`, `cd /` and `/dev/fd/..` included), and a recursive `grep`, `rg` or `diff -r` that may start at `/` now ask, or are refused under `-p` and `--read-only`.
+- Security: `git status`, `diff`, `log`, `show`, `blame`, `grep`, `ls-files`, `cat-file`, `shortlog`, `rev-list` and `describe --dirty`/`--broken` are no longer read-only, since a repository or user config can make them run a program.
+- Security: in `acceptEdits`, a `Write` or `Edit` inside a `.git` directory asks, or is refused under `-p`, instead of running.
+
 ## 0.5.0 — 2026-11-04
 
 - `/compact` re-reads the files the summary names under `Files to reload:`, on that line or the lines after it (or else the last files read, edited or written), into the summary message, through the permission screen and within 64 KiB; a Markdown-wrapped heading and a backticked `none` are understood; the settings key `compactReloadFiles` (0–20, default 5) sets how many, and 0 or a bare `Read` deny turns it off.
