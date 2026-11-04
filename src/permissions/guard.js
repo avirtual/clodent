@@ -39,6 +39,11 @@ async function realpathDeep(path, realpath) {
   }
 }
 
+function pastContinuations(text, at) {
+  while (text[at] === '\\' && text[at + 1] === '\n') at += 2;
+  return at;
+}
+
 export function simpleCommands(text) {
   const out = [];
   let current = '';
@@ -49,15 +54,17 @@ export function simpleCommands(text) {
   };
   for (let i = 0; i < text.length; i += 1) {
     const c = text[i];
+    const j = pastContinuations(text, i + 1);
     if (quote) {
       current += c;
       if (c === '\\' && quote !== "'" && i + 1 < text.length) current += text[++i];
       else if (c === quote.at(-1)) quote = null;
-    } else if ((c === '\\' && i + 1 < text.length) || (c === '$' && text[i + 1] === '$')) {
+    } else if (c === '\\' && i + 1 < text.length) {
       current += c + text[++i];
-    } else if (c === '$' && text[i + 1] === "'") {
-      quote = "$'";
-      current += c + text[++i];
+    } else if (c === '$' && (text[j] === '$' || text[j] === "'")) {
+      if (text[j] === "'") quote = "$'";
+      current += text.slice(i, j + 1);
+      i = j;
     } else if (c === "'" || c === '"') {
       quote = c;
       current += c;
@@ -104,6 +111,7 @@ export function shellWords(text) {
   };
   for (let i = 0; i < text.length; i += 1) {
     const c = text[i];
+    const j = pastContinuations(text, i + 1);
     if (quote === "'") {
       if (c === "'") quote = null;
       else add(c);
@@ -114,24 +122,24 @@ export function shellWords(text) {
     } else if (c === '`' && frames.at(-1)?.close === '`') {
       end();
       quote = frames.pop().quote;
-    } else if (c === '`' || (c === '$' && text[i + 1] === '(')) {
+    } else if (c === '`' || (c === '$' && text[j] === '(')) {
       end();
       frames.push({ close: c === '`' ? '`' : ')', quote });
       quote = null;
-      if (c === '$') i += 1;
+      if (c === '$') i = j;
     } else if (quote === '"') {
       if (c === '"') quote = null;
       else add(c);
-    } else if (c === '$' && text[i + 1] === '$') {
+    } else if (c === '$' && text[j] === '$') {
       add('$$');
-      i += 1;
-    } else if (c === '$' && text[i + 1] === "'") {
-      const [chars, close] = ansiQuoted(text, i + 2);
+      i = j;
+    } else if (c === '$' && text[j] === "'") {
+      const [chars, close] = ansiQuoted(text, j + 1);
       add(chars);
       i = close;
-    } else if (c === '$' && text[i + 1] === '"') {
+    } else if (c === '$' && text[j] === '"') {
       quote = '"';
-      i += 1;
+      i = j;
     } else if (c === "'" || c === '"') {
       quote = c;
     } else if (c === ')' && frames.at(-1)?.close === ')') {

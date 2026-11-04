@@ -334,6 +334,19 @@ test(`simpleCommands reads $'…' as bash does, a backslash escaping the next ch
   assert.equal(await bash(guardOf({ deny: ['Bash(rm:*)'] }), "echo $$'\\'; rm x"), 'deny Bash(rm:*)');
 });
 
+test(`simpleCommands skips a line continuation after an unquoted $ as bash does, so $\\⏎$'…' and $\\⏎'…' hide no command from a Bash rule`, async () => {
+  assert.deepEqual(simpleCommands("echo $\\\n$'\\'; rm x"), ["echo $\\\n$'\\'", 'rm x']);
+  assert.equal(await bash(guardOf({ deny: ['Bash(rm:*)'] }), "echo $\\\n$'\\'; rm x"), 'deny Bash(rm:*)');
+  assert.deepEqual(simpleCommands("echo $\\\n'\\''; rm x"), ["echo $\\\n'\\''", 'rm x']);
+  assert.equal(await bash(guardOf({ deny: ['Bash(rm:*)'] }), "echo $\\\n'\\''; rm x"), 'deny Bash(rm:*)');
+});
+
+test(`shellWords skips a line continuation after $ as bash does before $, ', " and (`, () => {
+  assert.deepEqual(shellWords("a $\\\n$'b\\' c"), ['a', '$$b\\', 'c']);
+  assert.deepEqual(shellWords("a $\\\n'b\\tc' $\\\n\"d e\""), ['a', 'b\tc', 'd e']);
+  assert.deepEqual(shellWords('echo "$\\\n(cat b)"'), ['echo', 'cat', 'b']);
+});
+
 test('shellWords dequotes words and splits at blanks, operators, redirections and substitutions', () => {
   assert.deepEqual(shellWords(`a "b c" 'd e' f\\ g "x\\y\\$z" '' h;i&&j|k<l>>m`), ['a', 'b c', 'd e', 'f g', 'x\\y$z', 'h', 'i', 'j', 'k', 'l', 'm']);
   assert.deepEqual(shellWords('echo "a $(cat "b c") d" `e f` (g) $((1+2))'), ['echo', 'a ', 'cat', 'b c', ' d', 'e', 'f', 'g', '1+2']);
