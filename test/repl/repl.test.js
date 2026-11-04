@@ -351,10 +351,10 @@ test('permission ask: [clay:permit] line and Notification hook; y allows, n deni
   assertCleanExit(repl, await exitWith(repl, '\x04'));
 });
 
-test('permission ask: a y typed while the Notification hook still runs answers the ask and never reaches the model', GUARD, async (t) => {
+test('permission ask: a y typed while the Notification hook still runs answers the ask and never reaches the model, and the Write waits for the hook to finish', GUARD, async (t) => {
   const { home, cwd, dir } = await dirs(t);
   const release = join(dir, 'release');
-  const hook = await script(dir, 'notify.sh', `cat > /dev/null; for i in $(seq 500); do [ -e ${JSON.stringify(release)} ] && { [ -e a.txt ] || touch hook-saw-no-write; exit 0; }; sleep 0.01; done`);
+  const hook = await script(dir, 'notify.sh', `cat > /dev/null; for i in $(seq 500); do [ -e ${JSON.stringify(release)} ] && { sleep 0.2; [ -e a.txt ] || touch hook-saw-no-write; exit 0; }; sleep 0.01; done`);
   const settings = writeSettings(dir, { hooks: { Notification: [hookGroup('', hook)] } });
   const replies = [toolsReply([['Write', { file_path: 'a.txt', content: 'a' }]]), textReply('done')];
   const repl = startRepl(['--settings', settings], { home, cwd, replies });

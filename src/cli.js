@@ -7,6 +7,8 @@ import { DEFAULT_MODEL, FLAGS, givenFlags, parseArgs } from './args.js';
 import { createLedger } from './cost/ledger.js';
 import { createHookFirer } from './hooks/fire.js';
 import { createStatusLine } from './hooks/status-line.js';
+import { createGuard } from './permissions/guard.js';
+import { ruleHome } from './permissions/rules.js';
 import { killPendingGroups } from './proc/run.js';
 import { buildSystemPrompt } from './prompt/system.js';
 import { createRenderer } from './render/terminal.js';
@@ -105,7 +107,12 @@ async function prepare(opts, deps) {
   const { stderr, cwd } = deps;
   let loaded;
   try {
-    loaded = await loadSettings({ clayHome: home(deps), files: opts.settings.map((file) => resolve(cwd, file)) });
+    loaded = await loadSettings({
+      clayHome: home(deps),
+      files: opts.settings.map((file) => resolve(cwd, file)),
+      cwd,
+      home: ruleHome(deps.env, () => deps.homedir ?? homedir()),
+    });
   } catch (err) {
     stderr.write(`clay: ${err.message}\n`);
     return { code: 2 };
@@ -149,7 +156,8 @@ function createRuntime(prep, opts, deps, render) {
     { settings, env, cwd, version: version() },
     { ...procDeps, warn: (message) => render({ type: 'warning', message }) },
   );
-  const tools = createTools(procDeps);
+  const guard = createGuard(settings.permissions);
+  const tools = createTools(procDeps).filter((tool) => !guard.removes(tool.name));
   const current = { model: prep.model, system: prep.system };
   const statusOf = (session, usage) =>
     statusState(usage, { modelId: current.model, sessionId: session.sessionId, transcriptPath: session.transcriptPath }, ledger);
@@ -181,6 +189,7 @@ function createRuntime(prep, opts, deps, render) {
         now: deps.now,
         ledger,
         hooks,
+        guard,
         emit: (event) => {
           record(event);
           render(event);

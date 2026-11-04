@@ -2,9 +2,10 @@ import { ApiError } from '../api/errors.js';
 import { buildRequest } from '../api/request.js';
 import { streamMessage } from '../api/stream.js';
 import { emptyOutcome, hookContextBlock, NO_HOOKS } from '../hooks/fire.js';
+import { denialReason, OPEN_GUARD } from '../permissions/guard.js';
 import { COMPACT_TOOL_CHOICE, compactMessages, compactTokens, NOTHING_TO_COMPACT, summaryMessage, summaryOf } from './compact.js';
 import { appendMessage } from './history.js';
-import { decide } from './permission.js';
+import { ASK_DENIAL, decide } from './permission.js';
 
 export const INTERRUPT_MARKER = '[clay: previous turn interrupted by the user]';
 export const INTERRUPTED_RESULT = 'interrupted by user';
@@ -31,6 +32,7 @@ export function createAgent(config, deps) {
   const tools = config.tools ?? [];
   const { emit, ledger, now } = deps;
   const hooks = deps.hooks ?? NO_HOOKS;
+  const guard = deps.guard ?? OPEN_GUARD;
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
   const definitions = tools.map(definition);
   const history = structuredClone(config.history ?? []);
@@ -102,8 +104,10 @@ export function createAgent(config, deps) {
     }
   }
 
-  function verdictFor(tool, input, pre) {
+  function verdictFor(tool, input, pre, ruled) {
     if (pre.decision === 'deny') return { allow: false, reason: pre.reason };
+    if (ruled?.decision === 'deny') return { allow: false, reason: denialReason(ruled.rule) };
+    if (ruled?.decision === 'ask' && permission !== 'yolo') return { allow: false, ask: permission === 'ask', reason: ASK_DENIAL };
     if (pre.decision === 'allow' && permission === 'ask') return ALLOWED;
     return decide(tool, input, permission);
   }
@@ -118,7 +122,14 @@ export function createAgent(config, deps) {
   }
 
   async function execute(tool, use, input, pre, signal) {
-    let verdict = verdictFor(tool, input, pre);
+    let ruled = null;
+    let hidden = null;
+    if (guard.active) {
+      ruled = await guard.check(tool.name, input, deps.cwd);
+      hidden = await guard.hidden(tool.name, input, deps.cwd);
+      if (signal?.aborted) return { content: INTERRUPTED_RESULT, isError: true, ran: false };
+    }
+    let verdict = verdictFor(tool, input, pre, ruled);
     if (verdict.ask && config.ask) verdict = await askUser(tool, use, input, signal);
     emit({
       type: 'permission',
@@ -129,7 +140,7 @@ export function createAgent(config, deps) {
     });
     if (!verdict.allow) return { content: verdict.reason, isError: true, ran: false };
     try {
-      const outcome = await tool.run(input, { cwd: deps.cwd, env: deps.env, signal });
+      const outcome = await tool.run(input, { cwd: deps.cwd, env: deps.env, signal, hidden });
       return { content: outcome.content, isError: outcome.isError, ran: true };
     } catch (err) {
       return { content: `${use.name} failed: ${err?.message ?? err}`, isError: true, ran: true };

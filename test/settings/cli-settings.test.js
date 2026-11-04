@@ -8,7 +8,7 @@ import { script } from '../hooks/scripts.js';
 import { useTempDir } from '../tools/tmp-dir.js';
 
 const GUARD = { timeout: 10000 };
-const HEADERS = { 'x-api-key': 'sk-test', 'anthropic-version': API_VERSION, 'content-type': 'application/json', 'user-agent': 'clay/0.1.0' };
+const HEADERS = { 'x-api-key': 'sk-test', 'anthropic-version': API_VERSION, 'content-type': 'application/json', 'user-agent': 'clay/0.2.0' };
 
 async function setup(t) {
   return { home: await useTempDir(t), cwd: await useTempDir(t), dir: await useTempDir(t) };

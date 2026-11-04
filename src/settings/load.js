@@ -1,7 +1,9 @@
 import { readFile as fsReadFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { parseRules, RuleError, ruleHome } from '../permissions/rules.js';
 
 const EFFORTS = new Set(['low', 'medium', 'high']);
+export const SANDBOX_REFUSAL = 'sandbox.enabled is not supported: clay does not sandbox Bash; remove the sandbox block';
 
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -114,6 +116,14 @@ function mergeDirs(acc, dirs, name, warn) {
   });
 }
 
+function mergeGuard(acc, source, where) {
+  if (isObject(source.sandbox) && source.sandbox.enabled === true) throw new RuleError(SANDBOX_REFUSAL);
+  if (source.permissions === undefined) return;
+  if (!isObject(source.permissions)) throw new RuleError('permissions is not an object');
+  acc.deny.push(...parseRules(source.permissions.deny, 'permissions.deny', where));
+  acc.ask.push(...parseRules(source.permissions.ask, 'permissions.ask', where));
+}
+
 function mergeSource(acc, source, warn) {
   if (source.hooks !== undefined) mergeHooks(acc, source.hooks, warn);
   if (source.statusLine !== undefined) {
@@ -126,10 +136,7 @@ function mergeSource(acc, source, warn) {
   }
   if (source.env !== undefined) mergeEnv(acc, source.env, warn);
   mergeDirs(acc, source.trustedDirectories, 'trustedDirectories', warn);
-  if (source.permissions !== undefined) {
-    if (isObject(source.permissions)) mergeDirs(acc, source.permissions.additionalDirectories, 'permissions.additionalDirectories', warn);
-    else warn('permissions is not an object; ignored');
-  }
+  if (source.permissions !== undefined) mergeDirs(acc, source.permissions.additionalDirectories, 'permissions.additionalDirectories', warn);
   if (source.effortLevel !== undefined) {
     if (EFFORTS.has(source.effortLevel)) acc.effortLevel = source.effortLevel;
     else warn(`effortLevel ${JSON.stringify(source.effortLevel)} is not low, medium or high; ignored`);
@@ -140,16 +147,23 @@ function mergeSource(acc, source, warn) {
   }
 }
 
-export async function loadSettings({ clayHome, files = [] } = {}, deps = {}) {
+export async function loadSettings({ clayHome, files = [], cwd = process.cwd(), home = ruleHome(process.env) } = {}, deps = {}) {
   const readFile = deps.readFile ?? fsReadFile;
   const sources = [];
   if (clayHome) sources.push({ path: join(clayHome, 'settings.json'), optional: true });
   for (const path of files) sources.push({ path, optional: false });
-  const acc = { hooks: new Map(), statusLine: null, env: new Map(), extraDirs: new Set(), effortLevel: null, model: null };
+  const acc = { hooks: new Map(), statusLine: null, env: new Map(), extraDirs: new Set(), effortLevel: null, model: null, deny: [], ask: [] };
   const warnings = [];
   for (const { path, optional } of sources) {
     const source = await readSource(path, optional, readFile);
-    if (source) mergeSource(acc, source, (message) => warnings.push(`settings ${path}: ${message}`));
+    if (!source) continue;
+    try {
+      mergeGuard(acc, source, { file: path, cwd, home });
+    } catch (err) {
+      if (err instanceof RuleError) throw new Error(`settings ${path}: ${err.message}`);
+      throw err;
+    }
+    mergeSource(acc, source, (message) => warnings.push(`settings ${path}: ${message}`));
   }
   const settings = {
     hooks: Object.fromEntries(acc.hooks),
@@ -159,5 +173,6 @@ export async function loadSettings({ clayHome, files = [] } = {}, deps = {}) {
   };
   if (acc.effortLevel) settings.effortLevel = acc.effortLevel;
   if (acc.model) settings.model = acc.model;
+  if (acc.deny.length > 0 || acc.ask.length > 0) settings.permissions = { deny: acc.deny, ask: acc.ask };
   return { settings, warnings };
 }
