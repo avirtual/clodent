@@ -32,11 +32,11 @@ export function createAgent(config, deps) {
   const { effort, permission, baseUrl, sessionId, cacheTtl } = config;
   let { model, system } = config;
   const tools = config.tools ?? [];
-  const reloadCount = config.compactReloadFiles ?? 0;
   const { emit, ledger, now } = deps;
   const hooks = deps.hooks ?? NO_HOOKS;
   const guard = deps.guard ?? OPEN_GUARD;
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
+  const reloadCount = byName.has('Read') ? (config.compactReloadFiles ?? 0) : 0;
   const definitions = tools.map(definition);
   const history = structuredClone(config.history ?? []);
   let interruptedBefore = config.interrupted ?? false;

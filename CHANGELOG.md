@@ -4,7 +4,7 @@ clodent was named clay up to 0.2.0.
 
 ## Unreleased
 
-- `/compact` re-reads the files the summary names under `Files to reload:` (or else the last files read, edited or written) into the summary message, through the permission screen and within 64 KiB; the settings key `compactReloadFiles` (0–20, default 5) sets how many, and 0 turns it off.
+- `/compact` re-reads the files the summary names under `Files to reload:`, on that line or the lines after it (or else the last files read, edited or written), into the summary message, through the permission screen and within 64 KiB; the settings key `compactReloadFiles` (0–20, default 5) sets how many, and 0 or a bare `Read` deny turns it off.
 
 ## 0.4.0 — 2026-11-04
 
