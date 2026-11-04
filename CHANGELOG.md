@@ -22,6 +22,8 @@ clodent was named clay up to 0.2.0.
 - `--budget` is also checked before each mid-stream re-send; one it does not cover is not sent, and the turn stops with the `[clodent:budget]` line.
 - A response body that sends no bytes for 300 s fails as a network error `stream idle for 300s`, retried before the first SSE event as other network errors are.
 - SSE parsing runs in linear time on events split over many chunks, and an event whose unterminated text passes 16 MiB fails as a network error `SSE event over 16 MiB`.
+- Security: the `Bash` guard skips a `#` comment, so a quote inside one no longer hides the next line from `Bash` and path rules, and splits a `$(…)` or backtick inside double quotes into its commands, so `echo "$(rm x)"` meets `Bash(rm:*)`.
+- Security: a `Bash` command is also read conservatively, ignoring quotes, comments and grouping; a rule that matches only that reading asks, and a deny rule denies under `--yolo` with `, which may apply to a command that could not be parsed with certainty` after its reason, so `git commit -m "x; rm y"` now asks under a `Bash(rm:*)` deny.
 - Security: a `Bash` command no longer reaches a `Read`-denied path, the built-in settings-file deny included, through a glob or brace (matched on disk through the directory listing), `$PWD`, `$USER`, `$LOGNAME`, `$TMPDIR`, `$SHELL` or `$PATH`, or a relative path after `cd`/`pushd`; a word the guard cannot resolve and a recursive `grep`/`rg`/`diff -r` from a directory above a rule ask, and under `--yolo` a deny rule denies them unless the doubt is only another variable (avirtual/clodent #8).
 
 ## 0.5.1 — 2026-11-04
