@@ -12,11 +12,15 @@ const UNKNOWN = '\u0000';
 const BRACED_NAME = /^\{[A-Za-z_][A-Za-z0-9_]*\}/;
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*\+?=/;
 const DIGITS = /^\d+$/;
+const SAFE_VARIABLES = new Set(['HOME', 'PWD', 'OLDPWD', 'USER', 'LOGNAME', 'SHELL', 'PATH', 'TMPDIR']);
+const WILD = /[\u0000{},]/;
+const JQ_UNSAFE = /\b(?:env|ENV|import|include)\b/;
+const GREPS = new Set(['grep', 'egrep', 'fgrep']);
 
 const FIND_ACTIONS = new Set(['-exec', '-execdir', '-ok', '-okdir', '-delete', '-fprint', '-fprint0', '-fprintf', '-fls']);
 const SED_SHORT = new Set(['n', 'E', 'r', 's', 'u', 'z']);
 const SED_LONG = new Set(['--regexp-extended', '--separate', '--null-data', '--unbuffered', '--debug', '--sandbox']);
-const GIT_FREE = new Set(['status', 'log', 'diff', 'show', 'rev-parse', 'ls-files', 'ls-tree', 'blame', 'grep', 'describe', 'shortlog', 'cat-file', 'merge-base', 'rev-list']);
+const GIT_FREE = new Set(['rev-parse', 'ls-tree', 'describe', 'merge-base']);
 const GIT_FLAGS_ONLY = {
   branch: new Set(['-a', '-r', '-v', '-vv', '--list', '--show-current', '--contains', '--merged', '--no-merged']),
   tag: new Set(['-l', '--list']),
@@ -185,7 +189,8 @@ function gitRule(args) {
   const unsafe = firstMatch(`git ${sub}`, rest, (arg) =>
     longMatches(arg, 'output') ||
     longMatches(arg, 'ext-diff') ||
-    (sub === 'grep' && (shortHas(arg, 'O') || longMatches(arg, 'open-files-in-pager'))),
+    (sub === 'grep' && (shortHas(arg, 'O') || longMatches(arg, 'open-files-in-pager'))) ||
+    (sub === 'describe' && (longMatches(arg, 'dirty') || longMatches(arg, 'broken'))),
   );
   if (unsafe) return unsafe;
   if (GIT_FREE.has(sub)) return null;
@@ -207,6 +212,7 @@ const RULES = {
   date: (args) => firstMatch('date', args, (arg) => shortHas(arg, 's') || longMatches(arg, 'set') || /^\d+(\.\d+)?$/.test(arg)),
   file: (args) => firstMatch('file', args, (arg) => shortHas(arg, 'C') || longMatches(arg, 'compile')),
   printf: (args) => firstMatch('printf', args, (arg) => arg.startsWith('-v')),
+  jq: (args) => firstMatch('jq', args, (arg) => JQ_UNSAFE.test(arg) || shortHas(arg, 'fL') || longMatches(arg, 'from-file') || longMatches(arg, 'library-path')),
   test: noVariableTest('test'),
   '[': noVariableTest('['),
   uniq: oneOperand('uniq'),
@@ -242,6 +248,10 @@ function lex(src) {
     word.value += UNKNOWN;
     return next;
   };
+  const variable = (name, next) => {
+    if (!SAFE_VARIABLES.has(name)) refuse(`$${name} expansion`);
+    return expansion(next);
+  };
   const dollar = (j, quoted) => {
     const next = src[j + 1];
     if (next === '(') refuse('command substitution');
@@ -249,15 +259,15 @@ function lex(src) {
     if (next === '{') {
       const match = BRACED_NAME.exec(src.slice(j + 1));
       if (!match) refuse('parameter expansion');
-      return expansion(j + 1 + match[0].length);
+      return variable(match[0].slice(1, -1), j + 1 + match[0].length);
     }
     if (!quoted && (next === "'" || next === '"')) refuse(`$${next} quoting`);
     if (/[A-Za-z_]/.test(next ?? '')) {
       let k = j + 2;
       while (/[A-Za-z0-9_]/.test(src[k] ?? '')) k++;
-      return expansion(k);
+      return variable(src.slice(j + 1, k), k);
     }
-    if (/[0-9@*#?$!-]/.test(next ?? '')) return expansion(j + 2);
+    if (/[0-9@*#?$!-]/.test(next ?? '')) refuse(`$${next} expansion`);
     word.value += '$';
     return j + 1;
   };
@@ -368,6 +378,93 @@ function lex(src) {
   return tokens;
 }
 
+function globRegExp(segment) {
+  let source = '';
+  for (let k = 0; k < segment.length; k++) {
+    const c = segment[k];
+    if (c === '*' || c === UNKNOWN) source += '.*';
+    else if (c === '?') source += '.';
+    else if (c === '[') {
+      const close = segment.indexOf(']', k + (segment[k + 1] === '!' || segment[k + 1] === '^' ? 3 : 2));
+      if (close === -1) source += '\\[';
+      else {
+        source += '.';
+        k = close;
+      }
+    } else source += c.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+  }
+  return new RegExp(`^${source}$`, 's');
+}
+
+function couldBe(segment, name, dynamic) {
+  if (!dynamic) return segment === name;
+  return WILD.test(segment) || globRegExp(segment).test(name);
+}
+
+function walk(path, dynamic, rootish) {
+  const parts = path.split('/');
+  let stack = [];
+  let start = 0;
+  if (parts[0] === '') rootish = true;
+  else if (parts[0].startsWith('~')) {
+    rootish = parts[0] !== '~';
+    start = 1;
+  }
+  for (const part of parts.slice(start)) {
+    if (part === '' || part === '.') continue;
+    if (rootish && stack.length === 0 && couldBe(part, 'proc', dynamic)) return 'proc';
+    const wild = dynamic && WILD.test(part);
+    const climb = part === '..' || wild || (dynamic && part[0] === '.' && globRegExp(part).test('..'));
+    if (climb && rootish && stack.length === 2 && couldBe(stack[0], 'dev', dynamic) && couldBe(stack[1], 'fd', dynamic)) return 'proc';
+    if (wild) {
+      stack = [];
+      rootish = true;
+    } else if (!climb) stack.push(part);
+    else if (stack.length > 0) stack.pop();
+    else rootish = true;
+  }
+  return rootish && stack.length === 0 ? 'root' : null;
+}
+
+function pathsIn(value) {
+  const paths = [value];
+  for (let k = value.indexOf('='); k !== -1; k = value.indexOf('=', k + 1)) paths.push(value.slice(k + 1));
+  if (/^-[^-]/.test(value)) {
+    for (let k = 2; k < value.length && /[A-Za-z0-9]/.test(value[k - 1]); k++) paths.push(value.slice(k));
+  }
+  return paths.filter((path) => path !== '');
+}
+
+function reachesRoot(word, anywhere) {
+  let root = false;
+  for (const path of pathsIn(word.value)) {
+    const reach = walk(path, word.dynamic, anywhere);
+    if (reach === 'proc') refuse(`${word.raw} may reach /proc`);
+    if (reach === 'root') root = true;
+  }
+  return root;
+}
+
+function changeDirectory(args, state) {
+  const target = args.find((arg) => arg.value === '-' || !arg.value.startsWith('-'));
+  if (!target) return;
+  if (target.value === '-') {
+    state.anywhere = true;
+    return;
+  }
+  const cdpath = !/^(~|\/|\.\.?(\/|$))/.test(target.value);
+  const reach = walk(target.value, target.dynamic, cdpath || state.anywhere);
+  if (reach === 'proc') refuse(`cd ${target.raw} may reach /proc`);
+  if (reach === 'root') state.anywhere = true;
+}
+
+function searchesTree(cmd, args) {
+  if (cmd === 'rg') return true;
+  if (cmd === 'diff') return args.some((arg) => shortHas(arg, 'r') || longMatches(arg, 'recursive'));
+  if (!GREPS.has(cmd)) return false;
+  return args.some((arg) => shortHas(arg, 'rR') || longMatches(arg, 'recursive') || longMatches(arg, 'dereference-recursive') || arg.includes('recurse'));
+}
+
 function checkRedirect(op, target) {
   if (op === '<') return;
   if (op === '>&' && DIGITS.test(target.raw)) return;
@@ -375,14 +472,16 @@ function checkRedirect(op, target) {
   refuse('output redirection');
 }
 
-function checkSegment(items) {
+function checkSegment(items, state) {
   const words = [];
+  const targets = [];
   for (let k = 0; k < items.length; k++) {
     const item = items[k];
     if (item.type === 'redir') {
       const target = items[k + 1];
       if (target?.type !== 'word') refuse('redirection without a target');
       checkRedirect(item.op, target);
+      targets.push(target);
       k++;
     } else if (item.raw === '{' || item.raw === '}') refuse('command group');
     else words.push(item);
@@ -392,6 +491,9 @@ function checkSegment(items) {
   if (ASSIGNMENT.test(head.raw)) refuse('variable assignment');
   if (head.dynamic) refuse(`command name ${head.raw} is an expansion`);
   if (!COMMANDS.has(head.value)) refuse(`${head.value} is not a read-only command`);
+  const roots = [...args, ...targets].filter((word) => reachesRoot(word, state.anywhere));
+  if (head.value === 'cd') changeDirectory(args, state);
+  if (searchesTree(head.value, args.map((arg) => arg.value)) && (state.anywhere || roots.length > 0)) refuse(`${head.value} may search /proc`);
   const rule = RULES[head.value];
   if (!rule) return;
   const loose = args.find((arg) => arg.dynamic);
@@ -405,6 +507,7 @@ export function classifyBash(command) {
   let segment = [];
   let pending = null;
   let commands = 0;
+  const state = { anywhere: false };
   try {
     for (const token of lex(command)) {
       if (token.type === 'error') refuse(token.reason);
@@ -413,13 +516,13 @@ export function classifyBash(command) {
         continue;
       }
       if (segment.length > 0) {
-        checkSegment(segment);
+        checkSegment(segment, state);
         commands++;
         segment = [];
         pending = token.op === '\n' ? null : token.op;
       } else if (token.op !== '\n') refuse('empty command');
     }
-    if (segment.length > 0) checkSegment(segment);
+    if (segment.length > 0) checkSegment(segment, state);
     else if (commands === 0 || pending === '|' || pending === '||' || pending === '&&') refuse('empty command');
   } catch (err) {
     if (!(err instanceof Refusal)) throw err;

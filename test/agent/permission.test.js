@@ -51,3 +51,23 @@ test('accept-edits allows read and write tools and a read-only Bash command, and
   assert.deepEqual(decide(BASH, { command: 'rm x' }, 'accept-edits'), { allow: false, ask: true, reason: ASK_DENIAL });
   assert.deepEqual(decide(tool('Other', 'exec'), { command: 'ls' }, 'accept-edits'), { allow: false, ask: true, reason: ASK_DENIAL });
 });
+
+test('accept-edits asks for a Write or Edit whose path, resolved against the cwd, is inside a .git directory', () => {
+  const EDIT = tool('Edit', 'write');
+  const asked = { allow: false, ask: true, reason: ASK_DENIAL };
+  for (const [t, file_path, cwd] of [
+    [WRITE, '.git/config', '/repo'],
+    [EDIT, '/repo/.git/hooks/pre-commit', '/elsewhere'],
+    [WRITE, 'config', '/repo/.git'],
+    [WRITE, '../.git/config', '/repo/src'],
+    [WRITE, 'sub/.GIT/config', '/repo'],
+    [EDIT, 'x/../.git/info/attributes', '/repo'],
+    [WRITE, '.git', '/repo'],
+  ]) {
+    assert.deepEqual(decide(t, { file_path }, 'accept-edits', cwd), asked, `${file_path} in ${cwd}`);
+  }
+  for (const file_path of ['.gitignore', '.github/ci.yml', '.git/../x', 'src/a.git']) {
+    assert.deepEqual(decide(WRITE, { file_path }, 'accept-edits', '/repo'), { allow: true }, file_path);
+  }
+  assert.deepEqual(decide(WRITE, { file_path: '.git/config' }, 'yolo', '/repo'), { allow: true });
+});

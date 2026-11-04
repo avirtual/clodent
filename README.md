@@ -96,7 +96,7 @@ A summary for a host adapter; each point links to the section that pins it down.
 | `--yolo` | works | run every tool without asking |
 | `--read-only` | works | refuse write tools and any Bash command that is not read-only (see [Read-only Bash](#read-only-bash)) |
 | `--dangerously-skip-permissions` | works | same as `--yolo` |
-| `--permission-mode <mode>` | works | `default` (ask, as with no permission flag), `plan` (as `--read-only`), `acceptEdits` (run write tools and read-only Bash commands without asking, ask for any other Bash command; see [Print mode](#print-mode)) or `bypassPermissions` (as `--yolo`) |
+| `--permission-mode <mode>` | works | `default` (ask, as with no permission flag), `plan` (as `--read-only`), `acceptEdits` (run write tools and read-only Bash commands without asking, ask for any other Bash command and for a `Write` or `Edit` inside a `.git` directory; see [Print mode](#print-mode)) or `bypassPermissions` (as `--yolo`) |
 | `--disallowedTools <list>`, `--disallowed-tools <list>` | works | deny rules, see below; repeatable |
 | `--session-id <uuid>` | works | use this session id instead of minting one; see [Sessions](#sessions) |
 | `--resume <id>` | works | resume the session with this id |
@@ -174,7 +174,7 @@ Permissions in `-p` go by the tool's kind (see [Tools](#tools)), and for `Bash` 
 | mode | read | write | exec (`Bash`) |
 |---|---|---|---|
 | default, `--permission-mode default` | runs | refused: `permission required: run clodent without -p to approve it, or pass --yolo` | a read-only command runs; any other is refused, same reason |
-| `--permission-mode acceptEdits` | runs | runs | a read-only command runs; any other is refused: `permission required: run clodent without -p to approve it, or pass --yolo` |
+| `--permission-mode acceptEdits` | runs | runs, except a `Write` or `Edit` inside a `.git` directory (see [Read-only Bash](#read-only-bash)), refused: `permission required: run clodent without -p to approve it, or pass --yolo` | a read-only command runs; any other is refused, same reason |
 | `--yolo`, `--dangerously-skip-permissions`, `--permission-mode bypassPermissions` | runs | runs | runs |
 | `--read-only`, `--permission-mode plan` | runs | refused: `--read-only: <Tool> is not allowed` | a read-only command runs; any other is refused: `--read-only: Bash command is not read-only (<reason>)` |
 
@@ -337,7 +337,7 @@ Reloading files after a compact, unless `compactReloadFiles` is 0 or the `Read` 
 
 A compact is not a turn: it fires no `Stop` hook and writes no `turn_duration` record. Print mode has no compact.
 
-Permission ask: in the default mode, a write or exec tool call that no hook allowed or denied waits for an answer, unless it is a read-only `Bash` command (see [Read-only Bash](#read-only-bash)). In `--permission-mode acceptEdits` write tools run, so only a `Bash` command that is not read-only waits. So does any call a settings ask rule matches, even one a hook allowed, and any call a hook asks about, a read included; a call a deny rule matches is refused without asking (see [Permission rules](#permission-rules)). The `--yolo` and `--read-only` modes, whichever flag names them, never ask, and print mode refuses the call instead.
+Permission ask: in the default mode, a write or exec tool call that no hook allowed or denied waits for an answer, unless it is a read-only `Bash` command (see [Read-only Bash](#read-only-bash)). In `--permission-mode acceptEdits` write tools run, so only a `Bash` command that is not read-only waits, and so does a `Write` or `Edit` inside a `.git` directory (see [Read-only Bash](#read-only-bash)). So does any call a settings ask rule matches, even one a hook allowed, and any call a hook asks about, a read included; a call a deny rule matches is refused without asking (see [Permission rules](#permission-rules)). The `--yolo` and `--read-only` modes, whichever flag names them, never ask, and print mode refuses the call instead.
 
 1. clodent prints `[clodent:permit <Tool> <tool_use id>] <summary>` on its own line, with the summary of the `● <Tool> <summary>` line; with an empty summary the line ends at `]`.
 2. It writes `Allow? [y/n] ` and starts reading one line.
@@ -462,18 +462,23 @@ Under the default and `acceptEdits` modes and `--read-only`, a `Bash` call whose
 
 `<reason>` names the first offending part, such as `rm is not a read-only command`, `output redirection`, `command substitution`, `find -delete` or `git -c`.
 
+In `acceptEdits`, a `Write` or `Edit` whose `file_path`, resolved against the working directory, has a `.git` component in any case (`.git/config`, `sub/.GIT/hooks/x`, `.git` itself) asks as in the default mode, and `-p` refuses it: a repository's config and hooks name programs that git commands run. The check is by name only, so a path through a symlink into a `.git` directory gets past it. Any other `Write` or `Edit` runs without asking, outside the working directory too, such as `~/.gitconfig`.
+
 clodent splits the command into simple commands on `|`, `||`, `&&`, `;` and newlines, honouring single quotes, double quotes, backslash escapes and `#` comments. The command is read-only when every simple command is. Blank lines, a trailing `;` and a newline right after `|`, `||` or `&&` are fine; any other empty command (`;;`, a leading `|`, a trailing `&&`, an empty or comment-only string), and a simple command made only of redirections, is not read-only.
 
 Each simple command must start with one of these names, with no `/` and no expansion, glob or brace expansion in it (quoting it is fine):
 
 `cat` `head` `tail` `wc` `ls` `pwd` `echo` `printf` `true` `false` `grep` `egrep` `fgrep` `rg` `file` `stat` `du` `df` `which` `type` `whoami` `id` `uname` `date` `basename` `dirname` `realpath` `readlink` `sort` `uniq` `cut` `tr` `diff` `cmp` `comm` `tree` `jq` `od` `hexdump` `xxd` `strings` `column` `nl` `fold` `paste` `seq` `test` `[` `cd` `sha256sum` `sha1sum` `shasum` `md5` `md5sum` `cksum` `find` `sed` `git`
 
-Arguments may use `$NAME`, `${NAME}`, `$1` and the other special parameters. `<file` is allowed. Output redirection (`>`, `>>`, `>|`, `&>`, `&>>`, `n>`, `n>>`, `>&file`) is allowed only to `/dev/null`, written out, or as an fd duplication (`2>&1`, `>&2`, `n>&m`); anything else is `output redirection`.
+No command that dumps the environment (`env`, `printenv`, `set`, `export`, `declare`, `typeset`, `compgen`) or runs a program that can read it (`awk`, `perl`, `python`) is in the list.
+
+Arguments may expand only these variables, as `$NAME` or `${NAME}`: `HOME`, `PWD`, `OLDPWD`, `USER`, `LOGNAME`, `SHELL`, `PATH` and `TMPDIR`. `<file` is allowed. Output redirection (`>`, `>>`, `>|`, `&>`, `&>>`, `n>`, `n>>`, `>&file`) is allowed only to `/dev/null`, written out, or as an fd duplication (`2>&1`, `>&2`, `n>&m`); anything else is `output redirection`.
 
 These make the command not read-only wherever they appear outside single quotes, double quotes included:
 
 - `$(…)`, `$((…))`, a backtick (escaped or not), `<(…)`, `>(…)`;
 - `${…}` other than `${NAME}`, `$[…]`, and the `$'…'` and `$"…"` quotings;
+- `$NAME` or `${NAME}` with a name outside that set, such as `$ANTHROPIC_API_KEY` or `$PPID`, and the special parameters `$0`–`$9`, `$@`, `$*`, `$#`, `$?`, `$-`, `$$`, `$!` and `$_` (reason `$<name> expansion`);
 - a lone `&`; `(` or `)`; `{` or `}` as a word;
 - `<<`, `<<<`, `<>` and `<&`;
 - a leading `NAME=value` assignment;
@@ -481,6 +486,12 @@ These make the command not read-only wherever they appear outside single quotes,
 - an unterminated quote or a trailing backslash;
 - a line continuation;
 - a control character: U+0000–U+001F other than tab and newline, and U+007F–U+009F.
+
+`/proc` is never read-only. An argument or redirection target that may name `/proc` or a path under it makes the command not read-only (`<word> may reach /proc`). clodent checks the word without its quotes, the part after each `=`, and for a word starting with a single `-`, each part after its option letters (`-f/proc/1/environ`). It resolves `.`, `..` and repeated `/` by name; the word may reach `/proc` when a segment that may sit at `/` may be `proc` or a glob or brace expansion matching it (`/p*`, `/[p]roc`, `{/,}proc`), or when it climbs out of `/dev/fd` (`/dev/fd/..` is `/proc/self` on Linux). A segment sits at `/` after a leading `/`, after a `..` that climbs out of the working directory, `~`, or an expanded variable, and after a `~user`, `~-` or `~+` prefix. A segment starting with `.` that may expand to `..` (`.*`) counts as `..`, and a brace expansion or expanded variable may be anything, `..` and `/` included. Once a `cd` may have reached `/` (`cd /`, `cd ..`, `cd -`, `cd "$HOME"`), relative words count from `/` for the rest of the command; the target of `cd name` counts from `/` itself, since `CDPATH` may hold `/`.
+
+These checks read the command text only, so a symlink into `/proc` gets past them.
+
+A search that may start at `/` also reads `/proc`. `rg`, `diff` with a short option cluster holding `r` or `--recursive`, and `grep`, `egrep` or `fgrep` with a short option cluster holding `r` or `R`, `--recursive`, `--dereference-recursive` or an argument holding `recurse`, are not read-only (`<command> may search /proc`) when an argument may be `/` itself (`/`, `..`, `~/..`) or such a `cd` came first.
 
 Per-command rules. Any match makes the command not read-only. For every command in this table, so does an argument holding an expansion (`$NAME`), a glob (`*`, `?`, `[…]`) or a brace expansion (`{a,b}`, `{1..3}`), since its value cannot be checked. A long option `--name` in these rules also matches its abbreviations (`--outp`), its extensions (`--output-x`) and any of them with `=value`, unless the rule says exactly.
 
@@ -493,6 +504,7 @@ Per-command rules. Any match makes the command not read-only. For every command 
 | `date` | a short option cluster holding `s`, `--set`, or digits with an optional `.` and more digits (a time to set) |
 | `file` | a short option cluster holding `C`, or `--compile` |
 | `printf` | `-v`, or `-v` with a name attached (`-vNAME`) |
+| `jq` | one holding `env`, `ENV` (as in `$ENV`), `import` or `include` as a word, a short option cluster holding `f` or `L`, `--from-file` or `--library-path`. jq still sources `~/.jq` when that file exists, which clodent does not read |
 | `test`, `[` | `-v` or `-R`, exactly |
 | `uniq`, `xxd` | a second operand (an output file); `-`, every argument after `--` and every argument after the first operand count as operands |
 | `sed` | see below |
@@ -502,7 +514,8 @@ Per-command rules. Any match makes the command not read-only. For every command 
 
 `git`: optional `-C <dir>` and `--no-pager`, then a subcommand. Any other global option, `-c` and `--git-dir` included, is not read-only.
 
-- `status` `log` `diff` `show` `rev-parse` `ls-files` `ls-tree` `blame` `grep` `describe` `shortlog` `cat-file` `merge-base` `rev-list` take any arguments.
+- `rev-parse` `ls-tree` `describe` `merge-base` take any arguments, except `describe` with `--dirty` or `--broken`, which refresh the index.
+- `status` `diff` `log` `show` `blame` `grep` `ls-files` `cat-file` `shortlog` `rev-list` are not read-only: a repository or user config can make them run a program (`core.fsmonitor`, `diff.external`, a textconv or clean filter driver, `log.showSignature` with `gpg.program`, a `%G` format).
 - `branch`, `tag` and `remote` take only these flags and no operand: `branch` `-a` `-r` `-v` `-vv` `--list` `--show-current` `--contains` `--merged` `--no-merged`; `tag` `-l` `--list`; `remote` `-v`.
 - `config` needs `--get`, `--get-all`, `--list` or `-l`, and takes no other option.
 - Under every subcommand, an argument matching `--output` or `--ext-diff` is not read-only. Under `grep`, so is a short option cluster holding `O`, and `--open-files-in-pager`.

@@ -14,6 +14,9 @@ clodent was named clay up to 0.2.0.
 - Built-in deny rules, in every mode including `--yolo`: `Read` and `Edit` of every settings file clodent loaded (`$CLODENT_HOME/settings.json`, whether or not it exists, and each `--settings` file) and `Read` of `/proc/*/environ` and `/proc/*/task/*/environ`; the model gets `denied by built-in rule <rule>`.
 - The Bash tool's environment never contains `ANTHROPIC_API_KEY`, also when the key comes from settings `env`; requests, hooks and the statusLine still get it.
 - Security: Grep and Glob run `git ls-files` and `git check-ignore` with `-c core.fsmonitor=false` and without `ANTHROPIC_API_KEY` or the deny `credentials.envVars` names in their environment, so a repository's `.git/config` can no longer make a read tool run a program.
+- Security: read-only Bash no longer reads the environment or `/proc`. A variable outside `HOME`, `PWD`, `OLDPWD`, `USER`, `LOGNAME`, `SHELL`, `PATH` and `TMPDIR` (such as `$ANTHROPIC_API_KEY` or `$PPID`), any special parameter (`$1`, `$$`…), `jq` with `env`, `$ENV`, a module or a program file, a word that may reach `/proc` (globs, `..`, `cd /` and `/dev/fd/..` included), and a recursive `grep`, `rg` or `diff -r` that may start at `/` now ask, or are refused under `-p` and `--read-only`.
+- Security: `git status`, `diff`, `log`, `show`, `blame`, `grep`, `ls-files`, `cat-file`, `shortlog`, `rev-list` and `describe --dirty`/`--broken` are no longer read-only, since a repository or user config can make them run a program.
+- Security: in `acceptEdits`, a `Write` or `Edit` inside a `.git` directory asks, or is refused under `-p`, instead of running.
 
 ## 0.5.0 — 2026-11-04
 

@@ -16,7 +16,13 @@ const READ_ONLY = [
   "rg -n 'TODO' --glob '*.js'",
   'rg --pre-glob "*.gz" foo',
   "echo '$(x)'",
-  'echo "$HOME" ${USER} $1',
+  'echo "$HOME" ${USER} $PATH ${TMPDIR} $PWD $OLDPWD $LOGNAME $SHELL',
+  'echo $HOME',
+  'ls "$PWD"',
+  'cat "$HOME/.zshrc" src/proc/x.js',
+  'cd src && ls *',
+  'grep -rn x ../other src',
+  "jq -r '.dependencies | keys[]' package.json",
   'printf "%s\\n" a b',
   'true && false || echo fallback',
   'cat x 2>/dev/null',
@@ -57,12 +63,11 @@ const READ_ONLY = [
   "sed 's/a\\/b/c/g; 10q' file",
   "sed -E -e 's/x/y/2' -e '$d' file",
   'sed = file',
-  'git status --short',
-  'git log --oneline -n 5',
-  'git log @{u}..HEAD',
-  'git diff HEAD~1 -- src',
-  'git -C ../other --no-pager show HEAD:README.md',
-  "git grep -n 'x' -- '*.js'",
+  'git rev-parse --show-toplevel',
+  'git describe --tags --always',
+  'git merge-base HEAD @{u}',
+  'git ls-tree -r HEAD src',
+  'git -C ../other --no-pager rev-parse HEAD',
   'git branch',
   'git branch -a -vv',
   'git tag -l',
@@ -96,7 +101,7 @@ const NOT_READ_ONLY = [
   ['cat x 2> err', 'output redirection'],
   ['cat x 2>> err', 'output redirection'],
   ['cat x >& y', 'output redirection'],
-  ['cat x > $OUT', 'output redirection'],
+  ['cat x > $TMPDIR', 'output redirection'],
   ['cat <> f', 'output redirection'],
   ['cat <<EOF\nx\nEOF', 'here-document'],
   ['cat <<< x', 'here-document'],
@@ -108,8 +113,8 @@ const NOT_READ_ONLY = [
   ['>/dev/null FOO=1 ls', 'variable assignment'],
   ['/bin/ls', '/bin/ls is not a read-only command'],
   ['./ls', './ls is not a read-only command'],
-  ['$CMD -la', 'command name $CMD is an expansion'],
-  ['"${CMD}"', 'command name "${CMD}" is an expansion'],
+  ['$SHELL -la', 'command name $SHELL is an expansion'],
+  ['"${SHELL}"', 'command name "${SHELL}" is an expansion'],
   ["echo 'unterminated", 'unterminated quote'],
   ['echo "unterminated', 'unterminated quote'],
   ['ls\u0001', 'control character'],
@@ -138,7 +143,7 @@ const NOT_READ_ONLY = [
   ['git grep -O x', 'git grep -O'],
   ['git grep --open-files-in-pager=vim x', 'git grep --open-files-in-pager=vim'],
   ['git', 'git without a subcommand'],
-  ['git log $_', 'git argument $_ is an expansion or glob'],
+  ['git describe $HOME', 'git argument $HOME is an expansion or glob'],
   ['sed -i s/a/b/ f', 'sed -i'],
   ['sed -I .bak s/a/b/ f', 'sed -I'],
   ['sed --in-place s/a/b/ f', 'sed --in-place'],
@@ -177,8 +182,8 @@ const NOT_READ_ONLY = [
   ["test -v 'a[$(touch pwned)]'", 'test -v'],
   ["[ -v 'a[$(touch pwned)]' ]", '[ -v'],
   ['test -R ref', 'test -R'],
-  ['echo -v; test $_ x', 'test argument $_ is an expansion or glob'],
-  ['[ -n "$x" ]', '[ argument "$x" is an expansion or glob'],
+  ['echo -v; test $USER x', 'test argument $USER is an expansion or glob'],
+  ['[ -n "$USER" ]', '[ argument "$USER" is an expansion or glob'],
   ["ls {a['$(touch pwned)']}>/dev/null", 'variable redirection'],
   ['ls {PATH}</dev/null; cat x', 'variable redirection'],
   ["ls {a['$(touch pwned)']}\\\n>/dev/null", 'line continuation'],
@@ -209,7 +214,7 @@ test('anything else is not read-only and names the first offending part', () => 
 });
 
 test('a newline-separated script is read-only only when every line is', () => {
-  const script = 'cd src\n\ngit status --short\nls -la | head -3\n';
+  const script = 'cd src\n\ngit rev-parse HEAD\nls -la | head -3\n';
   assert.deepEqual(classifyBash(script), { readOnly: true });
   assert.deepEqual(classifyBash(`${script}touch x\n`), { readOnly: false, reason: 'touch is not a read-only command' });
 });
@@ -221,4 +226,94 @@ test('the first offending segment wins over a later construct', () => {
 test('a command that is not a string is not read-only', () => {
   assert.deepEqual(classifyBash(undefined), { readOnly: false, reason: 'command is not a string' });
   assert.deepEqual(classifyBash(['ls']), { readOnly: false, reason: 'command is not a string' });
+});
+
+const notReadOnly = (cases) => {
+  for (const [command, reason] of cases) assert.deepEqual(classifyBash(command), { readOnly: false, reason }, command);
+};
+
+test('only HOME, PWD, OLDPWD, USER, LOGNAME, SHELL, PATH and TMPDIR expand; any other name or special parameter is not read-only', () => {
+  for (const name of ['HOME', 'PWD', 'OLDPWD', 'USER', 'LOGNAME', 'SHELL', 'PATH', 'TMPDIR']) {
+    assert.deepEqual(classifyBash(`echo $${name} "\${${name}}"`), { readOnly: true }, name);
+  }
+  notReadOnly([
+    ['echo $ANTHROPIC_API_KEY', '$ANTHROPIC_API_KEY expansion'],
+    ['echo "${GITHUB_TOKEN}"', '$GITHUB_TOKEN expansion'],
+    ['cat /proc/$PPID/environ', '$PPID expansion'],
+    ['ls; echo "a$home"', '$home expansion'],
+    ...['$', '?', '!', '0', '9', '@', '*', '#', '-', '_'].map((c) => [`echo "$${c}"`, `$${c} expansion`]),
+  ]);
+  assert.deepEqual(classifyBash("echo '$ANTHROPIC_API_KEY' \\$GITHUB_TOKEN \"\\$X\""), { readOnly: true });
+});
+
+test('env readers are not read-only: the dump commands, and jq env, $ENV, modules and program files', () => {
+  notReadOnly([
+    ...['env', 'printenv', 'set', 'export', 'declare', 'typeset', 'compgen', 'awk', 'perl', 'python', 'python3'].map((cmd) => [`${cmd} x`, `${cmd} is not a read-only command`]),
+    ['jq -n env', 'jq env'],
+    ["jq -n '$ENV'", 'jq $ENV'],
+    ["jq '.a, env.PATH' f", 'jq .a, env.PATH'],
+    ["jq -n '$ENV.HOME'", 'jq $ENV.HOME'],
+    ['jq -f prog.jq data', 'jq -f'],
+    ['jq -nf prog.jq', 'jq -nf'],
+    ['jq --from-file prog.jq', 'jq --from-file'],
+    ['jq -L lib .', 'jq -L'],
+    ['jq --library-path=lib .', 'jq --library-path=lib'],
+    ['jq -n \'import "m" as m; m::f\'', 'jq import "m" as m; m::f'],
+    ['jq -n \'include "m"; f\'', 'jq include "m"; f'],
+    ['jq -n e?v', 'jq argument e?v is an expansion or glob'],
+  ]);
+});
+
+test('a word that may name a path under /proc is not read-only, redirections, globs and climbs included', () => {
+  notReadOnly([
+    ['cat /proc/self/environ', '/proc/self/environ may reach /proc'],
+    ['ls "/proc"', '"/proc" may reach /proc'],
+    ['cat < /proc/1/environ', '/proc/1/environ may reach /proc'],
+    ['cat //proc/1/environ', '//proc/1/environ may reach /proc'],
+    ['cat /./tmp/../proc/1/environ', '/./tmp/../proc/1/environ may reach /proc'],
+    ['cat /p*/self/environ', '/p*/self/environ may reach /proc'],
+    ['cat /*/self/environ', '/*/self/environ may reach /proc'],
+    ['cat /[!x]roc/1/environ', '/[!x]roc/1/environ may reach /proc'],
+    ['cat {,/proc/self/environ}', '{,/proc/self/environ} may reach /proc'],
+    ['cat {/,}proc/self/environ', '{/,}proc/self/environ may reach /proc'],
+    ['cat ../../../proc/1/environ', '../../../proc/1/environ may reach /proc'],
+    ['cat .*/.*/proc/1/environ', '.*/.*/proc/1/environ may reach /proc'],
+    ['cat ~/../proc/1/environ', '~/../proc/1/environ may reach /proc'],
+    ['cat ~root/proc/1/environ', '~root/proc/1/environ may reach /proc'],
+    ['cat "$OLDPWD"/proc/1/environ', '"$OLDPWD"/proc/1/environ may reach /proc'],
+    ['cat /dev/fd/../environ', '/dev/fd/../environ may reach /proc'],
+    ['grep --file=/proc/self/environ x', '--file=/proc/self/environ may reach /proc'],
+    ['grep -rf/proc/self/environ x', '-rf/proc/self/environ may reach /proc'],
+    ['cd / && cat proc/self/environ', 'proc/self/environ may reach /proc'],
+    ['cd /usr; cat ../proc/1/environ', '../proc/1/environ may reach /proc'],
+    ['cd - && cat proc/1/environ', 'proc/1/environ may reach /proc'],
+    ['cd proc && cat self/environ', 'cd proc may reach /proc'],
+  ]);
+  for (const command of ['cat /procx /usr/proc src/proc/x', 'ls /tmp/*', 'cd /tmp && ls *', 'cat ../a/proc']) {
+    assert.deepEqual(classifyBash(command), { readOnly: true }, command);
+  }
+});
+
+test('a recursive search that may start at / is not read-only', () => {
+  notReadOnly([
+    ['grep -r KEY /', 'grep may search /proc'],
+    ['egrep -R KEY ../..', 'egrep may search /proc'],
+    ['grep --directories=recurse KEY ~/..', 'grep may search /proc'],
+    ['rg KEY ..', 'rg may search /proc'],
+    ['cd / && rg KEY', 'rg may search /proc'],
+    ['cd .. && grep -r KEY', 'grep may search /proc'],
+    ['diff -r / /tmp/root', 'diff may search /proc'],
+  ]);
+  for (const command of ['grep -r KEY .', 'rg KEY ../other', 'grep KEY /etc/hosts', 'diff / /tmp']) {
+    assert.deepEqual(classifyBash(command), { readOnly: true }, command);
+  }
+});
+
+test('git subcommands a repo config can make run a program are not read-only', () => {
+  notReadOnly([
+    ...['status', 'diff', 'log', 'show', 'blame', 'grep', 'ls-files', 'cat-file', 'shortlog', 'rev-list'].map((sub) => [`git ${sub}`, `git ${sub} is not read-only`]),
+    ['git describe --dirty', 'git describe --dirty'],
+    ['git describe --broken=x', 'git describe --broken=x'],
+    ['git -C .. describe --dir', 'git describe --dir'],
+  ]);
 });
