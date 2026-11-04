@@ -293,7 +293,7 @@ Under the default mode and `--read-only`, a `Bash` call whose command is read-on
 
 `<reason>` names the first offending part, such as `rm is not a read-only command`, `output redirection`, `command substitution`, `find -delete` or `git -c`.
 
-clay splits the command into simple commands on `|`, `||`, `&&`, `;` and newlines, honouring single quotes, double quotes, backslash escapes, line continuations and `#` comments. The command is read-only when every simple command is. Blank lines, a trailing `;` and a newline right after `|`, `||` or `&&` are fine; any other empty command (`;;`, a leading `|`, a trailing `&&`, an empty or comment-only string), and a simple command made only of redirections, is not read-only.
+clay splits the command into simple commands on `|`, `||`, `&&`, `;` and newlines, honouring single quotes, double quotes, backslash escapes and `#` comments. The command is read-only when every simple command is. Blank lines, a trailing `;` and a newline right after `|`, `||` or `&&` are fine; any other empty command (`;;`, a leading `|`, a trailing `&&`, an empty or comment-only string), and a simple command made only of redirections, is not read-only.
 
 Each simple command must start with one of these names, with no `/` and no expansion, glob or brace expansion in it (quoting it is fine):
 
@@ -310,6 +310,7 @@ These make the command not read-only wherever they appear outside single quotes,
 - a leading `NAME=value` assignment;
 - a word in braces right before `<` or `>`, such as `{fd}>/dev/null` (bash assigns the fd to that variable);
 - an unterminated quote or a trailing backslash;
+- a line continuation (a backslash right before a newline);
 - a control character: U+0000–U+001F other than tab and newline, and U+007F–U+009F.
 
 Per-command rules. Any match makes the command not read-only. For every command in this table, so does an argument holding an expansion (`$NAME`), a glob (`*`, `?`, `[…]`) or a brace expansion (`{a,b}`, `{1..3}`), since its value cannot be checked. A long option `--name` in these rules also matches its abbreviations (`--outp`), its extensions (`--output-x`) and any of them with `=value`, unless the rule says exactly.

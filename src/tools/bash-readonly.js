@@ -264,7 +264,7 @@ function lex(src) {
   const escape = (j) => {
     const next = src[j + 1];
     if (next === undefined) refuse('trailing backslash');
-    if (next === '\n') return j + 2;
+    if (next === '\n') refuse('line continuation');
     if (next === '`') refuse('command substitution');
     begin();
     word.value += next;
@@ -292,10 +292,7 @@ function lex(src) {
       if (c === '\\') {
         const next = src[k + 1];
         if (next === '`') refuse('command substitution');
-        if (next === '\n') {
-          k += 2;
-          continue;
-        }
+        if (next === '\n') refuse('line continuation');
         if (next === '$' || next === '"' || next === '\\') {
           word.value += next;
           k += 2;
@@ -307,7 +304,7 @@ function lex(src) {
     }
   };
   const redirect = (j) => {
-    if (word && /^\{.*\}$/s.test(src.slice(word.start, j).replace(/\\\n/g, ''))) refuse('variable redirection');
+    if (word && /^\{.*\}$/s.test(src.slice(word.start, j))) refuse('variable redirection');
     if (word && DIGITS.test(src.slice(word.start, j))) word = null;
     else end();
     const next = src[j + 1];
