@@ -6,7 +6,7 @@ import { builtinDenies, parseRules } from '../../src/permissions/rules.js';
 const HOME = '/h';
 const SETTINGS = '/h/.clodent/settings.json';
 const WHERE = { file: '/etc/clodent/settings.json', cwd: '/work', home: HOME };
-const ENV = { HOME, USER: 'h', LOGNAME: 'h', TMPDIR: '/tmp' };
+const ENV = { HOME, USER: 'h', LOGNAME: 'h', TMPDIR: '/tmp', SHELL: '/bin/zsh', PATH: '/usr/bin:/bin' };
 const TREE = {
   '/': ['h', 'work', 'tmp'],
   '/h': ['.ssh', '.clodent', 'notes'],
@@ -102,6 +102,10 @@ test('$PWD, $USER, $LOGNAME and $TMPDIR expand; $OLDPWD and any other variable i
   }
   const bare = guardOf({ env: { HOME } });
   assert.equal(await ruling(bare, 'cat /$USER/.ssh/id_rsa'), null);
+  const shell = guardOf({ env: { ...ENV, SHELL: '/h/.ssh/id_rsa', PATH: '/h/.ssh' } });
+  assert.equal(await ruling(shell, 'cat $SHELL'), SSH);
+  assert.equal(await ruling(shell, 'ls ${PATH}'), SSH);
+  assert.equal(await ruling(guard, 'echo $PATH $SHELL'), null);
 });
 
 test('cd and pushd change the directory later relative words resolve against, keeping the earlier ones; cd - is uncertain', async () => {
@@ -132,7 +136,7 @@ test('an uncertain word asks for a deny rule and for an ask rule only where the 
   assert.equal(await ruling(guard, 'cat ~/.ssh/$X'), SSH);
   assert.equal(await ruling(guard, 'cat ~/.x$X/id_rsa'), null);
   assert.equal(await ruling(guard, 'cat /work/$X'), null);
-  assert.equal(await ruling(guard, 'cat ~/.bash$X'), null);
+  assert.equal(await ruling(guard, 'cat ~/.bash$SHELL'), null);
   assert.equal(await ruling(guard, 'rm ~/.bash$X'), 'ask Edit(~/.bashrc)');
   assert.equal(await ruling(guard, 'rm ~/.bash?c'), null);
   assert.equal(await ruling(guardOf({ deny: ['Edit(~/.bashrc)'], tree: { ...TREE, '/h': ['.bashrc'] } }), 'rm ~/.bash?c'), 'deny Edit(~/.bashrc)');
@@ -183,10 +187,25 @@ test('under --yolo an uncertain or recursive reach of a deny rule denies, since 
   assert.equal(uncertainDecision('deny', 'yolo'), 'deny');
   assert.equal(uncertainDecision('deny', 'ask'), 'ask');
   assert.equal(uncertainDecision('ask', 'yolo'), 'ask');
+  assert.equal(uncertainDecision('deny', 'yolo', 'weak'), 'ask');
+  assert.equal(await ruling(guard, 'cd - && cat id_rsa', '/work', 'yolo'), SSH);
+  assert.equal(await ruling(guard, `cat ~/${'{a,b}'.repeat(11)}/id_rsa`, '/work', 'yolo'), SSH);
   assert.equal(await ruling(guard, 'cat $OLDPWD/id_rsa', '/work', 'yolo'), SSH);
   assert.equal(await ruling(guard, 'grep -r ANTHROPIC ~', '/work', 'yolo'), SSH);
   for (const mode of ['ask', 'accept-edits', 'read-only']) assert.equal(await ruling(guard, 'grep -r ANTHROPIC ~', '/work', mode), 'ask Read(~/.ssh)', mode);
   const asks = guardOf({ deny: [], ask: ['Read(~/notes)'], settings: [] });
   assert.equal(await ruling(asks, 'grep -r x ~', '/work', 'yolo'), 'ask Read(~/notes)');
   assert.equal(await ruling(asks, 'cat ~/no$X/a.txt', '/work', 'yolo'), 'ask Read(~/notes)');
+});
+
+test('any other variable, and a relative word after cd $X, is weakly uncertain: it asks in every mode, so --yolo runs it, and a literal assignment of a denied path is a mention', async () => {
+  const guard = guardOf();
+  const weak = ['echo "k=$X"', 'cd "$DIR" && make', 'for f in *; do cat "$f"; done', 'grep -r foo "$DIR"', 'cat ~/.s$X/id_rsa'];
+  for (const command of weak) {
+    assert.equal(await ruling(guard, command, '/work', 'yolo'), 'ask Read(~/.ssh)', command);
+    assert.equal(await ruling(guard, command, '/work', 'ask'), 'ask Read(~/.ssh)', command);
+  }
+  assert.equal(await ruling(guard, 'echo $PATH', '/work', 'yolo'), null);
+  assert.equal(await ruling(guard, 'X=~/.ssh; cat $X/id_rsa', '/work', 'yolo'), SSH);
+  assert.equal(await ruling(guard, 'cat "$OLDPWD$X"/id_rsa', '/work', 'yolo'), SSH);
 });
