@@ -19,6 +19,9 @@ export async function runStream(ctx, deps) {
   let ended = false;
   let caught = null;
   let buffer = '';
+  let turnId = 0;
+  let inTurn = false;
+  let pendingInterrupt = false;
 
   function poke() {
     const resolve = wake;
@@ -54,7 +57,7 @@ export async function runStream(ctx, deps) {
   function drain() {
     const texts = [];
     for (let i = 0; i < queue.length; ) {
-      if (queue[i].empty) i++;
+      if (queue[i].empty || queue[i].turn !== turnId) i++;
       else texts.push(queue.splice(i, 1)[0].text);
     }
     return texts;
@@ -95,7 +98,8 @@ export async function runStream(ctx, deps) {
     const subtype = request?.subtype;
     if (subtype === 'interrupt') {
       output.controlResponse({ subtype: 'success', request_id: requestId });
-      running?.abort();
+      if (running) running.abort();
+      else if (queue.some((entry) => !entry.empty)) pendingInterrupt = true;
     } else if (subtype === 'set_model') {
       setModel(requestId, request.model);
     } else {
@@ -104,12 +108,13 @@ export async function runStream(ctx, deps) {
   }
 
   function onLine(raw) {
+    if (raw.trim() === '') return;
     const parsed = parseLine(raw);
     if (parsed.kind === 'ignored') {
       warn(parsed.warning);
     } else if (parsed.kind === 'user') {
       for (const warning of parsed.warnings) warn(warning);
-      queue.push({ text: parsed.text, empty: parsed.empty });
+      queue.push({ text: parsed.text, empty: parsed.empty, turn: inTurn ? turnId : null });
       poke();
     } else if (parsed.kind === 'control_request') {
       onControl(parsed);
@@ -157,7 +162,8 @@ export async function runStream(ctx, deps) {
   async function guarded(step) {
     const controller = new AbortController();
     running = controller;
-    if (caught !== null) controller.abort();
+    if (caught !== null || pendingInterrupt) controller.abort();
+    pendingInterrupt = false;
     try {
       return await step(controller.signal);
     } finally {
@@ -171,7 +177,13 @@ export async function runStream(ctx, deps) {
       return;
     }
     output.beginTurn();
-    await guarded((signal) => agent.runTurn(text, { signal, stopSignal: stopHooks.signal }));
+    turnId++;
+    inTurn = true;
+    try {
+      await guarded((signal) => agent.runTurn(text, { signal, stopSignal: stopHooks.signal }));
+    } finally {
+      inTurn = false;
+    }
   }
 
   const offs = SIGNALS.map((name) => deps.onSignal(name, () => onSignal(name)));

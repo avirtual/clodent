@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ASK_DENIAL } from '../../src/agent/permission.js';
+import { CLOSED_DENIAL } from '../../src/repl/repl.js';
 import { EMPTY_PROMPT } from '../../src/stream/output.js';
 import { hookGroup, runMain, textReply, toolsReply, writeSettings } from '../helpers/run-main.js';
 import { useTempDir } from '../tools/tmp-dir.js';
@@ -111,7 +112,7 @@ test('a user message sent during a turn joins the next tool result: one result, 
   assert.equal(user.message.content.at(-1).text, '<system>also check B</system>');
 });
 
-test('a user message sent after the last tool result runs as the next turn, in arrival order', GUARD, async (t) => {
+test('a user message sent after the last tool result runs as its own turn, in arrival order, never folded into a later turn', GUARD, async (t) => {
   const { home, cwd } = await dirs(t);
   const s = startStream([...STREAM_ARGV, '--session-id', UUID], { home, cwd, replies: [toolsReply([['Bash', { command: 'echo hi' }]])] });
   s.send(userLine('start'));
@@ -120,8 +121,11 @@ test('a user message sent after the last tool result runs as the next turn, in a
   s.send(userLine('C'));
   s.fetch.push(textReply('first done'));
   await s.fetch.called(3);
-  s.fetch.push(textReply('B done'));
+  s.fetch.push(toolsReply([['Bash', { command: 'echo b' }]]));
   await s.fetch.called(4);
+  assert.deepEqual(lastUserTexts(s.fetch.calls[3]), []);
+  s.fetch.push(textReply('B done'));
+  await s.fetch.called(5);
   s.fetch.push(textReply('C done'));
   await s.until('result', 3);
   s.close();
@@ -129,7 +133,25 @@ test('a user message sent after the last tool result runs as the next turn, in a
   assert.deepEqual(results(s).map((record) => record.result), ['first done', 'B done', 'C done']);
   assert.deepEqual(lastUserTexts(s.fetch.calls[1]), []);
   assert.deepEqual(lastUserTexts(s.fetch.calls[2]), ['B']);
-  assert.deepEqual(lastUserTexts(s.fetch.calls[3]), ['C']);
+  assert.deepEqual(lastUserTexts(s.fetch.calls[4]), ['C']);
+});
+
+test('two prompts in one stdin chunk while idle run as two turns; the second never joins the first tool result', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID], {
+    home,
+    cwd,
+    replies: [toolsReply([['Bash', { command: 'echo hi' }]]), textReply('A done'), textReply('B done')],
+  });
+  await s.until('system/init');
+  s.stdin.type(`${JSON.stringify(userLine('A'))}\n${JSON.stringify(userLine('B'))}\n`);
+  await s.fetch.called(2);
+  assert.deepEqual(lastUserTexts(s.fetch.calls[1]), []);
+  await s.until('result', 2);
+  s.close();
+  assert.equal(await s.done, 0);
+  assert.deepEqual(results(s).map((record) => record.result), ['A done', 'B done']);
+  assert.deepEqual(lastUserTexts(s.fetch.calls[2]), ['B']);
 });
 
 test('text blocks join with a blank line; an image-only message gets an is_error result and no request', GUARD, async (t) => {
@@ -153,11 +175,12 @@ test('text blocks join with a blank line; an image-only message gets an is_error
 test('a line that is not JSON and a message of unknown type warn on stderr and change nothing', GUARD, async (t) => {
   const { home, cwd } = await dirs(t);
   const s = startStream([...STREAM_ARGV, '--session-id', UUID], { home, cwd });
-  s.stdin.type('hello there\n');
+  s.stdin.type('hello there\n\n  \r\n');
   s.send({ type: 'keep_alive' });
   s.close();
   assert.equal(await s.done, 0);
   assert.deepEqual(kinds(parseRecords(s.out.text)), ['system/init']);
+  assert.equal(s.err.text.split('stdin: ignoring').length - 1, 2);
   assert.match(s.err.text, /^clodent: stdin: ignoring a line that is not JSON: hello there$/m);
   assert.match(s.err.text, /^clodent: stdin: ignoring a message of unknown type "keep_alive"$/m);
   assert.equal(s.fetch.calls.length, 0);
@@ -188,6 +211,24 @@ test('an interrupt while idle gets only its ack; an unknown control request gets
   assert.deepEqual(rest, []);
 });
 
+test('an interrupt in the same stdin chunk as an idle prompt interrupts that turn before its first request', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID], { home, cwd, replies: [textReply('again done')] });
+  await s.until('system/init');
+  const interrupt = { type: 'control_request', request_id: 'clodex-interrupt-1', request: { subtype: 'interrupt' } };
+  s.stdin.type(`${JSON.stringify(userLine('go'))}\n${JSON.stringify(interrupt)}\n`);
+  await s.until('result');
+  assert.equal(s.fetch.calls.length, 0);
+  assert.deepEqual(kinds(parseRecords(s.out.text)), ['system/init', 'control_response', 'user', 'result']);
+  s.send(userLine('again'));
+  await s.until('result', 2);
+  s.close();
+  assert.equal(await s.done, 0);
+  const [first, second] = results(s);
+  assert.deepEqual([first.is_error, first.stop_reason, first.result], [false, null, '']);
+  assert.equal(second.result, 'again done');
+});
+
 test('set_model acks and the next request uses the stripped model', GUARD, async (t) => {
   const { home, cwd } = await dirs(t);
   const s = startStream([...STREAM_ARGV, '--session-id', UUID], { home, cwd, replies: [textReply('a'), textReply('b')] });
@@ -201,6 +242,26 @@ test('set_model acks and the next request uses the stripped model', GUARD, async
   const ack = parseRecords(s.out.text).find((record) => record.type === 'control_response');
   assert.deepEqual(ack.response, { subtype: 'success', request_id: 'clodex-set-model-1' });
   assert.deepEqual(s.fetch.calls.map((call) => call.body.model), ['claude-opus-5-5', 'claude-haiku-5-5']);
+});
+
+test('set_model without a model, or with a failed system prompt rebuild, replies error and keeps the model', GUARD, async (t) => {
+  const { home, cwd, dir } = await dirs(t);
+  const promptFile = join(dir, 'base.md');
+  writeFileSync(promptFile, 'base');
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID, '--system-prompt-file', promptFile], { home, cwd, replies: [textReply('ok')] });
+  await s.until('system/init');
+  s.send({ type: 'control_request', request_id: 'sm-1', request: { subtype: 'set_model' } });
+  rmSync(promptFile);
+  s.send({ type: 'control_request', request_id: 'sm-2', request: { subtype: 'set_model', model: 'claude-haiku-5-5' } });
+  s.send(userLine('go'));
+  await s.until('result');
+  s.close();
+  assert.equal(await s.done, 0);
+  const [missing, failed] = parseRecords(s.out.text).filter((record) => record.type === 'control_response');
+  assert.deepEqual(missing.response, { subtype: 'error', request_id: 'sm-1', error: 'set_model needs a model id' });
+  assert.deepEqual([failed.response.subtype, failed.response.request_id], ['error', 'sm-2']);
+  assert.match(failed.response.error, /base\.md/);
+  assert.deepEqual(s.fetch.calls.map((call) => call.body.model), ['claude-opus-5-5']);
 });
 
 test('a set_model during a request prices that response at the model it was sent to', GUARD, async (t) => {
@@ -295,6 +356,20 @@ test('an interrupt while a stdio ask waits abandons it: no call, a success resul
   assert.deepEqual(kinds(records), ['system/init', 'assistant', 'control_request', 'control_response', 'user', 'user', 'result']);
   assert.deepEqual([records.at(-1).is_error, records.at(-1).stop_reason, records.at(-1).result], [false, null, '']);
   assert.match(s.err.text, /no permission request "[0-9a-f-]{36}" is waiting; reply ignored/);
+});
+
+test('stdin EOF while a stdio ask waits refuses the call with CLOSED_DENIAL and no permission_denied line', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID, ...STDIO], { home, cwd, replies: [toolsReply([['Write', { file_path: 'w.txt', content: 'w' }]]), textReply('ok')] });
+  s.send(userLine('go'));
+  await s.until('control_request');
+  s.close();
+  assert.equal(await s.done, 0);
+  const records = parseRecords(s.out.text);
+  assert.deepEqual(kinds(records), ['system/init', 'assistant', 'control_request', 'user', 'assistant', 'result']);
+  const [refused] = records[3].message.content;
+  assert.deepEqual([refused.content, refused.is_error], [CLOSED_DENIAL, true]);
+  assert.equal(results(s)[0].result, 'ok');
 });
 
 test('text input with stream-json output prints init, the messages and one result', GUARD, async (t) => {
