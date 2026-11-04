@@ -52,3 +52,16 @@ test('the tool bullets keep their wording with all six tools and name only the t
     assert.doesNotMatch(prompt, new RegExp(`\\b${removed}\\b`), removed);
   }
 });
+
+const opening = (prompt) => prompt.split('\n')[0];
+
+test('the opening sentence claims only what the sent tools can do', () => {
+  assert.match(opening(CLODENT_BASE_PROMPT), /your tools: you read and search files, edit and create them, and run shell commands\. Your replies/);
+  const noRead = opening(basePrompt(without('Read')));
+  assert.match(noRead, /your tools: you search files, edit and create them, and run shell commands\. Your replies/);
+  assert.doesNotMatch(noRead, /read (and search )?files/);
+  assert.match(opening(basePrompt(without('Bash'))), /your tools: you read and search files, and edit and create them\. Your replies/);
+  assert.match(opening(basePrompt(without('Edit', 'Write'))), /your tools: you read and search files, and run shell commands\. Your replies/);
+  assert.match(opening(basePrompt(['Bash'])), /your tools: you run shell commands\. Your replies/);
+  assert.match(opening(basePrompt([])), /your tools\. Your replies/);
+});
