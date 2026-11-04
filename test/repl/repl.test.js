@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { INTERRUPT_MARKER } from '../../src/agent/loop.js';
 import { PASTE_END, PASTE_START } from '../../src/repl/keys.js';
 import { ASK_LINE, EXIT_HINT, PASTE_OFF, PASTE_ON, QUEUED_NOTE } from '../../src/repl/repl.js';
@@ -11,7 +11,7 @@ import { transcriptPath } from '../../src/session/paths.js';
 import { hookGroup, readJsonl, textReply, toolsReply, writeSettings } from '../helpers/run-main.js';
 import { hookOutput, script } from '../hooks/scripts.js';
 import { useTempDir } from '../tools/tmp-dir.js';
-import { startRepl, userTexts } from './harness.js';
+import { count, startRepl, userTexts } from './harness.js';
 
 const GUARD = { timeout: 5000 };
 const TOTAL_LINE = /^\[clay:cost\] session total \$\d+\.\d{4} /m;
@@ -36,6 +36,7 @@ function assertCleanExit(repl, code) {
   assert.deepEqual(repl.stdin.rawModes, [true, false]);
   assert.equal(repl.stdin.listenerCount('data'), 0);
   assert.equal(repl.stdin.listenerCount('end'), 0);
+  assert.equal(repl.stdin.listenerCount('error'), 0);
   assert.equal(repl.stdin.paused, true);
   assert.deepEqual(repl.signals, {});
 }
@@ -44,12 +45,14 @@ test('boot prints the session line, runs SessionStart (startup), then shows the 
   const { home, cwd, dir } = await dirs(t);
   const log = join(dir, 'start.jsonl');
   const hook = await script(dir, 'start.sh', `cat >> ${JSON.stringify(log)}\n${hookOutput({ hookEventName: 'SessionStart', additionalContext: 'boot context' })}`);
-  const settings = writeSettings(dir, { hooks: { SessionStart: [hookGroup('', hook)] } });
+  const settings = writeSettings(dir, { effortLevel: 'xhigh', hooks: { SessionStart: [hookGroup('', hook)] } });
   const repl = startRepl(['--settings', settings], { home, cwd, replies: [textReply('hello')] });
   repl.stdin.type('early');
   await repl.prompts(1);
   const [id] = repl.sessionIds();
-  assert.ok(repl.out.text.startsWith(`[clay:session] ${id}\n${PASTE_ON}> early`), JSON.stringify(repl.out.text));
+  const warning = `clay: settings ${settings}: effortLevel "xhigh" is not low, medium or high; ignored`;
+  assert.ok(repl.out.text.startsWith(`[clay:session] ${id}\n${warning}\n${PASTE_ON}> early`), JSON.stringify(repl.out.text));
+  assert.equal(repl.err.text, '');
   assert.deepEqual(readJsonl(log).map((input) => [input.hook_event_name, input.source]), [['SessionStart', 'startup']]);
   repl.stdin.type(' hi\r');
   await repl.prompts(2);
@@ -160,6 +163,43 @@ test('^C ^C at an empty prompt, ^D, /quit, /exit and stdin end each exit 0 with 
   assert.deepEqual(repl.stdin.rawModes, []);
 });
 
+test('another key between two Ctrl-Cs cancels the pending exit: ^C x ^U ^C shows the hint twice and keeps running', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  const repl = startRepl([], { home, cwd });
+  await repl.prompts(1);
+  repl.stdin.type('\x03x\x15\x03');
+  await repl.until(EXIT_HINT, 2);
+  repl.stdin.type('/cost\r');
+  await repl.until('session total', 1);
+  assert.equal(count(repl.out.text, EXIT_HINT), 2);
+  assertCleanExit(repl, await exitWith(repl, '\x04'));
+});
+
+test('a stdin EIO error ends input as stdin closing does; any other error prints clay: <message> first', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  for (const code of ['EIO', 'EBADF']) {
+    const repl = startRepl([], { home, cwd });
+    await repl.prompts(1);
+    repl.stdin.emit('error', Object.assign(new Error(`read ${code}`), { code }));
+    assertCleanExit(repl, await repl.done);
+    assert.equal(count(repl.out.text, `\nclay: read ${code}\n`), code === 'EIO' ? 0 : 1, code);
+  }
+});
+
+test('a turn that throws still restores the terminal and drops the listeners before the error propagates', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  const repl = startRepl([], { home, cwd });
+  await repl.prompts(1);
+  rmSync(dirname(transcriptPath(home, cwd, repl.sessionIds()[0])), { recursive: true });
+  repl.stdin.type('hi\r');
+  await assert.rejects(repl.done, { code: 'ENOENT' });
+  assert.ok(repl.out.text.endsWith(PASTE_OFF), JSON.stringify(repl.out.text.slice(-80)));
+  assert.deepEqual(repl.stdin.rawModes, [true, false]);
+  for (const event of ['data', 'end', 'error']) assert.equal(repl.stdin.listenerCount(event), 0, event);
+  assert.equal(repl.stdin.paused, true);
+  assert.deepEqual(repl.signals, {});
+});
+
 test('Ctrl-C with text clears it, and ^D with text is ignored', GUARD, async (t) => {
   const { home, cwd } = await dirs(t);
   const repl = startRepl([], { home, cwd, replies: [textReply('ok')] });
@@ -187,7 +227,7 @@ test('slash commands: /help, /cost, /model, unknown names, and slash text that i
   assert.ok(out.includes('> /model\nclay: model claude-opus-5-5\n'));
   assert.ok(out.includes('> /model claude-haiku-5-5\nclay: model claude-haiku-5-5\n'));
   assert.ok(out.includes('> /foo\nclay: unknown command /foo (try /help)\n'));
-  assert.ok(out.includes('> /compact\nclay: /compact is not available yet\n'));
+  assert.ok(out.includes('> /compact\nclay: nothing to compact\n'));
   const calls = repl.fetch.calls;
   assert.equal(calls.length, 3);
   assert.deepEqual(calls.map((call) => userTexts(call.body).at(-1)), ['hi', '/Users/x/y hi', '/clear']);

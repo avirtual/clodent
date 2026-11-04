@@ -145,8 +145,8 @@ export async function runRepl(ctx, deps) {
   }
 
   function onError(err) {
-    if (err?.code !== 'EIO') print(`clay: ${err?.message ?? err}`);
     onEnd();
+    if (err?.code !== 'EIO') print(`clay: ${err?.message ?? err}`);
   }
 
   function onSignal(name) {

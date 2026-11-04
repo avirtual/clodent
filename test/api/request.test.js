@@ -110,6 +110,12 @@ test('effort maps to output_config only when set', () => {
   }
 });
 
+test('toolChoice maps to tool_choice only when set', () => {
+  assert.equal('tool_choice' in buildRequest(base(), deps).body, false);
+  assert.equal('tool_choice' in buildRequest(base({ toolChoice: null }), deps).body, false);
+  assert.deepEqual(buildRequest(base({ toolChoice: { type: 'none' } }), deps).body.tool_choice, { type: 'none' });
+});
+
 test('an invalid effort throws', () => {
   for (const effort of ['max', 'HIGH', '', 3]) {
     assert.throws(() => buildRequest(base({ effort }), deps), /invalid effort/);
