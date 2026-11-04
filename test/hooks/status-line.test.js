@@ -28,7 +28,7 @@ async function statusLineIn(t, body) {
   const command = await script(dir, 'status.sh', body);
   const settings = settingsWith({}, { statusLine: { type: 'command', command }, env: { OUT: out } });
   const warnings = [];
-  const line = createStatusLine({ settings, cwd: dir, env: cleanEnv(), version: '0.1.0' }, { spawn, warn: (w) => warnings.push(w) });
+  const line = createStatusLine({ settings, cwd: dir, env: cleanEnv(), version: '0.2.0' }, { spawn, warn: (w) => warnings.push(w) });
   const runs = async () => (await readFile(out, 'utf8')).split('\n').filter(Boolean);
   return { dir, command, line, warnings, runs };
 }
@@ -59,7 +59,7 @@ test('the script receives every statusLine field on stdin', GUARD, async (t) => 
     session_id: 'sess-1',
     transcript_path: '/clay/projects/x/sess-1.jsonl',
     cwd: dir,
-    version: '0.1.0',
+    version: '0.2.0',
     model: { id: 'claude-opus-5-5', display_name: 'claude-opus-5-5' },
     workspace: { current_dir: dir },
     context_window: { used_tokens: 12345, total_input_tokens: 12000, context_window_size: 200000, used_percentage: 6.2 },
