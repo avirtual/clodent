@@ -290,6 +290,16 @@ test('cd targets resolve again against every directory a cd in a loop adds, and 
   for (const command of ['CDPATH=/x cd ./y && cat id_rsa', 'cd y && cat id_rsa; CDPATH=/x']) assert.equal(await ruling(plain, command), null, command);
 });
 
+test('only a cd inside a loop resolves out of order, against the directories added before its done, and a repeat adds only a directory that exists', async () => {
+  const plain = guardOf();
+  const ordered = ["trap 'rm -f x' EXIT; cd src; make; cd ../docs; make", 'cd backend && npm test; cd ../frontend && npm test; for f in dist/*; do make; done'];
+  for (const command of [...ordered, 'for i in 1 2 3; do cd server; npm test; cd ../client; npm test; cd ..; done']) {
+    assert.equal(await ruling(plain, command, '/work', 'yolo'), null, command);
+  }
+  assert.equal(await ruling(plain, 'cd backend && npm test; cd ../frontend && npm test; for f in dist/*; do echo $f; done', '/work', 'yolo'), 'ask Read(~/.ssh)');
+  assert.equal(await ruling(guardOf({ deny: ['Read(~/.ssh/id_rsa)'] }), 'for i in 1 2; do cat id_rsa; cd .ssh; done; cd ~', '/work', 'yolo'), null);
+});
+
 test('a glob part not starting with . matches no dot-name, on disk or past the visit cap, unless the command sets dotglob or GLOBIGNORE', async () => {
   const guard = guardOf();
   assert.equal(await ruling(guard, 'cat ~/*/id_rsa'), null);

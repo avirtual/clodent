@@ -652,6 +652,12 @@ function pastWrappers(words, at) {
   return k;
 }
 
+const onDisk = async (paths, list) => {
+  const kept = [];
+  for (const path of paths) if (path === '/' || (await list(dirname(path))).includes(basename(path))) kept.push(path);
+  return kept;
+};
+
 const pathless = (word, k, at) => (k < at ? LEADING_WORDS.has(word) : (k === at && !word.includes('/')) || OPTION.test(word));
 
 async function reachOf(command, cwd, scope) {
@@ -664,8 +670,10 @@ async function reachOf(command, cwd, scope) {
   const searches = [];
   const pieces = [];
   const cds = [];
-  let anyOrder = false;
-  let cdpathAt = Infinity;
+  const open = [];
+  let loop = null;
+  let everyWord = false;
+  let cdpathAt = null;
   let dotglob = false;
   let index = 0;
   for (const piece of simpleCommands(text)) {
@@ -674,12 +682,18 @@ async function reachOf(command, cwd, scope) {
     let at = 0;
     while (at < words.length && (LEADING_WORDS.has(words[at]) || ASSIGNMENT.test(words[at]))) at += 1;
     const [head, ...args] = words.slice(at);
-    anyOrder ||= head === 'trap' || words.slice(0, at).some((word) => LOOP_WORDS.has(word));
-    if (words.some((word) => CDPATH_SET.test(word))) cdpathAt = Math.min(cdpathAt, index);
+    for (const word of words.slice(0, at)) {
+      if (word === 'do' && open.at(-1) === 'while') open[open.length - 1] = 'do';
+      else if (LOOP_WORDS.has(word)) open.push(word === 'do' ? 'do' : 'while');
+    }
+    loop = open.length === 0 ? null : (loop ?? { end: Infinity });
+    everyWord ||= head === 'trap' || loop !== null;
+    if (head === 'done' && open.pop() && open.length === 0) loop.end = index;
+    if (words.some((word) => CDPATH_SET.test(word))) cdpathAt ??= index;
     dotglob ||= words.some((word) => GLOBIGNORE_SET.test(word)) || (head === 'shopt' && args.includes('dotglob'));
     pieces.push({ words: words.filter((word, k) => !pathless(word, k, at)), index });
     if (head === undefined) continue;
-    if (CHANGES_DIR.has(head)) cds.push({ head, args, index });
+    if (CHANGES_DIR.has(head)) cds.push({ head, args, index, loop });
     const call = pastWrappers(words, at);
     if (call >= words.length) continue;
     const name = basename(literal(words[call]));
@@ -689,11 +703,12 @@ async function reachOf(command, cwd, scope) {
   const wordScope = { ...scope, dotglob };
   const cdScope = { ...wordScope, cdpath: scope.env?.CDPATH ? scope.env.CDPATH.split(':') : [] };
   const vagueScope = { ...cdScope, cdpath: [...cdScope.cdpath, VAGUE] };
-  const scopeAt = (at) => ((anyOrder ? cdpathAt < Infinity : at >= cdpathAt) ? vagueScope : cdScope);
+  const scopeAt = (until) => (cdpathAt !== null && cdpathAt <= until ? vagueScope : cdScope);
   const tried = new Set();
-  for (let fresh = true; fresh; ) {
+  for (let pass = 1, fresh = true; fresh; pass += 1) {
     fresh = false;
-    for (const { head, args, index: at } of cds) {
+    for (const { head, args, index: at, loop: within } of cds) {
+      const until = within ? within.end : at;
       const target = args.find((arg) => arg === '-' || !arg.startsWith('-'));
       if (target === undefined) {
         if (head === 'cd') add(scope.home ?? UNKNOWN, at);
@@ -701,11 +716,11 @@ async function reachOf(command, cwd, scope) {
       else if (head === 'cd' || !/^\+\d+$/.test(target)) {
         for (const dir of [...dirs.keys()]) {
           const key = `${at}:${dir}`;
-          if (tried.has(key) || (anyOrder ? dirs.get(dir) === at : dirs.get(dir) >= at)) continue;
+          if (tried.has(key) || dirs.get(dir) >= until || dirs.get(dir) === at) continue;
           tried.add(key);
           fresh = true;
-          const { paths, loose } = await expandWord(target, [dir], scopeAt(at));
-          paths.forEach((path) => add(path, at));
+          const { paths, loose } = await expandWord(target, [dir], scopeAt(until));
+          (within && pass > 1 ? await onDisk(paths, scope.list) : paths).forEach((path) => add(path, at));
           if (loose.length > 0) add(loose.some((path) => looseSegments(path).strong) ? UNKNOWN : VAGUE, at);
         }
       }
@@ -714,7 +729,7 @@ async function reachOf(command, cwd, scope) {
   const paths = new Set();
   const loose = [];
   const all = [...dirs.keys()];
-  const dirsAt = (at) => all.filter((dir) => anyOrder || !WILD.test(dir) || dirs.get(dir) < at);
+  const dirsAt = (at) => all.filter((dir) => everyWord || !WILD.test(dir) || dirs.get(dir) < at);
   const resolveWords = async (words, against) => {
     for (const word of words) {
       const at = word.indexOf('=');
@@ -727,7 +742,7 @@ async function reachOf(command, cwd, scope) {
   };
   await resolveWords(shellWords(text).map(decoded), all.filter((dir) => !WILD.test(dir) || dirs.get(dir) < 0));
   for (const { words, index: at } of pieces) {
-    const later = all.filter((dir) => WILD.test(dir) && dirs.get(dir) >= 0 && (anyOrder || dirs.get(dir) < at));
+    const later = all.filter((dir) => WILD.test(dir) && dirs.get(dir) >= 0 && (everyWord || dirs.get(dir) < at));
     if (later.length > 0) await resolveWords(words, later);
   }
   const roots = [];
