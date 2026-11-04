@@ -5,6 +5,9 @@ clodent was named clay up to 0.2.0.
 ## Unreleased
 
 - Requests carry `metadata.user_id` = `{"session_id":"<id>"}` so a proxy such as wirescope can group requests by session.
+- Stream JSON io: `-p --input-format stream-json --output-format stream-json` reads prompts, interrupts and `set_model` as JSON lines on stdin and writes `init`, `assistant`, `user`, `result` and `control_response` lines on stdout, as Clodex's Claude stream codec expects; `-p "<prompt>" --output-format stream-json` prints one turn the same way.
+- Permission prompts over stdio: with `--permission-prompt-tool stdio` a permission ask is a `can_use_tool` control request answered by an allow or deny `control_response`; a deny writes a `permission_denied` line.
+- `-p` directly followed by another flag parses as a bare flag with an empty prompt, so `-p --input-format stream-json` works.
 
 ## 0.3.0 — 2026-11-04
 
