@@ -11,10 +11,23 @@ test('yolo allows every kind', () => {
   for (const t of [READ, WRITE, BASH]) assert.deepEqual(decide(t, {}, 'yolo'), { allow: true });
 });
 
-test('read-only allows read tools and denies write and exec by name', () => {
+test('read-only allows read tools and denies write tools by name', () => {
   assert.deepEqual(decide(READ, {}, 'read-only'), { allow: true });
   assert.deepEqual(decide(WRITE, {}, 'read-only'), { allow: false, reason: '--read-only: Write is not allowed' });
-  assert.deepEqual(decide(BASH, { command: 'ls' }, 'read-only'), { allow: false, reason: '--read-only: Bash is not allowed' });
+});
+
+test('read-only runs a read-only Bash command and refuses any other with the reason', () => {
+  assert.deepEqual(decide(BASH, { command: 'ls' }, 'read-only'), { allow: true });
+  assert.deepEqual(decide(BASH, { command: 'rm x' }, 'read-only'), { allow: false, reason: '--read-only: Bash command is not read-only (rm is not a read-only command)' });
+  assert.deepEqual(decide(BASH, {}, 'read-only'), { allow: false, reason: '--read-only: Bash command is not read-only (empty command)' });
+});
+
+test('ask runs a read-only Bash command without asking', () => {
+  assert.deepEqual(decide(BASH, { command: 'ls' }, 'ask'), { allow: true });
+  for (const [t, command] of [[BASH, 'rm x'], [tool('Other', 'exec'), 'ls']]) {
+    const verdict = decide(t, { command }, 'ask');
+    assert.deepEqual([verdict.allow, verdict.reason], [false, ASK_DENIAL], `${t.name} ${command}`);
+  }
 });
 
 test('ask allows read tools and marks write and exec as an ask, with the rerun hint as the refusal', () => {

@@ -67,7 +67,6 @@ export function runProcess(command, { cwd, env, stdin, timeoutMs, signal, onStdo
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (killTimer) clearTimeout(killTimer);
       signal?.removeEventListener('abort', onAbort);
       resolve({ ...base, timedOut, aborted, ...fields });
     };

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { EVENT_TYPES } from '../../src/agent/events.js';
 import { createAgent, INTERRUPT_MARKER, INTERRUPTED_RESULT } from '../../src/agent/loop.js';
 import { ASK_DENIAL } from '../../src/agent/permission.js';
+import { emptyOutcome } from '../../src/hooks/fire.js';
 import { createLedger } from '../../src/cost/ledger.js';
 import { createTools } from '../../src/tools/index.js';
 import { createFakeFetch } from '../helpers/fake-fetch.js';
@@ -14,7 +15,7 @@ import { plant, useTempDir } from '../tools/tmp-dir.js';
 
 const MODEL = 'claude-opus-5-5';
 
-function harness(responses, { tools = [], permission = 'yolo', budgetUsd, cwd = '/work', onEvent, sleep, history, interrupted } = {}) {
+function harness(responses, { tools = [], permission = 'yolo', budgetUsd, cwd = '/work', onEvent, sleep, history, interrupted, hooks } = {}) {
   const events = [];
   const sleeps = [];
   const fetch = createFakeFetch(responses);
@@ -32,6 +33,7 @@ function harness(responses, { tools = [], permission = 'yolo', budgetUsd, cwd = 
       random: () => 0.5,
       now: () => 0,
       ledger,
+      hooks,
       emit: (e) => {
         events.push(e);
         onEvent?.(e);
@@ -206,13 +208,28 @@ test('under yolo, Write creates the file', async (t) => {
   assert.equal(h.of('permission')[0].decision, 'allow');
 });
 
-test('under read-only, Bash is denied and never spawned', async () => {
+test('under read-only, a Bash command that is not read-only is denied and never spawned', async () => {
   const spawned = [];
   const tools = createTools({ spawn: (...args) => spawned.push(args) });
-  const h = harness([toolReply([{ name: 'Bash', input: { command: 'ls' } }]), textReply('ok')], { tools, permission: 'read-only' });
-  await h.agent.runTurn('ls');
+  const h = harness([toolReply([{ name: 'Bash', input: { command: 'touch x' } }]), textReply('ok')], { tools, permission: 'read-only' });
+  await h.agent.runTurn('touch');
   assert.deepEqual(spawned, []);
-  assert.deepEqual(h.of('tool_result').map((e) => [e.content, e.isError]), [['--read-only: Bash is not allowed', true]]);
+  assert.deepEqual(h.of('tool_result').map((e) => [e.content, e.isError]), [['--read-only: Bash command is not read-only (touch is not a read-only command)', true]]);
+});
+
+test('an interrupt that lands during PreToolUse stops the call before it runs', async () => {
+  const controller = new AbortController();
+  const log = [];
+  const hooks = {
+    fire: async (event) => {
+      if (event === 'PreToolUse') controller.abort();
+      return emptyOutcome();
+    },
+  };
+  const h = harness([toolReply([{ name: 'W', input: {} }]), textReply('never')], { tools: [fakeTool('W', 'write', log)], hooks });
+  await h.agent.runTurn('go', { signal: controller.signal });
+  assert.deepEqual(log, []);
+  assert.deepEqual(h.of('tool_result').map((e) => [e.id, e.content, e.isError]), [['toolu_1', INTERRUPTED_RESULT, true]]);
 });
 
 test('a budget below the first request cost stops before the second request', async () => {

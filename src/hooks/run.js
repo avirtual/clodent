@@ -102,6 +102,14 @@ function timeoutMsFor(entry) {
   return seconds * 1000;
 }
 
+function mergeDuplicate(kept, duplicate) {
+  return {
+    ...kept,
+    onFailure: kept.onFailure === 'block' || duplicate.onFailure === 'block' ? 'block' : kept.onFailure,
+    timeout: timeoutMsFor(duplicate) > timeoutMsFor(kept) ? duplicate.timeout : kept.timeout,
+  };
+}
+
 export async function runHooks(event, input, ctx, deps = {}) {
   if (!HOOK_EVENTS.includes(event)) throw new Error(`unknown hook event: ${event}`);
   const settings = ctx.settings ?? {};
@@ -110,7 +118,9 @@ export async function runHooks(event, input, ctx, deps = {}) {
   for (const group of settings.hooks?.[event] ?? []) {
     if (!groupMatches(event, group.matcher, input, warnings)) continue;
     for (const entry of group.hooks ?? []) {
-      if (entry?.type === 'command' && typeof entry.command === 'string' && !entries.has(entry.command)) entries.set(entry.command, entry);
+      if (entry?.type !== 'command' || typeof entry.command !== 'string') continue;
+      const seen = entries.get(entry.command);
+      entries.set(entry.command, seen ? mergeDuplicate(seen, entry) : entry);
     }
   }
   const env = { ...ctx.env, ...settings.env, CLAY_PROJECT_DIR: ctx.cwd };

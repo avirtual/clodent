@@ -13,3 +13,4 @@
 - Settings files and hooks: `--settings`, `$CLAY_HOME/settings.json`, SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/PostToolUseFailure/Stop hooks with context injection, statusLine, and `ANTHROPIC_BASE_URL`.
 - Interactive REPL: bracketed paste, Ctrl-C/Ctrl-D, /help /cost /model /clear /quit, and a y/n permission ask with a Notification hook.
 - `/compact [instructions]` summarises the conversation into one message; the session stays resumable, and PreCompact and SessionStart (source compact) hooks fire.
+- Read-only Bash commands (an allowlist such as ls, cat, grep, git log/diff/status) run without asking; --read-only refuses only the rest.

@@ -279,11 +279,10 @@ test('an uppercase --session-id is stored lowercased, and the same id in either 
 
 test('a CLAY_HOME that cannot hold a transcript exits 2 with the error, before any request', async (t) => {
   const { home, cwd } = await setup(t);
-  const file = join(home, 'not-a-dir');
-  writeFileSync(file, '');
-  const res = await run(['-p', 'hi'], { home: file, cwd, responses: [textReply('one')] });
+  writeFileSync(join(home, 'projects'), '');
+  const res = await run(['-p', 'hi'], { home, cwd, responses: [textReply('one')] });
   assert.equal(res.code, 2);
-  assert.match(res.stderr, /^clay: [^\n]*ENOTDIR[^\n]*\n$/);
+  assert.match(res.stderr, /^clay: ENOTDIR[^\n]*\n$/);
   assert.equal(res.calls.length, 0);
 });
 
