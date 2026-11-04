@@ -76,6 +76,7 @@ export function createStreamOutput(ctx, deps) {
       message('assistant', assistantMessage(received));
       if (!turn) return;
       turn.apiMs += durationMs;
+      turn.responses += 1;
       turn.streamed = '';
       if (received.stop_reason !== 'tool_use') turn.finalText = textOf(received.content);
     },
@@ -119,14 +120,14 @@ export function createStreamOutput(ctx, deps) {
         stopReason: MADE_UP_STOPS.has(stopReason) ? null : stopReason,
         durationMs: Math.round(now() - current.startedAt),
         apiMs: Math.round(current.apiMs),
-        requests: spent.requests,
+        requests: current.responses,
         tokens: spent.tokens,
       });
     },
   };
 
   function fresh() {
-    return { startedAt: now(), apiMs: 0, finalText: '', streamed: '', error: null };
+    return { startedAt: now(), apiMs: 0, responses: 0, finalText: '', streamed: '', error: null };
   }
 
   return {

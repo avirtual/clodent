@@ -218,7 +218,7 @@ Result fields, in this order:
 - `is_error`: true for an API error after retries, a budget stop, an empty prompt, a failed `/compact` or `/clear`, or an unknown slash command.
 - `duration_ms`: the turn's wall time in ms, from the prompt to the end of the turn, before the `Stop` hook.
 - `duration_api_ms`: the summed durations of the turn's API responses.
-- `num_turns`: the number of API responses in the turn.
+- `num_turns`: the number of API responses in the turn; a failed or interrupted attempt is not one.
 - `result`: the text blocks of the turn's last response that did not stop for `tool_use`, joined, or `""`. For an API error it is the error message; for a budget stop, the `[clodent:budget]` line; for an interrupt, the text that streamed in the interrupted response before the interrupt, or `""`; for an empty prompt, `clodent: empty prompt (image input is not supported)`.
 - `stop_reason`: the last response's `stop_reason`; null after an interrupt, an API error, a budget stop, a response without one, and for an empty prompt.
 - `session_id`.
@@ -423,11 +423,13 @@ Line formats. Each is one line. Amounts have exactly four decimals, rounded half
 
 Every request attempt that got its `message_start` event is charged and counts in `requests`, also when it then fails, is re-sent or is interrupted (Ctrl-C, a signal, a stream-json `interrupt`). A failed or interrupted attempt is charged its `message_start` input, cache-read and cache-write tokens and the `output_tokens` of its last `message_delta`, or 0 output before any. The per-turn line, the session total, `/cost` and `--budget` all include these charges; the transcript records no usage for a failed or interrupted attempt. An attempt that fails before `message_start` reported no usage and is not charged.
 
-`--budget <usd>` is checked before every request the loop sends, each mid-stream re-send included; a re-send the budget does not cover is not sent, and the turn stops with the `spent` line as a first request would, without the `retrying` warning. Pre-stream retries (see [API wire](#api-wire)) charge nothing, so the check before the first try covers them:
+`--budget <usd>` is checked before every request the loop sends, each mid-stream re-send included:
 
 - The estimate for the next request is the cost of the previous charged attempt, or 0 before the first.
 - clodent stops with the `spent` line when the session total spent plus that estimate exceeds the budget. A projected total exactly equal to the budget proceeds.
 - When any request in the session was for a model with no price, clodent stops with the `has no price` line, naming the first such model. A budget is never run unmetered.
+
+A re-send the budget does not cover is not sent, and the turn stops with the `spent` line as a first request would, without the `retrying` warning. Pre-stream retries (see [API wire](#api-wire)) charge nothing, so the check before the first try covers them.
 
 ### Tools
 

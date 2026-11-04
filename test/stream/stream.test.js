@@ -9,6 +9,7 @@ import { CLOSED_DENIAL } from '../../src/repl/repl.js';
 import { EMPTY_PROMPT } from '../../src/stream/output.js';
 import { hookGroup, runMain, textReply, toolsReply, writeSettings } from '../helpers/run-main.js';
 import { script } from '../hooks/scripts.js';
+import { sseError, sseEvents } from '../helpers/sse-builder.js';
 import { useTempDir } from '../tools/tmp-dir.js';
 import { kinds, parseRecords, STDIO, startStream, STREAM_ARGV, userLine, UUID } from './harness.js';
 
@@ -92,6 +93,22 @@ test('total_cost_usd is cumulative across turns, and usage and num_turns are per
   assert.deepEqual([first.num_turns, second.num_turns], [1, 2]);
   assert.deepEqual(second.usage, { input_tokens: 2000, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 200 });
   assert.deepEqual([first.result, second.result, second.stop_reason, second.subtype], ['one', 'two', 'end_turn', 'success']);
+});
+
+test('num_turns counts responses only, while usage sums every charged attempt of the turn', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  const retried = sseEvents({ blocks: [{ type: 'text', text: 'lost' }], usage: { input_tokens: 40, output_tokens: 7 } }).slice(0, -1).join('') + sseError('overloaded_error', 'Overloaded');
+  const failed = sseEvents({ blocks: [{ type: 'text', text: 'half' }], usage: { input_tokens: 30 } }).slice(0, 3).join('') + sseError('invalid_request_error', 'bad thing');
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID], { home, cwd, replies: [{ body: retried }, textReply('ok', USAGE), { body: failed }] });
+  s.send(userLine('first'));
+  await s.until('result');
+  s.send(userLine('second'));
+  await s.until('result', 2);
+  s.close();
+  assert.equal(await s.done, 0);
+  const [first, second] = results(s);
+  assert.deepEqual([first.num_turns, first.is_error, first.usage], [1, false, { input_tokens: 1040, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 107 }]);
+  assert.deepEqual([second.num_turns, second.is_error, second.usage], [0, true, { input_tokens: 30, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 }]);
 });
 
 test('a user message sent during a turn joins the next tool result: one result, and the request carries it', GUARD, async (t) => {
