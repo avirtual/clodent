@@ -55,7 +55,7 @@ function copyTools(tools) {
 }
 
 export function buildRequest(
-  { model, system, tools = [], messages, effort, maxTokens = DEFAULT_MAX_TOKENS, baseUrl },
+  { model, system, tools = [], messages, effort, maxTokens = DEFAULT_MAX_TOKENS, baseUrl, toolChoice },
   deps,
 ) {
   if (effort !== undefined && effort !== null && !EFFORTS.includes(effort)) {
@@ -74,6 +74,7 @@ export function buildRequest(
     system: [markEphemeral({ type: 'text', text: system })],
   };
   if (tools.length > 0) body.tools = copyTools(tools);
+  if (toolChoice !== undefined && toolChoice !== null) body.tool_choice = toolChoice;
   body.messages = copyMessages(messages);
   body.thinking = { type: 'adaptive' };
   if (effort !== undefined && effort !== null) body.output_config = { effort };

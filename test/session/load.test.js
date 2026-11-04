@@ -2,11 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { SUMMARY_PREFIX } from '../../src/agent/compact.js';
 import { createAgent, INTERRUPT_MARKER } from '../../src/agent/loop.js';
 import { createLedger } from '../../src/cost/ledger.js';
 import { loadTranscript } from '../../src/session/load.js';
 import { createRecorder } from '../../src/session/recorder.js';
-import { createTranscript } from '../../src/session/transcript.js';
+import { createTranscript, INTERRUPT_TEXT } from '../../src/session/transcript.js';
 import { createFakeFetch } from '../helpers/fake-fetch.js';
 import { sse } from '../helpers/sse-builder.js';
 import { useTempDir } from '../tools/tmp-dir.js';
@@ -105,6 +106,44 @@ test('interruptedLast is true only when the last user record is the interrupt re
 
 const line = (record) => `${JSON.stringify(record)}\n`;
 const user = (uuid, text, extra = {}) => ({ type: 'user', uuid, message: { role: 'user', content: [{ type: 'text', text }] }, ...extra });
+
+test('a live compact replays as the summary alone, and later turns replay after it', async (t) => {
+  const dir = await useTempDir(t);
+  const path = join(dir, 's.jsonl');
+  const live = liveSession(path, [textReply('one'), textReply('the summary'), textReply('two')]);
+  await live.turn('first');
+  const before = live.transcript.lastUuid();
+  assert.equal((await live.agent.compact({ instructions: '', trigger: 'manual' })).ok, true);
+  let loaded = loadTranscript(path, fs);
+  assert.deepEqual(loaded.history, [{ role: 'user', content: [{ type: 'text', text: `${SUMMARY_PREFIX}the summary` }] }]);
+  assert.deepEqual(loaded.history, live.agent.messages());
+  const [boundary, summary] = loaded.records.slice(-2);
+  assert.equal(boundary.parentUuid, null);
+  assert.equal(boundary.logicalParentUuid, before);
+  assert.deepEqual(boundary.compactMetadata, { trigger: 'manual', preTokens: 100, postTokens: 20 });
+  assert.equal(summary.parentUuid, boundary.uuid);
+  await live.turn('second');
+  loaded = loadTranscript(path, fs);
+  assert.deepEqual(loaded.history, live.agent.messages());
+  assert.equal(loaded.history.length, 2);
+});
+
+test('a compact_boundary empties the history and clears interruptedLast; the isCompactSummary record is replayed', async (t) => {
+  const dir = await useTempDir(t);
+  const path = join(dir, 'c.jsonl');
+  const boundary = (uuid) => ({ type: 'system', subtype: 'compact_boundary', uuid, parentUuid: null });
+  const summary = (uuid, text) => user(uuid, text, { isVisibleInTranscriptOnly: true, isCompactSummary: true });
+  writeFileSync(path, [user('a', 'before'), user('i', INTERRUPT_TEXT, { isVisibleInTranscriptOnly: true }), boundary('b'), summary('s1', 'summary one')].map(line).join(''));
+  let loaded = loadTranscript(path, fs);
+  assert.equal(loaded.interruptedLast, false);
+  assert.deepEqual(loaded.history, [{ role: 'user', content: [{ type: 'text', text: 'summary one' }] }]);
+  const reply = { type: 'assistant', uuid: 'r', message: { role: 'assistant', content: [{ type: 'text', text: 'r' }] } };
+  appendFileSync(path, [user('c', 'after'), reply, boundary('d'), summary('s2', 'summary two'), user('e', 'next')].map(line).join(''));
+  loaded = loadTranscript(path, fs);
+  assert.deepEqual(loaded.history, [{ role: 'user', content: [{ type: 'text', text: 'summary two' }, { type: 'text', text: 'next' }] }]);
+  assert.equal(loaded.records.length, 9);
+  assert.equal(loaded.lastUuid, 'e');
+});
 
 test('system, meta and unknown records are skipped; same-role records merge', async (t) => {
   const dir = await useTempDir(t);

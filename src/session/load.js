@@ -34,9 +34,15 @@ export function loadTranscript(path, { readFileSync }) {
     const record = parseLine(line, i + 1, path);
     records.push(record);
     lastUuid = record.uuid ?? lastUuid;
+    if (record.type === 'system' && record.subtype === 'compact_boundary') {
+      history.length = 0;
+      interruptedLast = false;
+      return;
+    }
     if (record.type !== 'user' && record.type !== 'assistant') return;
     if (record.type === 'user') interruptedLast = isInterrupt(record);
-    if (record.isMeta === true || record.isVisibleInTranscriptOnly === true) return;
+    const summary = record.type === 'user' && record.isCompactSummary === true;
+    if (!summary && (record.isMeta === true || record.isVisibleInTranscriptOnly === true)) return;
     if (!Array.isArray(record.message?.content)) throw new Error(`${path}: line ${i + 1} has no message content`);
     appendMessage(history, record.type, record.message.content);
   });

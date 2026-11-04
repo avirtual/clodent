@@ -95,3 +95,13 @@ test('an invalid settings file exits 2 with the loader error before any request'
   assert.match(res.stderr, /^clay: invalid settings file .*bad\.json: [^\n]+\n$/);
   assert.equal(res.calls.length, 0);
 });
+
+test('settings warnings print before the error line on an exit-2 path, in -p and REPL mode alike', async (t) => {
+  const { home, cwd, dir } = await setup(t);
+  const settings = writeSettings(dir, { env: { ANTHROPIC_API_KEY: 123 } });
+  const expected = `clay: settings ${settings}: env.ANTHROPIC_API_KEY is not a string; dropped\nclay: ANTHROPIC_API_KEY is not set\n`;
+  for (const argv of [['-p', 'hi', '--settings', settings], ['--settings', settings]]) {
+    const res = await runMain(argv, { home, cwd, key: '' });
+    assert.deepEqual([res.code, res.stdout, res.stderr, res.calls.length], [2, '', expected, 0], argv.join(' '));
+  }
+});

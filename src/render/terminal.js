@@ -58,6 +58,9 @@ export function createRenderer({ out, err, mode }) {
     tool_use({ name, summary }) {
       line(summary ? `● ${name} ${summary}` : `● ${name}`);
     },
+    permission_request({ id, name, summary }) {
+      line(summary ? `[clay:permit ${name} ${id}] ${summary}` : `[clay:permit ${name} ${id}]`);
+    },
     permission({ id, decision, reason }) {
       if (decision !== 'deny') return;
       denied.add(id);
@@ -88,6 +91,10 @@ export function createRenderer({ out, err, mode }) {
       line(formatCost(turn), 'dim');
       finalText = '';
       denied.clear();
+    },
+    compacted({ preTokens, postTokens, turn }) {
+      line(`clay: conversation compacted (${preTokens} → ${postTokens} tokens)`);
+      line(formatCost(turn), 'dim');
     },
     session_end({ session }) {
       line(formatTotal(session), 'dim');

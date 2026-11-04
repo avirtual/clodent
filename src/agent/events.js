@@ -6,6 +6,7 @@ export const EVENT_TYPES = Object.freeze([
   'assistant_message',
   'message_append',
   'tool_use',
+  'permission_request',
   'permission',
   'tool_result',
   'turn_end',
@@ -13,5 +14,6 @@ export const EVENT_TYPES = Object.freeze([
   'warning',
   'error',
   'interrupted',
+  'compacted',
   'session_end',
 ]);

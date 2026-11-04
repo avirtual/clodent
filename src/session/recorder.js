@@ -1,3 +1,4 @@
+import { summaryMessage } from '../agent/compact.js';
 import { INTERRUPT_TEXT } from './transcript.js';
 
 function messageRecord({ role, content, kind, meta }) {
@@ -44,6 +45,18 @@ export function createRecorder(transcript, { now }) {
     },
     interrupted() {
       append({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: INTERRUPT_TEXT }] }, isVisibleInTranscriptOnly: true });
+    },
+    compacted({ trigger, summary, preTokens, postTokens }) {
+      transcript.append({
+        type: 'system',
+        subtype: 'compact_boundary',
+        content: 'Conversation compacted',
+        level: 'info',
+        parentUuid: null,
+        logicalParentUuid: transcript.lastUuid(),
+        compactMetadata: { trigger, preTokens, postTokens },
+      });
+      transcript.append({ type: 'user', message: summaryMessage(summary), isVisibleInTranscriptOnly: true, isCompactSummary: true });
     },
     turn_end() {
       const durationMs = turnStart === null ? 0 : Math.round(now() - turnStart);
