@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.2.0 — 2026-11-04
+
+- Settings `permissions.deny` and `permissions.ask` rules (Claude Code syntax) are enforced on Read, Edit, Write, Grep and Glob, with the path checked lexically and after realpath: a deny refuses the call in every mode, `--yolo` and a hook `allow` included, an ask asks in the REPL and refuses in `-p` and `--read-only`, Grep and Glob skip denied files, and a bare-name deny removes the tool from the request.
+- Bash is guarded by the same rules as a best-effort string check: `Bash(prefix:*)` and exact rules, a command that mentions a `Read` rule path is denied, and one that mentions an `Edit` or `Write` rule path is denied unless it is read-only.
+- A malformed `permissions` rule list and `sandbox.enabled: true` are startup errors: `clay: settings <path>: <message>`, exit 2, before SessionStart and any request.
+
 ## 0.1.0 — 2026-11-04
 
 - `clay -p "<prompt>"` runs one turn of the agent loop and prints the final answer; exit 0 when the model ends its turn, 1 on an API error, budget stop or other stop reason, 2 on a startup error, and 130/143/129 on SIGINT/SIGTERM/SIGHUP.

@@ -1,8 +1,8 @@
 # clay
 
-clay is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.1.0 has an interactive REPL built to be driven through a PTY, a print mode (`clay -p`), six built-in tools, cost accounting, JSONL session transcripts, settings files and hooks.
+clay is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.2.0 has an interactive REPL built to be driven through a PTY, a print mode (`clay -p`), six built-in tools, cost accounting, JSONL session transcripts, settings files and hooks.
 
-Non-goals for v0.1: MCP, plugins, skills, subagents, web tools, image input, Windows, telemetry, the stream-json io (v0.2).
+Non-goals for v0.2: MCP, plugins, skills, subagents, web tools, image input, Windows, telemetry, the stream-json io (v0.3).
 
 ## Install
 
@@ -10,7 +10,7 @@ Requires Node.js 22 or later. clay has no dependencies. From a checkout:
 
 ```sh
 npm link
-clay --version   # clay 0.1.0
+clay --version   # clay 0.2.0
 ```
 
 ## Usage
@@ -48,7 +48,7 @@ An opt-in check against the real Messages API; the suite only runs it without a 
 
 ## Contract
 
-This section is the contract a host integrates against. It describes clay 0.1.0.
+This section is the contract a host integrates against. It describes clay 0.2.0.
 
 ### Hosting clay
 
@@ -65,7 +65,8 @@ A summary for a host adapter; each point links to the section that pins it down.
 - `/compact`: fires `PreCompact` (`trigger: "manual"`), replaces the history with a summary under the same session id, writes the `compact_boundary` and `isCompactSummary` records, and fires `SessionStart` with `source: "compact"`. `/clear`: prints a new `[clay:session] <id>`, records into a new transcript, and fires `SessionStart` with `source: "clear"`. Type either as plain text, then `\r`; a pasted `/compact` is a prompt. Like every slash command, neither writes a `turn_duration` record or fires `Stop`: its end is the next `\x1b[?2004h`. See [REPL](#repl).
 - statusLine: the settings `statusLine` command gets `context_window.used_tokens`, `context_window.context_window_size`, `context_window.used_percentage`, `model.id` and `cost.total_cost_usd` on stdin after each API response, after `/clear` (zero usage) and after `/compact` (`used_tokens` is the summary's size). See [Hooks](#hooks).
 - Signals: SIGINT acts as Ctrl-C: it interrupts a turn, and two in a row at an empty prompt exit 0. SIGTERM exits 143 and SIGHUP 129, after interrupting a running turn, whose `Stop` hook still fires. Ctrl-D, `/quit` and stdin closing exit 0. See [REPL](#repl).
-- Absent in 0.1.0: the stream-json io (`--input-format`/`--output-format stream-json`, planned for v0.2), MCP and subagents, so hooks never get `agent_id`.
+- Settings guard: permissions.deny/ask are enforced (see Permission rules); sandbox.enabled: true is a startup error (exit 2), so drop sandbox for clay seats.
+- Absent in 0.2.0: the stream-json io (`--input-format`/`--output-format stream-json`, planned for v0.3), MCP and subagents, so hooks never get `agent_id`.
 
 ### Flags
 
@@ -144,7 +145,7 @@ Permissions in `-p` go by the tool's kind (see [Tools](#tools)), and for `Bash` 
 | `--yolo` | runs | runs | runs |
 | `--read-only` | runs | refused: `--read-only: <Tool> is not allowed` | a read-only command runs; any other is refused: `--read-only: Bash command is not read-only (<reason>)` |
 
-A `PreToolUse` hook can refuse any call or let a call run in the default mode; see [Hooks](#hooks) for the order.
+A `PreToolUse` hook can refuse any call or let a call run in the default mode; see [Hooks](#hooks) for the order. A call a settings deny rule matches is refused in every mode, and one an ask rule matches is refused unless `--yolo` is given; see [Permission rules](#permission-rules).
 
 ### REPL
 
@@ -206,7 +207,7 @@ Slash commands: a submitted line is a command when it was typed, with no paste i
 
 A compact is not a turn: it fires no `Stop` hook and writes no `turn_duration` record. Print mode has no compact.
 
-Permission ask: in the default mode, a write or exec tool call that no hook allowed or denied waits for an answer, unless it is a read-only `Bash` command (see [Read-only Bash](#read-only-bash)). `--yolo` and `--read-only` never ask, and print mode refuses the call instead.
+Permission ask: in the default mode, a write or exec tool call that no hook allowed or denied waits for an answer, unless it is a read-only `Bash` command (see [Read-only Bash](#read-only-bash)). So does any call a settings ask rule matches, even one a hook allowed; a call a deny rule matches is refused without asking (see [Permission rules](#permission-rules)). `--yolo` and `--read-only` never ask, and print mode refuses the call instead.
 
 1. clay prints `[clay:permit <Tool> <tool_use id>] <summary>` on its own line, with the summary of the `● <Tool> <summary>` line; with an empty summary the line ends at `]`.
 2. It writes `Allow? [y/n] ` and starts reading one line.
@@ -292,7 +293,7 @@ Line formats. Each is one line. Amounts have exactly four decimals, rounded half
 
 ### Tools
 
-clay gives the model six built-in tools, in this order. `kind` decides how permissions treat a tool. Input names follow the common agent-tool convention, so a hook reading `tool_input` sees the same fields. Relative paths resolve against the working directory, and every path in a result is absolute.
+clay gives the model six built-in tools, in this order; a bare-name deny rule in settings removes one (see [Permission rules](#permission-rules)). `kind` decides how permissions treat a tool. Input names follow the common agent-tool convention, so a hook reading `tool_input` sees the same fields. Relative paths resolve against the working directory, and every path in a result is absolute.
 
 | Tool | Kind | Inputs | Result |
 |---|---|---|---|
@@ -386,7 +387,7 @@ Internal; serialized by a later stream-json mode. The agent loop reports everyth
 | `assistant_message` | `message` (the assembled API message), `requestId`, `durationMs`, `usd`, `priced` | when a response completes |
 | `message_append` | `role`, `content` (the blocks just added to the history), `kind` (`prompt`, `tool_results`, `assistant` or `partial`), `meta` (`message`, `requestId`, `durationMs`, `usd` for `assistant`; `{}` otherwise) | each time blocks join the history; for a response, just before `assistant_message`, even when its content is empty |
 | `tool_use` | `id`, `name`, `input`, `summary` | before each tool call, and before the result made up for a call that never ran |
-| `permission_request` | `id`, `name`, `input`, `summary` | after `tool_use`, when the default mode would refuse the call and the agent has an asker (the REPL); before the `Notification` hook and the ask |
+| `permission_request` | `id`, `name`, `input`, `summary` | after `tool_use`, when the default mode would refuse the call or a settings ask rule matches it, and the agent has an asker (the REPL); before the `Notification` hook and the ask |
 | `permission` | `id`, `name`, `decision` (`allow` or `deny`), `reason` (on deny) | after `tool_use`, for a known tool, unless the turn was interrupted before the decision |
 | `tool_result` | `id`, `name`, `content`, `isError`, `durationMs` | after each tool call, including refused, unknown and interrupted calls |
 | `turn_end` | `stopReason`, `turn` (the turn's cost aggregate) | last, once per turn |
@@ -465,7 +466,7 @@ Sources, in this order:
 1. `<CLAY_HOME>/settings.json`, where `CLAY_HOME` defaults to `~/.clay`. A missing file counts as empty.
 2. Each `--settings <file>`, in argv order; a relative path resolves against the working directory. A missing one is an error: `settings file not found: <path>`.
 
-A file that is not valid JSON, or whose top level is not an object, is an error: `invalid settings file <path>: <reason>`. Any other read failure is `cannot read settings file <path>: <reason>`. An error prints `clay: <error>` and exits 2 before any request.
+A file that is not valid JSON, or whose top level is not an object, is an error: `invalid settings file <path>: <reason>`. Any other read failure is `cannot read settings file <path>: <reason>`. A malformed permission rule list and `sandbox.enabled: true` are errors too, `settings <path>: <message>` (see [Permission rules](#permission-rules)). An error prints `clay: <error>` and exits 2 before any request.
 
 Honored keys and how they merge across sources; later sources win unless the row says otherwise:
 
@@ -477,8 +478,58 @@ Honored keys and how they merge across sources; later sources win unless the row
 | `trustedDirectories`, `permissions.additionalDirectories` | concatenated in source order (within a file, `trustedDirectories` first) and deduplicated, as one list of extra directories; listed in the system prompt after the `--add-dir` paths |
 | `effortLevel` | `low`, `medium` or `high`; the last valid one wins; any other value, such as `xhigh`, is ignored with a warning. The effort when `--effort` is absent |
 | `model` | the last one wins. The model when `--model` is absent |
+| `permissions.deny`, `permissions.ask` | rule lists, concatenated in source order; see [Permission rules](#permission-rules). A malformed list or rule is an error |
+| `sandbox` | `enabled: true` in any source is an error; any other `sandbox` value or key is ignored |
 
-Every other key, such as `voice`, `voiceEnabled` or `permissions.deny`, is ignored silently. A malformed value of an honored key is dropped with a warning `settings <path>: <what was dropped>`, and loading continues. A hook entry whose `type` is not `"command"` is dropped with such a warning.
+Every other key, such as `voice`, `voiceEnabled`, `skillOverrides`, `permissions.allow` or `permissions.defaultMode`, is ignored silently. A malformed value of an honored key is dropped with a warning `settings <path>: <what was dropped>`, and loading continues. A hook entry whose `type` is not `"command"` is dropped with such a warning.
+
+### Permission rules
+
+`permissions.deny` and `permissions.ask` in settings hold rules in Claude Code's syntax, so the lists Clodex writes for a seat load unchanged. clay enforces them on its six tools; `permissions.allow` and `permissions.defaultMode` are ignored.
+
+A rule is `Tool` or `Tool(specifier)`:
+
+| rule | matches |
+|---|---|
+| `Read`, `Write`, `Edit`, `Bash`, `Grep` or `Glob`, bare | every call of that tool |
+| `Read(<path>)` | `Read` (`file_path`), `Edit` (`file_path`, since an edit reveals the file), `Grep` and `Glob` (`path`, default the working directory); a `Bash` command that mentions the path |
+| `Edit(<path>)` | `Edit` and `Write` (`file_path`); a `Bash` command that mentions the path, unless it is read-only |
+| `Write(<path>)` | `Write` (`file_path`); a `Bash` command that mentions the path, unless it is read-only |
+| `Grep(<path>)`, `Glob(<path>)` | that tool's `path` |
+| `Bash(<command>)` | a `Bash` command, see below |
+| any other name, bare or with a specifier (`WebFetch`, `Agent(x)`, `mcp__…`, `NotebookEdit`, `Skill`, …) | nothing; ignored silently |
+
+Names are case-sensitive. A path specifier expands to an absolute pattern:
+
+- `//abs/path` is `/abs/path`.
+- `~/p` is `$HOME/p` and `~` is `$HOME`, from the `HOME` environment variable, else the OS home directory.
+- `/p` is relative to the directory of the settings file that holds the rule.
+- `./p` and a bare `p` are relative to the directory clay started in.
+
+In a pattern, `*` matches within one path segment and `**` matches zero or more segments; every other character, a space included, is literal. A rule matches a path when it matches the path itself or any ancestor directory, so `Read(~/.ssh)` also matches `~/.ssh/id_rsa`, and `X/**` also matches `X`.
+
+A file tool's path is checked twice, lexically (resolved against the working directory) and after `realpath`, of the path or, when it does not exist, of its deepest existing ancestor with the rest appended. The call matches when either check does, so a symlink into a denied directory is denied too.
+
+`Grep` and `Glob` also drop every file they would list or search that a deny rule for that tool matches, without a message. This check is lexical, on the path under the searched directory. Ask rules apply to the call's `path` only.
+
+`Bash` rules are a best-effort string guard on the command text, not a sandbox:
+
+- `Bash(<prefix>:*)` matches a command whose trimmed text is `<prefix>` or starts with `<prefix>` followed by whitespace. `Bash(<text>)` without `*` matches that exact trimmed text, and any other `*` in the specifier matches any run of characters over the whole text.
+- Each rule is tried on the whole trimmed text and on each simple command in it, split at `;`, `&&`, `||`, `|`, `&`, a newline, `(`, `)` and a backtick outside quotes. So `Bash(git push:*)` matches `git push origin` and `ls && git push`, but not `git pushx`.
+- A command mentions a path rule when its text, with `\ ` read as a space, contains the rule's pattern with each `*` or `**` standing for a run of characters other than whitespace and quotes. The mention must end at the end of the text or before whitespace, a quote, `;`, `|`, `&`, `<`, `>`, `)`, a backtick or `/`, so a rule for `~/.zshrc` does not match `~/.zshrc.bak`. A pattern under `$HOME` is also found written with `~/`, `$HOME/` or `${HOME}/` in place of the home directory.
+- A command that mentions a `Read` rule matches it. One that mentions an `Edit` or `Write` rule matches it unless it is read-only by the rules of [Read-only Bash](#read-only-bash): `cat ~/.clodex/messages/x` passes an `Edit` rule for that directory, `rm ~/.clodex/messages/x` does not.
+- It cannot see a path built at run time, through a variable other than `HOME`, a glob, a relative spelling (`cd ~; cat .ssh/id_rsa`), split quoting, a script or an alias, nor a command hidden by quoting from the split.
+
+Deny rules come first: a call a deny rule matches is refused in every mode, `--yolo` included, whatever a `PreToolUse` hook decided apart from its own `deny`, and without an ask, so an interactive `y` never runs it. The model gets `denied by settings rule <rule as written>` as an error tool result, and the turn goes on. A call an ask rule matches asks in the REPL's default mode as a write tool does (see [REPL](#repl)), even a read tool's call or one a hook allowed; `-p` and `--read-only` refuse it with `permission required: run clay without -p to approve it, or pass --yolo`, and `--yolo` runs it. See [Hooks](#hooks) for the full order.
+
+A bare-name deny of a clay tool also removes the tool from the request's `tools`, so a call of it is an unknown tool (`unknown tool <name>`).
+
+Startup errors: each of these prints `clay: settings <path>: <message>` and exits 2, before the `[clay:session]` line, any hook, any request and the first `\x1b[?2004h`:
+
+- `permissions` that is not an object: `permissions is not an object`.
+- `deny` or `ask` that is not an array: `permissions.<list> is not an array`; an entry that is not a string: `permissions.<list>[<i>] is not a string`.
+- A malformed rule, `permissions.<list>[<i>] "<rule>": <reason>`, where the reason is `unbalanced parenthesis`, `text after the closing parenthesis`, `no tool name`, `empty () on <Tool>` (for a clay tool only), or `the path expands to nothing (HOME is not set)`.
+- `sandbox.enabled: true` in any source: `sandbox.enabled is not supported: clay does not sandbox Bash; remove the sandbox block`.
 
 ### Hooks
 
@@ -510,9 +561,11 @@ When each event fires:
 The permission decision for a tool call goes in this order:
 
 1. A hook `deny` wins: the call does not run and the model gets the hook's reason as an error tool result.
-2. `--read-only` refuses write tools and any Bash command that is not read-only; a hook `allow` does not override it.
-3. A hook `allow` runs the call without the default mode's refusal.
-4. A hook `ask`, or no decision, leaves it to the mode (see [Print mode](#print-mode)); in the REPL the default mode asks (see [REPL](#repl)).
+2. A settings deny rule refuses the call in every mode, `--yolo` included (see [Permission rules](#permission-rules)); a hook `allow` does not override it.
+3. A settings ask rule asks in the REPL's default mode; `-p` and `--read-only` refuse the call instead, and `--yolo` runs it. A hook `allow` does not skip the ask.
+4. `--read-only` refuses write tools and any Bash command that is not read-only; a hook `allow` does not override it.
+5. A hook `allow` runs the call without the default mode's refusal.
+6. A hook `ask`, or no decision, leaves it to the mode (see [Print mode](#print-mode)); in the REPL the default mode asks (see [REPL](#repl)).
 
 A hook `updatedInput` replaces the input before the decision and the run, and the `tool_use` event and the `● <Tool> <summary>` line show it. The history sent to the API keeps the model's own `tool_use` block; the transcript's `toolUseResult.input` records the input that ran.
 
