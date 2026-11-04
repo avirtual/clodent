@@ -151,3 +151,14 @@ test('a budget that cannot cover the summary request stops the compact before it
   assert.equal(h.events.at(-1).type, 'budget_stop');
   assert.deepEqual(h.agent.messages(), before);
 });
+
+test('the compact summary request carries the settled pin on the last real user turn before its prompt', async () => {
+  const h = harness([reply('one'), reply('the summary')]);
+  await h.agent.runTurn('first');
+  assert.equal((await h.agent.compact(MANUAL)).ok, true);
+  const [first, summary] = h.bodies();
+  const marked = (body) => body.messages.flatMap((message, i) => message.content.flatMap((block, j) => (block.cache_control ? [[i, j]] : [])));
+  assert.deepEqual(marked(first), [[0, 0]]);
+  assert.deepEqual(marked(summary), [[0, 0], [2, 0]]);
+  assert.deepEqual(summary.messages[0].content.at(-1).cache_control, { type: 'ephemeral' });
+});
