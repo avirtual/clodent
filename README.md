@@ -462,7 +462,7 @@ Under the default and `acceptEdits` modes and `--read-only`, a `Bash` call whose
 
 `<reason>` names the first offending part, such as `rm is not a read-only command`, `output redirection`, `command substitution`, `find -delete` or `git -c`.
 
-In `acceptEdits`, a `Write` or `Edit` whose `file_path`, resolved against the working directory, has a `.git` component in any case (`.git/config`, `sub/.GIT/hooks/x`, `.git` itself) asks as in the default mode, and `-p` refuses it: a repository's config and hooks name programs that git commands run.
+In `acceptEdits`, a `Write` or `Edit` whose `file_path`, resolved against the working directory, has a `.git` component in any case (`.git/config`, `sub/.GIT/hooks/x`, `.git` itself) asks as in the default mode, and `-p` refuses it: a repository's config and hooks name programs that git commands run. The check is by name only, so a path through a symlink into a `.git` directory gets past it. Any other `Write` or `Edit` runs without asking, outside the working directory too, such as `~/.gitconfig`.
 
 clodent splits the command into simple commands on `|`, `||`, `&&`, `;` and newlines, honouring single quotes, double quotes, backslash escapes and `#` comments. The command is read-only when every simple command is. Blank lines, a trailing `;` and a newline right after `|`, `||` or `&&` are fine; any other empty command (`;;`, a leading `|`, a trailing `&&`, an empty or comment-only string), and a simple command made only of redirections, is not read-only.
 
@@ -488,6 +488,8 @@ These make the command not read-only wherever they appear outside single quotes,
 - a control character: U+0000–U+001F other than tab and newline, and U+007F–U+009F.
 
 `/proc` is never read-only. An argument or redirection target that may name `/proc` or a path under it makes the command not read-only (`<word> may reach /proc`). clodent checks the word without its quotes, the part after each `=`, and for a word starting with a single `-`, each part after its option letters (`-f/proc/1/environ`). It resolves `.`, `..` and repeated `/` by name; the word may reach `/proc` when a segment that may sit at `/` may be `proc` or a glob or brace expansion matching it (`/p*`, `/[p]roc`, `{/,}proc`), or when it climbs out of `/dev/fd` (`/dev/fd/..` is `/proc/self` on Linux). A segment sits at `/` after a leading `/`, after a `..` that climbs out of the working directory, `~`, or an expanded variable, and after a `~user`, `~-` or `~+` prefix. A segment starting with `.` that may expand to `..` (`.*`) counts as `..`, and a brace expansion or expanded variable may be anything, `..` and `/` included. Once a `cd` may have reached `/` (`cd /`, `cd ..`, `cd -`, `cd "$HOME"`), relative words count from `/` for the rest of the command; the target of `cd name` counts from `/` itself, since `CDPATH` may hold `/`.
+
+These checks read the command text only, so a symlink into `/proc` gets past them.
 
 A search that may start at `/` also reads `/proc`. `rg`, `diff` with a short option cluster holding `r` or `--recursive`, and `grep`, `egrep` or `fgrep` with a short option cluster holding `r` or `R`, `--recursive`, `--dereference-recursive` or an argument holding `recurse`, are not read-only (`<command> may search /proc`) when an argument may be `/` itself (`/`, `..`, `~/..`) or such a `cd` came first.
 
