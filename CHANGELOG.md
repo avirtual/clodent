@@ -5,6 +5,7 @@ clodent was named clay up to 0.2.0.
 ## Unreleased
 
 - Renamed clay to clodent: the clodent command, CLODENT_HOME (default ~/.clodent), CLODENT_PROJECT_DIR, [clodent:*] output lines, clodent: message prefix, user agent clodent/<version>, transcript entrypoint clodent; no aliases for the old names.
+- Permission rules are harder to evade: Grep and Glob hide files an ask rule matches unless `--yolo`, and symlink entries whose target a rule matches; a rule also matches the realpath of its leading part (macOS `/private/etc`, a symlinked `$HOME`); on macOS `/System/Volumes/Data/…` paths are checked without that prefix; Bash mentions match in any letter case; a rule name that differs from a clodent tool only in case or spaces (`read(x)`, `Read (x)`, `BASH`) is a startup error; and clodent's system prompt no longer names a tool a bare deny removed.
 
 ## 0.2.0 — 2026-11-04
 

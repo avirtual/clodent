@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 
 export const CLODENT_TOOLS = Object.freeze(['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob']);
 const CLODENT_TOOL_SET = new Set(CLODENT_TOOLS);
+const FOLDED_TOOLS = new Map(CLODENT_TOOLS.map((tool) => [tool.toLowerCase(), tool]));
 
 const PATH_RULES = {
   Read: { tools: ['Read', 'Edit', 'Grep', 'Glob'], bash: 'read' },
@@ -70,10 +71,17 @@ export function mentionRegExp(pattern, home) {
     homeSegments.length > 0 &&
     homeSegments.length <= segments.length &&
     homeSegments.every((segment, i) => segment === segments[i]);
-  if (!underHome) return new RegExp(`${pathSource(segments, RUN, RUN) || '/'}${MENTION_END}`);
+  if (!underHome) return new RegExp(`${pathSource(segments, RUN, RUN) || '/'}${MENTION_END}`, 'i');
   const rest = pathSource(segments.slice(homeSegments.length), RUN, RUN);
   const prefixes = [pathSource(homeSegments, RUN, RUN), '~', '\\$HOME', '\\$\\{HOME\\}'];
-  return new RegExp(`(?:${prefixes.join('|')})${rest}${MENTION_END}`);
+  return new RegExp(`(?:${prefixes.join('|')})${rest}${MENTION_END}`, 'i');
+}
+
+export function splitPattern(pattern) {
+  const parts = pattern.split('/');
+  const wild = parts.findIndex((part) => part.includes('*'));
+  if (wild === -1) return { prefix: pattern, rest: '' };
+  return { prefix: parts.slice(0, wild).join('/') || '/', rest: parts.slice(wild).join('/') };
 }
 
 function expandPath(specifier, { file, cwd, home }) {
@@ -100,14 +108,18 @@ export function parseRule(text, where) {
   const trimmed = text.trim();
   const { name, specifier } = splitRule(trimmed);
   if (name.trim() === '') throw new RuleError('no tool name');
-  if (!CLODENT_TOOL_SET.has(name)) return null;
+  if (!CLODENT_TOOL_SET.has(name)) {
+    const near = FOLDED_TOOLS.get(name.trim().toLowerCase());
+    if (near) throw new RuleError(`tool name ${JSON.stringify(name)} is not exactly ${near}`);
+    return null;
+  }
   if (specifier === null) return { text, kind: 'tool', tool: name };
   if (specifier.trim() === '') throw new RuleError(`empty () on ${name}`);
   if (name === 'Bash') return { text, kind: 'bash', test: bashTest(specifier) };
   const pattern = expandPath(specifier, where);
   if (pattern === '') throw new RuleError('the path expands to nothing (HOME is not set)');
   const { tools, bash } = PATH_RULES[name];
-  return { text, kind: 'path', tool: name, tools, bash, pattern, regex: pathRegExp(pattern), mention: mentionRegExp(pattern, where.home) };
+  return { text, kind: 'path', tool: name, tools, bash, pattern, home: where.home, regex: pathRegExp(pattern), mention: mentionRegExp(pattern, where.home) };
 }
 
 export function parseRules(list, key, where) {

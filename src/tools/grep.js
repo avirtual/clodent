@@ -24,7 +24,9 @@ async function targetFiles(target, keep, ctx, execFile) {
   if (!info.isDirectory()) return [target];
   const rels = await listFiles(target, { env: ctx.env, signal: ctx.signal, execFile });
   const files = rels.filter(keep).map((rel) => join(target, rel));
-  return (ctx.hidden ? files.filter((file) => !ctx.hidden(file)) : files).sort();
+  if (!ctx.hidden) return files.sort();
+  const hide = await Promise.all(files.map((file) => ctx.hidden(file)));
+  return files.filter((_, i) => !hide[i]).sort();
 }
 
 export function createGrep(deps = {}) {
