@@ -354,7 +354,7 @@ test('permission ask: [clay:permit] line and Notification hook; y allows, n deni
 test('permission ask: a y typed while the Notification hook still runs answers the ask and never reaches the model', GUARD, async (t) => {
   const { home, cwd, dir } = await dirs(t);
   const release = join(dir, 'release');
-  const hook = await script(dir, 'notify.sh', `cat > /dev/null; for i in $(seq 500); do [ -e ${JSON.stringify(release)} ] && exit 0; sleep 0.01; done`);
+  const hook = await script(dir, 'notify.sh', `cat > /dev/null; for i in $(seq 500); do [ -e ${JSON.stringify(release)} ] && { [ -e a.txt ] || touch hook-saw-no-write; exit 0; }; sleep 0.01; done`);
   const settings = writeSettings(dir, { hooks: { Notification: [hookGroup('', hook)] } });
   const replies = [toolsReply([['Write', { file_path: 'a.txt', content: 'a' }]]), textReply('done')];
   const repl = startRepl(['--settings', settings], { home, cwd, replies });
@@ -366,6 +366,7 @@ test('permission ask: a y typed while the Notification hook still runs answers t
   repl.stdin.type('y\r');
   writeFileSync(release, '');
   await repl.prompts(2);
+  assert.ok(existsSync(join(cwd, 'hook-saw-no-write')));
   assert.equal(readFileSync(join(cwd, 'a.txt'), 'utf8'), 'a');
   assertCleanExit(repl, await exitWith(repl, '\x04'));
   assert.equal(repl.fetch.calls.length, 2);
