@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { KILL_GRACE_MS, createBash, clampTimeout } from '../../src/tools/bash.js';
 import { capResult } from '../../src/tools/cap.js';
@@ -126,6 +126,30 @@ test('aborting through an AbortController kills the command', GUARD, async (t) =
   const result = await pending;
   assert.ok(Date.now() - started < 3000);
   assert.deepEqual(result, { content: '[killed by SIGTERM]', isError: true });
+});
+
+test('after an abort, a background child that ignores TERM and redirected its output still gets the SIGKILL', GUARD, async (t) => {
+  const dir = await useTempDir(t);
+  const pidFile = join(dir, 'pid');
+  const controller = new AbortController();
+  const quick = createBash({ killGraceMs: 100 });
+  const command = "(trap '' TERM; exec sleep 30) >/dev/null 2>&1 & echo $! > pid.tmp; mv pid.tmp pid; wait";
+  const pending = quick.run({ command }, ctxFor(dir, { signal: controller.signal }));
+  const until = async (ready) => {
+    const deadline = Date.now() + 3000;
+    while (!ready() && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
+    return ready();
+  };
+  assert.ok(await until(() => existsSync(pidFile)), 'the child never started');
+  const pid = Number(readFileSync(pidFile, 'utf8'));
+  t.after(() => {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {}
+  });
+  controller.abort();
+  await pending;
+  assert.ok(await until(() => isGone(pid)), `child ${pid} survived the abort`);
 });
 
 test('an already-aborted signal does not run the command', GUARD, async (t) => {
