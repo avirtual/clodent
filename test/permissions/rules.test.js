@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { parseRule, parseRules, RuleError, ruleHome } from '../../src/permissions/rules.js';
 import { loadSettings, SANDBOX_REFUSAL } from '../../src/settings/load.js';
 
-const WHERE = { file: '/etc/clay/settings.json', cwd: '/work', home: '/Users/u' };
+const WHERE = { file: '/etc/clodent/settings.json', cwd: '/work', home: '/Users/u' };
 const rule = (text) => parseRule(text, WHERE);
 const matches = (text, path) => rule(text).regex.test(path);
 
@@ -16,7 +16,7 @@ function fakeFs(files) {
   };
 }
 
-test('a bare clay tool name is a tool rule; Bash(...) is a command rule; a path tool takes a path', () => {
+test('a bare clodent tool name is a tool rule; Bash(...) is a command rule; a path tool takes a path', () => {
   for (const name of ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob']) assert.deepEqual(rule(name), { text: name, kind: 'tool', tool: name });
   assert.equal(rule('Bash(git push:*)').kind, 'bash');
   const tools = Object.fromEntries(['Read', 'Edit', 'Write', 'Grep', 'Glob'].map((name) => [name, rule(`${name}(/x)`)]));
@@ -33,7 +33,7 @@ test('path specifiers expand: // is absolute, ~ is HOME, / is the settings dir, 
     'Read(//abs/path)': '/abs/path',
     'Read(~/p)': '/Users/u/p',
     'Read(~)': '/Users/u',
-    'Read(/p)': '/etc/clay/p',
+    'Read(/p)': '/etc/clodent/p',
     'Read(./p)': '/work/p',
     'Read(p/q)': '/work/p/q',
     'Read(~/.ssh/)': '/Users/u/.ssh',
@@ -67,7 +67,7 @@ test('a specifier may contain spaces', () => {
   assert.equal(matches(text, '/Users/u/Library/Application/Clodex/remote.env'), false);
 });
 
-test('rules for tools clay does not have are ignored, bare or with a specifier', () => {
+test('rules for tools clodent does not have are ignored, bare or with a specifier', () => {
   const list = ['WebFetch', 'NotebookEdit', 'Agent(claude-code-guide)', 'mcp__clodex__dm', 'Skill', 'Agent()', 'read(/x)', 'Read(/x)'];
   assert.deepEqual(parseRules(list, 'permissions.deny', WHERE).map((r) => r.text), ['Read(/x)']);
   assert.deepEqual(parseRules(undefined, 'permissions.deny', WHERE), []);
@@ -100,7 +100,7 @@ test('loadSettings concatenates deny and ask across sources in order and reports
     '/h/settings.json': { permissions: { deny: ['Read(~/.ssh)', 'WebFetch'], ask: ['Bash(git push:*)'], allow: ['Bash'], defaultMode: 'plan' } },
     '/1.json': { permissions: { deny: ['Bash'] }, skillOverrides: {}, sandbox: { enabled: false, network: {} } },
   });
-  const { settings, warnings } = await loadSettings({ clayHome: '/h', files: ['/1.json'], cwd: '/w', home: '/Users/u' }, fs);
+  const { settings, warnings } = await loadSettings({ clodentHome: '/h', files: ['/1.json'], cwd: '/w', home: '/Users/u' }, fs);
   assert.deepEqual(warnings, []);
   assert.deepEqual(settings.permissions.deny.map((r) => r.text), ['Read(~/.ssh)', 'Bash']);
   assert.deepEqual(settings.permissions.ask.map((r) => r.text), ['Bash(git push:*)']);
@@ -113,5 +113,5 @@ test('loadSettings concatenates deny and ask across sources in order and reports
   for (const [source, message] of fatal) {
     await assert.rejects(loadSettings({ files: ['/2.json'], cwd: '/w', home: '/Users/u' }, fakeFs({ '/2.json': source })), { message: `settings /2.json: ${message}` });
   }
-  assert.equal(SANDBOX_REFUSAL, 'sandbox.enabled is not supported: clay does not sandbox Bash; remove the sandbox block');
+  assert.equal(SANDBOX_REFUSAL, 'sandbox.enabled is not supported: clodent does not sandbox Bash; remove the sandbox block');
 });

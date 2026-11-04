@@ -51,8 +51,8 @@ test('SIGTERM and SIGHUP during a REPL turn abort it and exit 143 / 129 through 
     await repl.fetch.called(1);
     repl.signals[name]();
     assert.equal(await repl.done, code, name);
-    assert.match(repl.out.text, /^clay: interrupted$/m);
-    assert.match(repl.out.text, /^\[clay:cost\] session total /m);
+    assert.match(repl.out.text, /^clodent: interrupted$/m);
+    assert.match(repl.out.text, /^\[clodent:cost\] session total /m);
     assert.ok(repl.out.text.endsWith(PASTE_OFF));
     assert.deepEqual(repl.stdin.rawModes, [true, false]);
     assert.deepEqual(repl.signals, {});
@@ -67,7 +67,7 @@ test('SIGTERM at an idle REPL prompt exits 143 at once', GUARD, async (t) => {
   assert.deepEqual(repl.stdin.rawModes, [true, false]);
 });
 
-test('-p: a second SIGTERM aborts a hung Stop hook, so clay exits promptly with 143', GUARD, async (t) => {
+test('-p: a second SIGTERM aborts a hung Stop hook, so clodent exits promptly with 143', GUARD, async (t) => {
   const { home, cwd, settings, up } = await hungStop(t);
   let signals;
   const running = runMain(['-p', 'go', '--settings', settings], {
@@ -87,7 +87,7 @@ test('-p: a second SIGTERM aborts a hung Stop hook, so clay exits promptly with 
   assert.ok(performance.now() - sent < PROMPT_EXIT_MS, `took ${performance.now() - sent} ms`);
 });
 
-test('REPL: a second SIGTERM aborts a hung Stop hook, so clay exits promptly with 143', GUARD, async (t) => {
+test('REPL: a second SIGTERM aborts a hung Stop hook, so clodent exits promptly with 143', GUARD, async (t) => {
   const { home, cwd, settings, up } = await hungStop(t);
   const repl = startRepl(['--settings', settings], { home, cwd });
   await repl.prompts(1);

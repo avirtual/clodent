@@ -71,7 +71,7 @@ export function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (!arg.startsWith('-') || arg === '-') {
-      return fail(`unexpected argument "${arg}": clay takes no positional arguments (use -p <prompt>)`);
+      return fail(`unexpected argument "${arg}": clodent takes no positional arguments (use -p <prompt>)`);
     }
     const { token, inline } = split(arg);
     const flag = lookup(token);

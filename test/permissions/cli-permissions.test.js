@@ -121,7 +121,7 @@ test('an ask rule refuses in -p and under --read-only, runs under --yolo, and as
   await repl.prompts(1);
   repl.stdin.type('read\r');
   await repl.until(ASK_LINE);
-  assert.match(repl.out.text, /\n\[clay:permit Read toolu_1\] a\.txt\nAllow\? \[y\/n\] $/);
+  assert.match(repl.out.text, /\n\[clodent:permit Read toolu_1\] a\.txt\nAllow\? \[y\/n\] $/);
   repl.stdin.type('y\r');
   await repl.prompts(2);
   assert.equal(repl.fetch.calls[1].body.messages.at(-1).content[0].content, shown);
@@ -159,7 +159,7 @@ test('Bash under --yolo: a Read path mention and a Bash(prefix:*) rule deny; an 
   assert.equal(existsSync(join(user, 'notes/n.txt')), true);
 });
 
-test('sandbox.enabled: true and a malformed rule exit 2 with clay: settings <path>: <message>, before SessionStart and any request', GUARD, async (t) => {
+test('sandbox.enabled: true and a malformed rule exit 2 with clodent: settings <path>: <message>, before SessionStart and any request', GUARD, async (t) => {
   const { home, cwd, dir } = await setup(t);
   const marker = join(dir, 'session-started');
   const hooks = { SessionStart: [hookGroup('', `touch ${JSON.stringify(marker)}`)] };
@@ -169,14 +169,14 @@ test('sandbox.enabled: true and a malformed rule exit 2 with clay: settings <pat
     const res = await runMain(['-p', 'go', ...argv], { home, cwd, responses: [textReply('never')] });
     assert.deepEqual([res.code, res.stdout, res.stderr, res.calls.length], [2, '', stderr, 0], argv.join(' '));
   };
-  await exits(['--settings', fixture], `clay: settings ${fixture}: ${SANDBOX_REFUSAL}\n`);
-  await exits(['--settings', malformed], `clay: settings ${malformed}: permissions.deny[0] "Read(x": unbalanced parenthesis\n`);
+  await exits(['--settings', fixture], `clodent: settings ${fixture}: ${SANDBOX_REFUSAL}\n`);
+  await exits(['--settings', malformed], `clodent: settings ${malformed}: permissions.deny[0] "Read(x": unbalanced parenthesis\n`);
   const homeSandbox = writeSettings(home, { hooks, sandbox: { enabled: true } });
-  await exits([], `clay: settings ${homeSandbox}: ${SANDBOX_REFUSAL}\n`);
+  await exits([], `clodent: settings ${homeSandbox}: ${SANDBOX_REFUSAL}\n`);
   const repl = startRepl([], { home, cwd });
   assert.equal(await repl.done, 2);
   assert.equal(repl.out.text.includes(PASTE_ON), false);
-  assert.equal(repl.err.text, `clay: settings ${homeSandbox}: ${SANDBOX_REFUSAL}\n`);
+  assert.equal(repl.err.text, `clodent: settings ${homeSandbox}: ${SANDBOX_REFUSAL}\n`);
   assert.equal(repl.fetch.calls.length, 0);
   assert.equal(existsSync(marker), false);
 });

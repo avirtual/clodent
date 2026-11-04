@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { RESULT_MAX_BYTES, capResult, createCapSink } from '../../src/tools/cap.js';
 
-const MARKER = /\n\[clay: truncated (\d+) bytes\]\n/;
+const MARKER = /\n\[clodent: truncated (\d+) bytes\]\n/;
 
 function split(capped) {
   const match = MARKER.exec(capped);
@@ -37,13 +37,13 @@ test('text exactly at the cap is returned unchanged', () => {
 
 test('one byte over the cap keeps 16384 head and tail bytes and reports 1 truncated byte', () => {
   const text = `${'a'.repeat(16384)}X${'b'.repeat(16384)}`;
-  assert.equal(capResult(text), `${'a'.repeat(16384)}\n[clay: truncated 1 bytes]\n${'b'.repeat(16384)}`);
+  assert.equal(capResult(text), `${'a'.repeat(16384)}\n[clodent: truncated 1 bytes]\n${'b'.repeat(16384)}`);
 });
 
 test('a multibyte char straddling either cut point is dropped whole', () => {
   const emoji = '😀';
   const text = `${'a'.repeat(16382)}${emoji}${'m'.repeat(1000)}${emoji}${'c'.repeat(16382)}`;
-  assert.equal(capResult(text), `${'a'.repeat(16382)}\n[clay: truncated 1008 bytes]\n${'c'.repeat(16382)}`);
+  assert.equal(capResult(text), `${'a'.repeat(16382)}\n[clodent: truncated 1008 bytes]\n${'c'.repeat(16382)}`);
 });
 
 test('the marker count is exactly the bytes removed', () => {

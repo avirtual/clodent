@@ -10,7 +10,7 @@ export const HELP = Object.freeze([
   '/model [<id>]      print the model, or use <id> for the next requests',
   '/clear             start a new session with an empty history',
   '/compact [<text>]  summarise the conversation into one message; <text> steers the summary',
-  '/quit, /exit       exit clay',
+  '/quit, /exit       exit clodent',
 ]);
 
 export function parseCommand(submission) {
@@ -30,17 +30,17 @@ const COMMANDS = {
   },
   model(ctx, args) {
     if (args.length > 1) {
-      ctx.print('clay: /model takes one model id');
+      ctx.print('clodent: /model takes one model id');
       return;
     }
     if (args.length === 1) {
       try {
         ctx.setModel(args[0]);
       } catch (err) {
-        ctx.print(`clay: ${err?.message ?? err}`);
+        ctx.print(`clodent: ${err?.message ?? err}`);
       }
     }
-    ctx.print(`clay: model ${ctx.model()}`);
+    ctx.print(`clodent: model ${ctx.model()}`);
   },
   clear(ctx) {
     return ctx.clear();
@@ -48,7 +48,7 @@ const COMMANDS = {
   async compact(ctx, _args, argText) {
     const result = await ctx.compact(argText);
     if (result.ok) return;
-    ctx.print(result.reason === NOTHING_TO_COMPACT ? `clay: ${NOTHING_TO_COMPACT}` : `clay: compact failed: ${result.reason}`);
+    ctx.print(result.reason === NOTHING_TO_COMPACT ? `clodent: ${NOTHING_TO_COMPACT}` : `clodent: compact failed: ${result.reason}`);
   },
   quit: () => 'exit',
   exit: () => 'exit',
@@ -57,7 +57,7 @@ const COMMANDS = {
 export async function runCommand({ name, args, argText }, ctx) {
   const handler = Object.hasOwn(COMMANDS, name) ? COMMANDS[name] : null;
   if (!handler) {
-    ctx.print(`clay: unknown command /${name} (try /help)`);
+    ctx.print(`clodent: unknown command /${name} (try /help)`);
     return undefined;
   }
   return handler(ctx, args, argText);

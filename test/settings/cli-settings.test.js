@@ -8,7 +8,7 @@ import { script } from '../hooks/scripts.js';
 import { useTempDir } from '../tools/tmp-dir.js';
 
 const GUARD = { timeout: 10000 };
-const HEADERS = { 'x-api-key': 'sk-test', 'anthropic-version': API_VERSION, 'content-type': 'application/json', 'user-agent': 'clay/0.2.0' };
+const HEADERS = { 'x-api-key': 'sk-test', 'anthropic-version': API_VERSION, 'content-type': 'application/json', 'user-agent': 'clodent/0.2.0' };
 
 async function setup(t) {
   return { home: await useTempDir(t), cwd: await useTempDir(t), dir: await useTempDir(t) };
@@ -37,11 +37,11 @@ test('an ANTHROPIC_BASE_URL that is not an http or https URL exits 2 before any 
   const { home, cwd, dir } = await setup(t);
   for (const bad of ['ftp://proxy.example', 'not a url', 'file:///tmp/x']) {
     const res = await runMain(['-p', 'hi'], { home, cwd, env: { ANTHROPIC_BASE_URL: bad } });
-    assert.deepEqual([res.code, res.stdout, res.stderr, res.calls.length], [2, '', 'clay: invalid ANTHROPIC_BASE_URL\n', 0], bad);
+    assert.deepEqual([res.code, res.stdout, res.stderr, res.calls.length], [2, '', 'clodent: invalid ANTHROPIC_BASE_URL\n', 0], bad);
   }
   const settings = writeSettings(dir, { env: { ANTHROPIC_BASE_URL: 'ws://proxy.example' } });
   const viaSettings = await runMain(['-p', 'hi', '--settings', settings], { home, cwd });
-  assert.deepEqual([viaSettings.code, viaSettings.stderr], [2, 'clay: invalid ANTHROPIC_BASE_URL\n']);
+  assert.deepEqual([viaSettings.code, viaSettings.stderr], [2, 'clodent: invalid ANTHROPIC_BASE_URL\n']);
 });
 
 test('settings env reaches the API key lookup, the Bash tool and hooks', GUARD, async (t) => {
@@ -75,7 +75,7 @@ test('settings model, effortLevel and extra directories apply when the flags are
   assert.deepEqual(flags.calls[0].body.output_config, { effort: 'low' });
 });
 
-test('$CLAY_HOME/settings.json loads first, --settings paths resolve against cwd, and warnings follow the session line', async (t) => {
+test('$CLODENT_HOME/settings.json loads first, --settings paths resolve against cwd, and warnings follow the session line', async (t) => {
   const { home, cwd } = await setup(t);
   writeFileSync(join(home, 'settings.json'), JSON.stringify({ model: 'claude-haiku-5-5', effortLevel: 'xhigh' }));
   writeFileSync(join(cwd, 'local.json'), JSON.stringify({ model: 'claude-sonnet-5-5' }));
@@ -83,8 +83,8 @@ test('$CLAY_HOME/settings.json loads first, --settings paths resolve against cwd
   assert.equal(res.code, 0, res.stderr);
   assert.equal(res.calls[0].body.model, 'claude-sonnet-5-5');
   const lines = res.stderr.split('\n');
-  assert.match(lines[0], /^\[clay:session\] /);
-  assert.equal(lines[1], `clay: settings ${join(home, 'settings.json')}: effortLevel "xhigh" is not low, medium or high; ignored`);
+  assert.match(lines[0], /^\[clodent:session\] /);
+  assert.equal(lines[1], `clodent: settings ${join(home, 'settings.json')}: effortLevel "xhigh" is not low, medium or high; ignored`);
 });
 
 test('an invalid settings file exits 2 with the loader error before any request', async (t) => {
@@ -92,14 +92,14 @@ test('an invalid settings file exits 2 with the loader error before any request'
   writeFileSync(join(cwd, 'bad.json'), '{');
   const res = await runMain(['-p', 'hi', '--settings', 'bad.json'], { home, cwd });
   assert.equal(res.code, 2);
-  assert.match(res.stderr, /^clay: invalid settings file .*bad\.json: [^\n]+\n$/);
+  assert.match(res.stderr, /^clodent: invalid settings file .*bad\.json: [^\n]+\n$/);
   assert.equal(res.calls.length, 0);
 });
 
 test('settings warnings print before the error line on an exit-2 path, in -p and REPL mode alike', async (t) => {
   const { home, cwd, dir } = await setup(t);
   const settings = writeSettings(dir, { env: { ANTHROPIC_API_KEY: 123 } });
-  const expected = `clay: settings ${settings}: env.ANTHROPIC_API_KEY is not a string; dropped\nclay: ANTHROPIC_API_KEY is not set\n`;
+  const expected = `clodent: settings ${settings}: env.ANTHROPIC_API_KEY is not a string; dropped\nclodent: ANTHROPIC_API_KEY is not set\n`;
   for (const argv of [['-p', 'hi', '--settings', settings], ['--settings', settings]]) {
     const res = await runMain(argv, { home, cwd, key: '' });
     assert.deepEqual([res.code, res.stdout, res.stderr, res.calls.length], [2, '', expected, 0], argv.join(' '));

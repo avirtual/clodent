@@ -5,12 +5,12 @@ import { cleanEnv } from '../tools/tmp-dir.js';
 import { createFakeFetch } from './fake-fetch.js';
 import { sse } from './sse-builder.js';
 
-const SESSION_LINE = /^\[clay:session\] ([0-9a-f-]{36})$/;
+const SESSION_LINE = /^\[clodent:session\] ([0-9a-f-]{36})$/;
 
 export function testEnv(extra = {}) {
   const env = cleanEnv();
   for (const key of Object.keys(env)) {
-    if (key.startsWith('ANTHROPIC_') || key.startsWith('CLAY_')) delete env[key];
+    if (key.startsWith('ANTHROPIC_') || key.startsWith('CLODENT_')) delete env[key];
   }
   return { ...env, ...extra };
 }
@@ -52,7 +52,7 @@ export async function runMain(argv, { home, cwd, responses = [], env = {}, onFet
   const code = await main(argv, {
     stdout: { write: (s) => out.push(s) },
     stderr: { write: (s) => err.push(s) },
-    env: testEnv({ ...(key ? { ANTHROPIC_API_KEY: key } : {}), CLAY_HOME: home, ...env }),
+    env: testEnv({ ...(key ? { ANTHROPIC_API_KEY: key } : {}), CLODENT_HOME: home, ...env }),
     cwd,
     platform: 'darwin',
     fetch,

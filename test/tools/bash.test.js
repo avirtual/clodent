@@ -48,8 +48,8 @@ test('stdout and stderr interleave in arrival order', GUARD, async (t) => {
 
 test('cwd and env come from ctx', GUARD, async (t) => {
   const dir = await useTempDir(t);
-  const ctx = { cwd: dir, env: cleanEnv({ CLAY_PROBE: 'probe-value' }) };
-  assert.equal((await bash.run({ command: 'pwd; echo "$CLAY_PROBE"' }, ctx)).content, `${dir}\nprobe-value\n[exit 0]`);
+  const ctx = { cwd: dir, env: cleanEnv({ CLODENT_PROBE: 'probe-value' }) };
+  assert.equal((await bash.run({ command: 'pwd; echo "$CLODENT_PROBE"' }, ctx)).content, `${dir}\nprobe-value\n[exit 0]`);
 });
 
 test('stdin is closed', GUARD, async (t) => {

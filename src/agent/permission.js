@@ -1,7 +1,7 @@
 import { classifyBash } from '../tools/bash-readonly.js';
 
 const ALLOW = Object.freeze({ allow: true });
-export const ASK_DENIAL = 'permission required: run clay without -p to approve it, or pass --yolo';
+export const ASK_DENIAL = 'permission required: run clodent without -p to approve it, or pass --yolo';
 
 export function decide(tool, input, mode) {
   if (mode === 'yolo') return ALLOW;

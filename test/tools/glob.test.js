@@ -88,7 +88,7 @@ test('results are capped at 1000 newest with a note, then byte-capped like any r
   await plant(dir, Object.fromEntries(Array.from({ length: 1001 }, (_, i) => [`f${i}.txt`, ''])));
   for (let i = 0; i < 1001; i += 1) await setMtime(join(dir, `f${i}.txt`), 1000 + i);
   const newest = Array.from({ length: 1000 }, (_, i) => join(dir, `f${1000 - i}.txt`));
-  const note = '[clay: showing the 1000 newest of 1001 matches; narrow the pattern]';
+  const note = '[clodent: showing the 1000 newest of 1001 matches; narrow the pattern]';
   const result = await glob.run({ pattern: '*.txt' }, ctxFor(dir));
   assert.deepEqual(result, { content: capResult([...newest, note].join('\n')), isError: false });
 });

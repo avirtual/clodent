@@ -110,7 +110,7 @@ export function startRepl(argv, { home, cwd, replies = [], env = {}, isTTY = tru
     stdout: out,
     stderr: err,
     stdin,
-    env: testEnv({ ANTHROPIC_API_KEY: 'sk-test', CLAY_HOME: home, ...env }),
+    env: testEnv({ ANTHROPIC_API_KEY: 'sk-test', CLODENT_HOME: home, ...env }),
     cwd,
     platform: 'darwin',
     fetch,
@@ -136,7 +136,7 @@ export function startRepl(argv, { home, cwd, replies = [], env = {}, isTTY = tru
     done,
     prompts: (n) => out.wait((text) => count(text, PROMPT_MARK) >= n, `prompt ${n}`),
     until: (needle, n = 1) => out.wait((text) => count(text, needle) >= n, `${JSON.stringify(needle)} x${n}`),
-    sessionIds: () => [...out.text.matchAll(/^\[clay:session\] (\S+)$/gm)].map((m) => m[1]),
+    sessionIds: () => [...out.text.matchAll(/^\[clodent:session\] (\S+)$/gm)].map((m) => m[1]),
   };
   return repl;
 }

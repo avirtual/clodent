@@ -2,8 +2,8 @@ import { join } from 'node:path';
 
 const SESSION_ID = /^[\w-]+$/;
 
-export function clayHome(env, homedir) {
-  return env.CLAY_HOME ? env.CLAY_HOME : join(homedir, '.clay');
+export function clodentHome(env, homedir) {
+  return env.CLODENT_HOME ? env.CLODENT_HOME : join(homedir, '.clodent');
 }
 
 export function projectSlug(cwd) {

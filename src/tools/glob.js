@@ -60,7 +60,7 @@ export function createGlob(deps = {}) {
       hits.sort(newestFirst);
       const shown = hits.slice(0, MAX_GLOB_RESULTS).map((hit) => hit.path);
       if (hits.length > MAX_GLOB_RESULTS) {
-        shown.push(`[clay: showing the ${MAX_GLOB_RESULTS} newest of ${hits.length} matches; narrow the pattern]`);
+        shown.push(`[clodent: showing the ${MAX_GLOB_RESULTS} newest of ${hits.length} matches; narrow the pattern]`);
       }
       return ok(shown.join('\n'));
     },

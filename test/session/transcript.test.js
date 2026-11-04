@@ -36,7 +36,7 @@ test('append writes one line per record with the common fields and an unbroken p
   assert.equal(writes.length, 2);
   assert.ok(writes.every((w) => w.endsWith('\n') && w.indexOf('\n') === w.length - 1));
   const [a, b] = lines(path);
-  const common = { isSidechain: false, timestamp: '2026-11-04T12:00:00.000Z', cwd: '/w', sessionId: 's', version: '9.9.9', entrypoint: 'clay' };
+  const common = { isSidechain: false, timestamp: '2026-11-04T12:00:00.000Z', cwd: '/w', sessionId: 's', version: '9.9.9', entrypoint: 'clodent' };
   assert.deepEqual(a, { parentUuid: null, ...common, type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'hi' }] }, uuid: 'uuid-1' });
   assert.deepEqual(b, { parentUuid: 'uuid-1', ...common, type: 'system', subtype: 'turn_duration', durationMs: 5, messageCount: 1, uuid: 'uuid-2' });
   assert.equal(transcript.lastUuid(), 'uuid-2');

@@ -1,15 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync } from 'node:fs';
-import { clayHome, findTranscript, projectSlug, transcriptPath } from '../../src/session/paths.js';
+import { clodentHome, findTranscript, projectSlug, transcriptPath } from '../../src/session/paths.js';
 import { plant, useTempDir } from '../tools/tmp-dir.js';
 
 const ID = '123e4567-e89b-42d3-a456-426614174000';
 
-test('clayHome is CLAY_HOME when set, else ~/.clay', () => {
-  assert.equal(clayHome({ CLAY_HOME: '/tmp/ch' }, '/Users/a'), '/tmp/ch');
-  assert.equal(clayHome({}, '/Users/a'), '/Users/a/.clay');
-  assert.equal(clayHome({ CLAY_HOME: '' }, '/Users/a'), '/Users/a/.clay');
+test('clodentHome is CLODENT_HOME when set, else ~/.clodent', () => {
+  assert.equal(clodentHome({ CLODENT_HOME: '/tmp/ch' }, '/Users/a'), '/tmp/ch');
+  assert.equal(clodentHome({}, '/Users/a'), '/Users/a/.clodent');
+  assert.equal(clodentHome({ CLODENT_HOME: '' }, '/Users/a'), '/Users/a/.clodent');
 });
 
 test('projectSlug replaces only / and .', () => {

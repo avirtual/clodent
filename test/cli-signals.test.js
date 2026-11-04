@@ -13,7 +13,7 @@ import { assertValidHistory } from './helpers/valid-history.js';
 import { isGone, script } from './hooks/scripts.js';
 import { useTempDir } from './tools/tmp-dir.js';
 
-const BIN = fileURLToPath(new URL('../bin/clay.js', import.meta.url));
+const BIN = fileURLToPath(new URL('../bin/clodent.js', import.meta.url));
 const GUARD = { timeout: 10000 };
 
 function fakeApi(t, body) {
@@ -55,7 +55,7 @@ test('the exit codes are 130 for SIGINT, 143 for SIGTERM and 129 for SIGHUP', ()
   assert.deepEqual(SIGNAL_EXIT, { SIGINT: 130, SIGTERM: 143, SIGHUP: 129 });
 });
 
-test('SIGTERM to a child clay -p kills its running Bash, exits 143, and leaves a transcript that resumes cleanly', GUARD, async (t) => {
+test('SIGTERM to a child clodent -p kills its running Bash, exits 143, and leaves a transcript that resumes cleanly', GUARD, async (t) => {
   const home = await useTempDir(t);
   const cwd = await useTempDir(t);
   const fifo = join(cwd, 'pid.fifo');
@@ -65,7 +65,7 @@ test('SIGTERM to a child clay -p kills its running Bash, exits 143, and leaves a
   const pid = readFifoLine(fifo, t);
   const child = spawn(process.execPath, [BIN, '-p', 'run it', '--yolo'], {
     cwd,
-    env: testEnv({ ANTHROPIC_API_KEY: 'sk-test', CLAY_HOME: home, ANTHROPIC_BASE_URL: `http://127.0.0.1:${api.port}` }),
+    env: testEnv({ ANTHROPIC_API_KEY: 'sk-test', CLODENT_HOME: home, ANTHROPIC_BASE_URL: `http://127.0.0.1:${api.port}` }),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stderr = '';
@@ -80,8 +80,8 @@ test('SIGTERM to a child clay -p kills its running Bash, exits 143, and leaves a
   assert.equal(isGone(sleepPid), true, `sleep ${sleepPid} still running`);
   assert.equal(api.requests.length, 1);
   assert.equal(api.requests[0].url, '/v1/messages');
-  assert.match(stderr, /^clay: interrupted$/m);
-  const id = stderr.match(/^\[clay:session\] (\S+)$/m)?.[1];
+  assert.match(stderr, /^clodent: interrupted$/m);
+  const id = stderr.match(/^\[clodent:session\] (\S+)$/m)?.[1];
   assert.ok(id, stderr);
   const res = await runMain(['-p', 'next', '--resume', id], { home, cwd, responses: [textReply('ok')] });
   assert.equal(res.code, 0, res.stderr);
@@ -146,5 +146,5 @@ test('a TERM-ignoring background child of an interrupted -p Bash call is SIGKILL
   signals.SIGINT();
   const res = await run;
   assert.equal(res.code, 130, res.stderr);
-  assert.ok(await until(() => isGone(pid), 1000), `child ${pid} outlived clay`);
+  assert.ok(await until(() => isGone(pid), 1000), `child ${pid} outlived clodent`);
 });

@@ -15,7 +15,7 @@ const GUARD = { timeout: 10000 };
 
 const state = (n) => ({
   sessionId: 'sess-1',
-  transcriptPath: '/clay/projects/x/sess-1.jsonl',
+  transcriptPath: '/clodent/projects/x/sess-1.jsonl',
   modelId: 'claude-opus-5-5',
   usedTokens: 1000 * n,
   totalInputTokens: 900 * n,
@@ -57,7 +57,7 @@ test('the script receives every statusLine field on stdin', GUARD, async (t) => 
   assert.equal(lines.length, 1);
   assert.deepEqual(JSON.parse(lines[0]), {
     session_id: 'sess-1',
-    transcript_path: '/clay/projects/x/sess-1.jsonl',
+    transcript_path: '/clodent/projects/x/sess-1.jsonl',
     cwd: dir,
     version: '0.2.0',
     model: { id: 'claude-opus-5-5', display_name: 'claude-opus-5-5' },

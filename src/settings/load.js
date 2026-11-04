@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { parseRules, RuleError, ruleHome } from '../permissions/rules.js';
 
 const EFFORTS = new Set(['low', 'medium', 'high']);
-export const SANDBOX_REFUSAL = 'sandbox.enabled is not supported: clay does not sandbox Bash; remove the sandbox block';
+export const SANDBOX_REFUSAL = 'sandbox.enabled is not supported: clodent does not sandbox Bash; remove the sandbox block';
 
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -147,10 +147,10 @@ function mergeSource(acc, source, warn) {
   }
 }
 
-export async function loadSettings({ clayHome, files = [], cwd = process.cwd(), home = ruleHome(process.env) } = {}, deps = {}) {
+export async function loadSettings({ clodentHome, files = [], cwd = process.cwd(), home = ruleHome(process.env) } = {}, deps = {}) {
   const readFile = deps.readFile ?? fsReadFile;
   const sources = [];
-  if (clayHome) sources.push({ path: join(clayHome, 'settings.json'), optional: true });
+  if (clodentHome) sources.push({ path: join(clodentHome, 'settings.json'), optional: true });
   for (const path of files) sources.push({ path, optional: false });
   const acc = { hooks: new Map(), statusLine: null, env: new Map(), extraDirs: new Set(), effortLevel: null, model: null, deny: [], ask: [] };
   const warnings = [];

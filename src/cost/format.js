@@ -12,20 +12,20 @@ const tokenList = (tokens) =>
   `in ${tokens.in}, cache-read ${tokens.cacheRead}, cache-write ${tokens.cacheWrite}, out ${tokens.out}`;
 
 export function formatCost(agg) {
-  return `[clay:cost] ${formatUsd(agg.usd)} (${tokenList(agg.tokens)})`;
+  return `[clodent:cost] ${formatUsd(agg.usd)} (${tokenList(agg.tokens)})`;
 }
 
 export function formatTotal(agg) {
-  return `[clay:cost] session total ${formatUsd(agg.usd)} (${tokenList(agg.tokens)}, requests ${agg.requests})`;
+  return `[clodent:cost] session total ${formatUsd(agg.usd)} (${tokenList(agg.tokens)}, requests ${agg.requests})`;
 }
 
 export function formatBudgetStop(result) {
   if (result.reason === 'unpriced') {
-    return `[clay:budget] stopped: model ${result.model} has no price; --budget needs a priced model`;
+    return `[clodent:budget] stopped: model ${result.model} has no price; --budget needs a priced model`;
   }
-  return `[clay:budget] stopped: spent ${formatUsd(result.spentUsd)}, next request est. ${formatUsd(result.nextEstimateUsd)}, budget ${formatUsd(result.budgetUsd)}`;
+  return `[clodent:budget] stopped: spent ${formatUsd(result.spentUsd)}, next request est. ${formatUsd(result.nextEstimateUsd)}, budget ${formatUsd(result.budgetUsd)}`;
 }
 
 export function formatUnpriced(model) {
-  return `[clay:cost] warning: no price for model ${model}; cost not counted`;
+  return `[clodent:cost] warning: no price for model ${model}; cost not counted`;
 }

@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { discoverAgentsMd } from './agents-md.js';
-import { CLAY_BASE_PROMPT } from './base.js';
+import { CLODENT_BASE_PROMPT } from './base.js';
 
 function readPromptFile(flag, file, cwd, deps) {
   const path = resolve(cwd, file);
@@ -42,7 +42,7 @@ function instructions(files) {
 export function buildSystemPrompt(input, deps) {
   const { cwd, systemPrompt, systemPromptFile } = input;
   const addDirs = input.addDirs ?? [];
-  let base = CLAY_BASE_PROMPT;
+  let base = CLODENT_BASE_PROMPT;
   if (systemPrompt !== undefined) base = systemPrompt;
   else if (systemPromptFile !== undefined) base = readPromptFile('--system-prompt-file', systemPromptFile, cwd, deps);
   const appendFiles = (input.appendSystemPromptFile ?? []).map((file) =>

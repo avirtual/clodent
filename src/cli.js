@@ -15,7 +15,7 @@ import { createRenderer } from './render/terminal.js';
 import { runRepl } from './repl/repl.js';
 import { loadSettings } from './settings/load.js';
 import { openSession } from './session/open.js';
-import { clayHome } from './session/paths.js';
+import { clodentHome } from './session/paths.js';
 import { createRecorder } from './session/recorder.js';
 import { createTools } from './tools/index.js';
 
@@ -36,11 +36,11 @@ function usage() {
   });
   const width = Math.max(...rows.map(([label]) => label.length));
   const lines = rows.map(([label, text]) => `  ${label.padEnd(width)}  ${text}`);
-  return `usage: clay [options]\n\noptions:\n${lines.join('\n')}\n`;
+  return `usage: clodent [options]\n\noptions:\n${lines.join('\n')}\n`;
 }
 
 function home(deps) {
-  return clayHome(deps.env, deps.homedir ?? homedir());
+  return clodentHome(deps.env, deps.homedir ?? homedir());
 }
 
 function baseUrlFrom(env) {
@@ -108,18 +108,18 @@ async function prepare(opts, deps) {
   let loaded;
   try {
     loaded = await loadSettings({
-      clayHome: home(deps),
+      clodentHome: home(deps),
       files: opts.settings.map((file) => resolve(cwd, file)),
       cwd,
       home: ruleHome(deps.env, () => deps.homedir ?? homedir()),
     });
   } catch (err) {
-    stderr.write(`clay: ${err.message}\n`);
+    stderr.write(`clodent: ${err.message}\n`);
     return { code: 2 };
   }
   const fail = (message) => {
-    for (const warning of loaded.warnings) stderr.write(`clay: ${warning}\n`);
-    stderr.write(`clay: ${message}\n`);
+    for (const warning of loaded.warnings) stderr.write(`clodent: ${warning}\n`);
+    stderr.write(`clodent: ${message}\n`);
     return { code: 2 };
   };
   const { settings } = loaded;
@@ -235,8 +235,8 @@ async function runPrint(opts, deps) {
   const { stdout, stderr } = deps;
   const prep = await prepare(opts, deps);
   if (prep.code !== undefined) return prep.code;
-  stderr.write(`[clay:session] ${prep.session.sessionId}\n`);
-  for (const warning of prep.warnings) stderr.write(`clay: ${warning}\n`);
+  stderr.write(`[clodent:session] ${prep.session.sessionId}\n`);
+  for (const warning of prep.warnings) stderr.write(`clodent: ${warning}\n`);
   const render = createRenderer({ out: stdout, err: stderr, mode: 'print' });
   const runtime = createRuntime(prep, opts, deps, render);
   const agent = runtime.open(prep.session);
@@ -280,7 +280,7 @@ async function runInteractive(opts, deps) {
 export async function main(argv, deps) {
   const parsed = parseArgs(argv);
   if (!parsed.ok) {
-    deps.stderr.write(`clay: ${parsed.error}\nclay: see --help\n`);
+    deps.stderr.write(`clodent: ${parsed.error}\nclodent: see --help\n`);
     return 2;
   }
   const { opts } = parsed;
@@ -289,12 +289,12 @@ export async function main(argv, deps) {
     return 0;
   }
   if (opts.version) {
-    deps.stdout.write(`clay ${version()}\n`);
+    deps.stdout.write(`clodent ${version()}\n`);
     return 0;
   }
   const pending = givenFlags(opts).filter((name) => NOT_YET.has(name));
   if (pending.length > 0) {
-    for (const name of pending) deps.stderr.write(`clay: --${name} is not implemented yet\n`);
+    for (const name of pending) deps.stderr.write(`clodent: --${name} is not implemented yet\n`);
     return 2;
   }
   try {

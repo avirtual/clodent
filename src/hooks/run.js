@@ -123,7 +123,7 @@ export async function runHooks(event, input, ctx, deps = {}) {
       entries.set(entry.command, seen ? mergeDuplicate(seen, entry) : entry);
     }
   }
-  const env = { ...ctx.env, ...settings.env, CLAY_PROJECT_DIR: ctx.cwd };
+  const env = { ...ctx.env, ...settings.env, CLODENT_PROJECT_DIR: ctx.cwd };
   const stdin = `${JSON.stringify(input)}\n`;
   const results = await Promise.all(
     [...entries.values()].map(async (entry) => {
