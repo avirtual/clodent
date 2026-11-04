@@ -317,9 +317,9 @@ test(`Bash: $'…' and $"…" quoting is decoded and ~<user> is a sibling of the
   }
 });
 
-test('Bash: ~+, ~0 and ~+0 are the working directory, so ~+/.. from a directory under the home directory names the home directory', async () => {
+test('Bash: ~+, and ~0, ~+0 and ~-0 with any number of zeros, are the working directory, so ~+/.. from a directory under the home directory names the home directory', async () => {
   const guard = guardOf({ deny: ['Read(~/.ssh)'] });
-  for (const tilde of ['~+', '~0', '~+0']) {
+  for (const tilde of ['~+', '~0', '~+0', '~00', '~+00', '~-0', '~-00']) {
     const ruled = await guard.check('Bash', { command: `cat ${tilde}/../.ssh/id_rsa` }, `${HOME}/proj`);
     assert.equal(ruled && `${ruled.decision} ${ruled.rule.text}`, 'deny Read(~/.ssh)', tilde);
   }
@@ -330,6 +330,8 @@ test(`simpleCommands reads $'…' as bash does, a backslash escaping the next ch
   assert.deepEqual(simpleCommands("echo $'\\''; rm x"), ["echo $'\\''", 'rm x']);
   assert.deepEqual(simpleCommands("echo $'a;b'"), ["echo $'a;b'"]);
   assert.equal(await bash(guardOf({ deny: ['Bash(rm:*)'] }), "echo $'\\''; rm x"), 'deny Bash(rm:*)');
+  assert.deepEqual(simpleCommands("echo $$'\\'; rm x"), ["echo $$'\\'", 'rm x']);
+  assert.equal(await bash(guardOf({ deny: ['Bash(rm:*)'] }), "echo $$'\\'; rm x"), 'deny Bash(rm:*)');
 });
 
 test('shellWords dequotes words and splits at blanks, operators, redirections and substitutions', () => {
@@ -337,6 +339,7 @@ test('shellWords dequotes words and splits at blanks, operators, redirections an
   assert.deepEqual(shellWords('echo "a $(cat "b c") d" `e f` (g) $((1+2))'), ['echo', 'a ', 'cat', 'b c', ' d', 'e', 'f', 'g', '1+2']);
   assert.deepEqual(shellWords("echo '$(x)' \"it's\"\\\nz"), ['echo', '$(x)', "it'sz"]);
   assert.deepEqual(shellWords(`a $'b\\tc\\'d;e' $"f g" "$'h'" $'\\x41\\101\\u0042\\0z'i $'\\q\\cA'`), ['a', "b\tc'd;e", 'f g', "$'h'", 'AABi', '\\q\x01']);
+  assert.deepEqual(shellWords("a $$'b\\' c"), ['a', '$$b\\', 'c']);
 });
 
 test('built-in denies cover Read and Edit of each settings file and Read of /proc/*/environ, and the reason names the built-in rule', async () => {

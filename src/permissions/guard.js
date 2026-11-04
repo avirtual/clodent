@@ -53,7 +53,7 @@ export function simpleCommands(text) {
       current += c;
       if (c === '\\' && quote !== "'" && i + 1 < text.length) current += text[++i];
       else if (c === quote.at(-1)) quote = null;
-    } else if (c === '\\' && i + 1 < text.length) {
+    } else if ((c === '\\' && i + 1 < text.length) || (c === '$' && text[i + 1] === '$')) {
       current += c + text[++i];
     } else if (c === '$' && text[i + 1] === "'") {
       quote = "$'";
@@ -122,6 +122,9 @@ export function shellWords(text) {
     } else if (quote === '"') {
       if (c === '"') quote = null;
       else add(c);
+    } else if (c === '$' && text[i + 1] === '$') {
+      add('$$');
+      i += 1;
     } else if (c === '$' && text[i + 1] === "'") {
       const [chars, close] = ansiQuoted(text, i + 2);
       add(chars);
@@ -146,15 +149,16 @@ export function shellWords(text) {
 
 const HOME_PREFIX = /^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/;
 const USER_PREFIX = /^~([^/]+)/;
-const CWD_TILDES = new Set(['+', '0', '+0']);
+const CWD_TILDE = /^~(?:\+|[+-]?0+)(?=\/|$)/;
 const DATA_PREFIX = /^\/System\/Volumes\/Data(?=\/)/i;
 
 function expandHome(word, home) {
-  const user = USER_PREFIX.exec(word);
-  if (user && CWD_TILDES.has(user[1])) return `.${word.slice(user[0].length)}`;
+  const tilde = CWD_TILDE.exec(word);
+  if (tilde) return `.${word.slice(tilde[0].length)}`;
   if (!home) return word;
   const prefix = HOME_PREFIX.exec(word);
   if (prefix) return home + word.slice(prefix[0].length);
+  const user = USER_PREFIX.exec(word);
   return user ? join(dirname(home), user[1]) + word.slice(user[0].length) : word;
 }
 
