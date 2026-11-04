@@ -15,6 +15,7 @@ const GUARD = { timeout: 10000 };
 const deps = { spawn };
 const label = (command) => command.slice(0, 60);
 const ctxFor = (cwd, settings, extra = {}) => ({ settings, cwd, env: cleanEnv(), ...extra });
+const UNCAPPED = { hookContextMaxBytes: { perHook: 16777216, perEvent: 16777216 } };
 
 test('the event list is the eight Claude-host events', () => {
   assert.deepEqual(HOOK_EVENTS, ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Notification', 'PreCompact', 'Stop']);
@@ -83,7 +84,7 @@ test('plain stdout counts as context on UserPromptSubmit and SessionStart, and i
 test('stdout is capped at 1 MiB with a truncation warning, and stderr at 64 KiB', GUARD, async (t) => {
   const dir = await useTempDir(t);
   const big = await script(dir, 'big.sh', "head -c 1100000 /dev/zero | tr '\\0' a; head -c 100000 /dev/zero | tr '\\0' b >&2");
-  const outcome = await runHooks('UserPromptSubmit', {}, ctxFor(dir, settingsWith({ UserPromptSubmit: [group('', big)] })), deps);
+  const outcome = await runHooks('UserPromptSubmit', {}, ctxFor(dir, settingsWith({ UserPromptSubmit: [group('', big)] }, UNCAPPED)), deps);
   assert.equal(outcome.additionalContext[0], 'a'.repeat(1048576));
   assert.deepEqual(outcome.warnings, [`hook UserPromptSubmit "${label(big)}": stdout over 1 MiB truncated`]);
   const res = await runCommand(big, { cwd: dir, env: cleanEnv(), stdin: '', timeoutMs: 5000 }, deps);
@@ -93,7 +94,7 @@ test('stdout is capped at 1 MiB with a truncation warning, and stderr at 64 KiB'
 test('stdout at exactly 1 MiB is not truncated', GUARD, async (t) => {
   const dir = await useTempDir(t);
   const exact = await script(dir, 'exact.sh', "head -c 1048576 /dev/zero | tr '\\0' a");
-  const outcome = await runHooks('UserPromptSubmit', {}, ctxFor(dir, settingsWith({ UserPromptSubmit: [group('', exact)] })), deps);
+  const outcome = await runHooks('UserPromptSubmit', {}, ctxFor(dir, settingsWith({ UserPromptSubmit: [group('', exact)] }, UNCAPPED)), deps);
   assert.equal(outcome.additionalContext[0].length, 1048576);
   assert.deepEqual(outcome.warnings, []);
 });
