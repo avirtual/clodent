@@ -22,6 +22,8 @@ const TRUNCATED = 'stdout over 1 MiB truncated';
 const REDACTED = '[redacted]';
 const REDACT_MIN_CHARS = 8;
 const PER_EVENT_EXEMPT = new Set(['SessionStart']);
+const DELIVERED = new Set(['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'PostToolUseFailure']);
+const SHOWN_DECISION_CHARS = 60;
 
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -73,7 +75,7 @@ function readJsonOutput(event, parsed) {
     result.decision = output.permissionDecision;
     result.reason = textOrNull(output.permissionDecisionReason) ?? (result.decision === 'deny' ? BLOCKED : null);
   } else if (output.permissionDecision !== undefined && output.permissionDecision !== null) {
-    result.unknownDecision = `unknown permissionDecision ${String(JSON.stringify(output.permissionDecision)).slice(0, 60)}`;
+    result.unknownDecision = String(JSON.stringify(output.permissionDecision));
   }
   if (parsed.decision === 'block' && result.decision !== 'deny') {
     result.decision = 'deny';
@@ -83,9 +85,9 @@ function readJsonOutput(event, parsed) {
   return result;
 }
 
-function interpret(event, entry, res) {
+function interpret(event, entry, res, redact) {
   const label = `hook ${event} "${commandLabel(entry.command)}"`;
-  const result = interpretOutput(event, entry, res, label);
+  const result = interpretOutput(event, entry, res, label, redact);
   if (!res.truncated) return result;
   return { ...result, warnings: [`${label}: ${TRUNCATED}`, ...(result.warnings ?? [])] };
 }
@@ -99,7 +101,7 @@ function parseObject(text) {
   }
 }
 
-function interpretOutput(event, entry, res, label) {
+function interpretOutput(event, entry, res, label, redact) {
   const failure = failureOf(res);
   if (failure === 'exit 2' && res.code === 2) {
     if (event === 'PreToolUse') return { decision: 'deny', reason: res.stderr.trim() || BLOCKED };
@@ -115,16 +117,17 @@ function interpretOutput(event, entry, res, label) {
     return { decision: 'deny', reason: `hook failed: ${res.truncated ? TRUNCATED : 'invalid JSON'}` };
   }
   if (text === '') return {};
-  if (parsed) return checkDecision(readJsonOutput(event, parsed), entry, label);
+  if (parsed) return checkDecision(readJsonOutput(event, parsed), entry, label, redact);
   if (PLAIN_TEXT_EVENTS.has(event)) return { context: res.stdout.trimEnd() };
   return { warnings: [`${label}: invalid JSON ignored`] };
 }
 
-function checkDecision(result, entry, label) {
+function checkDecision(result, entry, label, redact) {
   if (result.unknownDecision === undefined) return result;
   const { unknownDecision, ...rest } = result;
-  if (entry.onFailure === 'block') return { decision: 'deny', reason: `hook failed: ${unknownDecision}` };
-  return { ...rest, warnings: [`${label}: ${unknownDecision} ignored`] };
+  const shown = `unknown permissionDecision ${redact(unknownDecision).slice(0, SHOWN_DECISION_CHARS)}`;
+  if (entry.onFailure === 'block') return { decision: 'deny', reason: `hook failed: ${shown}` };
+  return { ...rest, warnings: [`${label}: ${shown} ignored`] };
 }
 
 function redactorFor(env, names = []) {
@@ -135,6 +138,7 @@ function redactorFor(env, names = []) {
 }
 
 function capContexts(event, labelled, caps, truncations) {
+  if (!DELIVERED.has(event)) return labelled.map(({ text }) => text);
   const texts = labelled.map(({ label, text }) => {
     const cut = capContext(text, caps.perHook);
     if (cut.bytes !== null) truncations.push({ message: `${label}: context of ${cut.bytes} bytes truncated to ${caps.perHook}`, event, scope: 'hook', bytes: cut.bytes, limit: caps.perHook });
@@ -181,7 +185,7 @@ export async function runHooks(event, input, ctx, deps = {}) {
   const results = await Promise.all(
     list.map(async (entry) => {
       const res = await runCommand(entry.command, { cwd: ctx.cwd, env, stdin, timeoutMs: timeoutMsFor(entry), signal: ctx.signal }, deps);
-      return interpret(event, entry, res);
+      return interpret(event, entry, res, redact);
     }),
   );
   const firstReason = new Map();

@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { createStreamOutput } from '../../src/stream/output.js';
 import { contextMarker } from '../../src/hooks/context-cap.js';
 import { hookGroup, textReply, writeSettings } from '../helpers/run-main.js';
@@ -34,6 +35,39 @@ test('a hook context cut writes a system hook_context_truncated record on stdout
   assert.match(s.err.text, new RegExp(`^clodent: hook UserPromptSubmit "${submit.slice(0, 60)}": context of 102400 bytes truncated to 65536$`, 'm'));
   const sent = s.fetch.calls[0].body.messages[0].content.map((block) => block.text).join('\n');
   assert.ok(sent.includes(contextMarker(70000, 65536)) && sent.includes(contextMarker(102400, 65536)));
+});
+
+test('after /clear, a SessionStart clear context cut is written after the new init, with its session_id', GUARD, async (t) => {
+  const [home, cwd, dir] = [await useTempDir(t), await useTempDir(t), await useTempDir(t)];
+  const start = await script(dir, 'start.sh', fill(70000, 's'));
+  const settings = writeSettings(dir, { hooks: { SessionStart: [hookGroup('', start)] } });
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID, '--settings', settings], { home, cwd, replies: [textReply('ok')] });
+  s.send(userLine('go'));
+  await s.until('result');
+  s.send(userLine('/clear'));
+  await s.until('result', 2);
+  s.close();
+  assert.equal(await s.done, 0);
+  const records = parseRecords(s.out.text);
+  assert.deepEqual(kinds(records), ['system/init', 'system/hook_context_truncated', 'assistant', 'result', 'conversation_reset', 'system/init', 'system/hook_context_truncated', 'result']);
+  const [, init, cut] = records.slice(4);
+  assert.notEqual(init.session_id, UUID);
+  assert.deepEqual([cut.hook_event, cut.session_id], ['SessionStart', init.session_id]);
+});
+
+test('a 100 KiB Stop context is not cut, so result stays the last stdout record', GUARD, async (t) => {
+  const [home, cwd, dir] = [await useTempDir(t), await useTempDir(t), await useTempDir(t)];
+  const ran = `${dir}/stop-ran`;
+  const stop = await script(dir, 'stop.sh', `touch ${JSON.stringify(ran)}; printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"'; ${fill(102400, 's')}; printf '"}}'`);
+  const settings = writeSettings(dir, { hooks: { Stop: [hookGroup('', stop)] } });
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID, '--settings', settings], { home, cwd, replies: [textReply('ok')] });
+  s.send(userLine('go'));
+  await s.until('result');
+  s.close();
+  assert.equal(await s.done, 0);
+  assert.ok(existsSync(ran));
+  assert.deepEqual(kinds(parseRecords(s.out.text)), ['system/init', 'assistant', 'result']);
+  assert.doesNotMatch(s.err.text, /truncated/);
 });
 
 test('a warning without hookContext writes nothing on stdout', () => {

@@ -163,6 +163,7 @@ export function createStreamOutput(ctx, deps) {
       line({ type: 'system', subtype: 'status', status, ...fields, session_id: sessionId(), uuid: uuid() });
     },
     conversationReset(newId) {
+      held = [];
       line({ type: 'conversation_reset', new_conversation_id: newId, trigger: 'clear', session_id: sessionId(), uuid: uuid() });
     },
     endCommand({ isError, text, requests = 0, tokens = NO_TOKENS }) {
