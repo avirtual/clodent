@@ -64,7 +64,7 @@ test('init carries the session, the stripped model, the tools sent and the Claud
     model: 'claude-haiku-5-5',
     tools: ['Read', 'Write', 'Edit', 'Bash', 'Grep'],
     permissionMode: 'acceptEdits',
-    slash_commands: [],
+    slash_commands: ['compact', 'clear', 'cost', 'model', 'help', 'quit', 'exit'],
     apiKeySource: 'ANTHROPIC_API_KEY',
     clodent_version: version,
   });

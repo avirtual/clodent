@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { INTERRUPTED_RESULT, USER_DENIAL } from '../agent/loop.js';
 import { stripModelSuffix } from '../args.js';
 import { CLOSED_DENIAL } from '../repl/repl.js';
+import { parseCommand, runCommand } from '../repl/slash.js';
 import { parseLine } from './input.js';
 
 const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
@@ -22,6 +23,9 @@ export async function runStream(ctx, deps) {
   let turnId = 0;
   let inTurn = false;
   let pendingInterrupt = false;
+  let printed = [];
+  let failed = false;
+  let spent;
 
   function poke() {
     const resolve = wake;
@@ -57,6 +61,7 @@ export async function runStream(ctx, deps) {
   function drain() {
     const texts = [];
     for (let i = 0; i < queue.length; ) {
+      if (queue[i].command) break;
       if (queue[i].empty || queue[i].turn !== turnId) i++;
       else texts.push(queue.splice(i, 1)[0].text);
     }
@@ -107,6 +112,11 @@ export async function runStream(ctx, deps) {
     }
   }
 
+  function commandOf(text) {
+    const trimmed = text.trim();
+    return parseCommand({ text: trimmed, parts: [{ kind: 'typed', text: trimmed }] });
+  }
+
   function onLine(raw) {
     if (raw.trim() === '') return;
     const parsed = parseLine(raw);
@@ -114,7 +124,7 @@ export async function runStream(ctx, deps) {
       warn(parsed.warning);
     } else if (parsed.kind === 'user') {
       for (const warning of parsed.warnings) warn(warning);
-      queue.push({ text: parsed.text, empty: parsed.empty, turn: inTurn ? turnId : null });
+      queue.push({ text: parsed.text, empty: parsed.empty, command: commandOf(parsed.text), turn: inTurn ? turnId : null });
       poke();
     } else if (parsed.kind === 'control_request') {
       onControl(parsed);
@@ -171,11 +181,62 @@ export async function runStream(ctx, deps) {
     }
   }
 
-  async function run({ text, empty }) {
+  function openAgent(next) {
+    agent = runtime.open(next, { ask: ctx.stdioAsk ? ask : undefined, drain });
+  }
+
+  async function clearSession() {
+    const next = runtime.freshSession();
+    if (!next.ok) {
+      printed.push(`clodent: ${next.error}`);
+      failed = true;
+      return;
+    }
+    output.conversationReset(next.sessionId);
+    ctx.useSession(next);
+    openAgent(next);
+    runtime.resetStatus(next);
+    await guarded((signal) => agent.fireSessionStart('clear', { signal }));
+    output.init();
+  }
+
+  async function compactSession(instructions) {
+    output.status('compacting');
+    const outcome = await guarded((signal) => agent.compact({ instructions, trigger: 'manual' }, { signal }));
+    output.status(null, { compact_result: outcome.ok ? 'success' : 'failed' });
+    failed = !outcome.ok;
+    spent = outcome.turn?.tokens;
+    return outcome;
+  }
+
+  const commandCtx = {
+    print: (line) => printed.push(line),
+    ledger: runtime.ledger,
+    model: () => runtime.model(),
+    setModel(id) {
+      agent.setModel(id, runtime.setModel(id));
+    },
+    clear: clearSession,
+    compact: compactSession,
+  };
+
+  async function runSlash(command) {
+    printed = [];
+    failed = false;
+    spent = undefined;
+    output.beginCommand();
+    const verdict = await runCommand(command, commandCtx);
+    pendingInterrupt = false;
+    if (verdict === 'exit') return 'exit';
+    output.endCommand({ isError: failed || verdict === 'unknown', text: printed.join('\n'), requests: command.name === 'compact' ? 1 : 0, tokens: spent });
+  }
+
+  async function run({ text, empty, command }) {
     if (empty) {
       output.emptyPrompt();
       return;
     }
+    if (command) return runSlash(command);
     output.beginTurn();
     turnId++;
     inTurn = true;
@@ -188,7 +249,7 @@ export async function runStream(ctx, deps) {
 
   const offs = SIGNALS.map((name) => deps.onSignal(name, () => onSignal(name)));
   try {
-    agent = runtime.open(session, { ask: ctx.stdioAsk ? ask : undefined, drain });
+    openAgent(session);
     await guarded((signal) => agent.fireSessionStart(ctx.resume ? 'resume' : 'startup', { signal }));
     output.init();
     stdin.setEncoding('utf8');
@@ -196,8 +257,9 @@ export async function runStream(ctx, deps) {
     stdin.on('end', onEnd);
     stdin.on('error', onError);
     while (caught === null) {
-      if (queue.length > 0) await run(queue.shift());
-      else if (ended) break;
+      if (queue.length > 0) {
+        if ((await run(queue.shift())) === 'exit') break;
+      } else if (ended) break;
       else await new Promise((resolve) => (wake = resolve));
     }
     agent.endSession();

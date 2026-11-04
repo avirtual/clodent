@@ -23,8 +23,13 @@ export function parseCommand(submission) {
 }
 
 const COMMANDS = {
-  help(ctx) {
-    for (const line of HELP) ctx.print(line);
+  async compact(ctx, _args, argText) {
+    const result = await ctx.compact(argText);
+    if (result.ok) return;
+    ctx.print(result.reason === NOTHING_TO_COMPACT ? `clodent: ${NOTHING_TO_COMPACT}` : `clodent: compact failed: ${result.reason}`);
+  },
+  clear(ctx) {
+    return ctx.clear();
   },
   cost(ctx) {
     ctx.print(formatTotal(ctx.ledger.session()));
@@ -43,23 +48,20 @@ const COMMANDS = {
     }
     ctx.print(`clodent: model ${ctx.model()}`);
   },
-  clear(ctx) {
-    return ctx.clear();
-  },
-  async compact(ctx, _args, argText) {
-    const result = await ctx.compact(argText);
-    if (result.ok) return;
-    ctx.print(result.reason === NOTHING_TO_COMPACT ? `clodent: ${NOTHING_TO_COMPACT}` : `clodent: compact failed: ${result.reason}`);
+  help(ctx) {
+    for (const line of HELP) ctx.print(line);
   },
   quit: () => 'exit',
   exit: () => 'exit',
 };
 
+export const COMMAND_NAMES = Object.freeze(Object.keys(COMMANDS));
+
 export async function runCommand({ name, args, argText }, ctx) {
   const handler = Object.hasOwn(COMMANDS, name) ? COMMANDS[name] : null;
   if (!handler) {
     ctx.print(`clodent: unknown command /${name} (try /help)`);
-    return undefined;
+    return 'unknown';
   }
   return handler(ctx, args, argText);
 }
