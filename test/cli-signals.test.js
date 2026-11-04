@@ -7,11 +7,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { INTERRUPT_MARKER } from '../src/agent/loop.js';
 import { SIGNAL_EXIT } from '../src/cli.js';
-import { hookGroup, runMain, strip, textReply, toolsReply, writeSettings } from './helpers/run-main.js';
+import { hookGroup, runMain, strip, testEnv, textReply, toolsReply, writeSettings } from './helpers/run-main.js';
 import { sse } from './helpers/sse-builder.js';
 import { assertValidHistory } from './helpers/valid-history.js';
 import { isGone, script } from './hooks/scripts.js';
-import { testEnv } from './helpers/run-main.js';
 import { useTempDir } from './tools/tmp-dir.js';
 
 const BIN = fileURLToPath(new URL('../bin/clay.js', import.meta.url));
