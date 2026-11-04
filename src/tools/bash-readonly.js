@@ -174,7 +174,7 @@ function gitRule(args) {
   let k = 0;
   while (k < args.length) {
     const arg = args[k];
-    if (arg === '--no-pager' || arg.startsWith('--git-dir=')) k++;
+    if (arg === '--no-pager') k++;
     else if (arg === '-C' && k + 1 < args.length) k += 2;
     else if (arg.startsWith('-')) return `git ${arg}`;
     else break;
