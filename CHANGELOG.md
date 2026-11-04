@@ -4,6 +4,7 @@ clodent was named clay up to 0.2.0.
 
 ## Unreleased
 
+- Security: the REPL, and print mode's stderr lines, write each control byte in model text, tool summaries, tool errors, warnings and compact lines as a visible `\u00XX` escape, so a Bash summary can no longer forge the `[clodent:permit …]` line and streamed text can no longer send OSC 52 or turn bracketed paste off.
 - The Bash permission guard also matches each word of a command with its quotes removed, a leading `~`, `$HOME` or `${HOME}` expanded and the path resolved against the working directory (also after `=` and in redirections), so `~//.ssh`, `~/./.ssh`, `~/x/../.ssh`, `~/'.ssh'` and relative spellings no longer slip past a `Read` or `Edit` rule.
 - Built-in deny rules, in every mode including `--yolo`: `Read` and `Edit` of every settings file clodent loaded (`$CLODENT_HOME/settings.json`, whether or not it exists, and each `--settings` file) and `Read` of `/proc/*/environ` and `/proc/*/task/*/environ`; the model gets `denied by built-in rule <rule>`.
 - The Bash tool's environment never contains `ANTHROPIC_API_KEY`, also when the key comes from settings `env`; requests, hooks and the statusLine still get it.
