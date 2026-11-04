@@ -13,6 +13,13 @@ export class ApiError extends Error {
   }
 }
 
+export class StreamFault extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'StreamFault';
+  }
+}
+
 export function parseRetryAfter(value) {
   if (value === null || value === undefined || value.trim() === '') return null;
   const seconds = Number(value);

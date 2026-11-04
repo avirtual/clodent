@@ -1,9 +1,10 @@
-import { ApiError, RETRYABLE_STATUSES, errorFromResponse } from './errors.js';
+import { ApiError, RETRYABLE_STATUSES, StreamFault, errorFromResponse } from './errors.js';
 import { parseSSE } from './sse.js';
 
 export const MAX_ATTEMPTS = 4;
 export const BASE_DELAY_MS = 1000;
 export const JITTER = 0.2;
+export const IDLE_TIMEOUT_MS = 300_000;
 
 export function backoffMs(attempt, random) {
   const base = BASE_DELAY_MS * 2 ** attempt;
@@ -12,6 +13,32 @@ export function backoffMs(attempt, random) {
 
 function isAbort(err, signal) {
   return Boolean(signal?.aborted) || err?.name === 'AbortError';
+}
+
+function isNetwork(err) {
+  return err instanceof TypeError || err instanceof StreamFault;
+}
+
+async function* idleGuarded(body, idleMs) {
+  const reader = body.getReader();
+  try {
+    for (;;) {
+      let timer;
+      const idle = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new StreamFault(`stream idle for ${idleMs / 1000}s`)), idleMs);
+      });
+      let step;
+      try {
+        step = await Promise.race([reader.read(), idle]);
+      } finally {
+        clearTimeout(timer);
+      }
+      if (step.done) return;
+      yield step.value;
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
 }
 
 function networkError(err, requestId = null) {
@@ -36,6 +63,9 @@ function createAssembler(handlers, requestId) {
     usage: {},
   };
   const partialJson = new Map();
+  let startUsage = null;
+  let deltaOutput = 0;
+  const reportUsage = () => handlers.onUsage?.({ ...startUsage, output_tokens: deltaOutput });
 
   function blockStart({ index, content_block: received }) {
     const block = { ...received };
@@ -88,6 +118,8 @@ function createAssembler(handlers, requestId) {
           message.id = data.message?.id ?? null;
           message.model = data.message?.model ?? null;
           message.usage = { ...data.message?.usage };
+          startUsage = { ...message.usage };
+          reportUsage();
           return false;
         case 'content_block_start':
           blockStart(data);
@@ -102,6 +134,10 @@ function createAssembler(handlers, requestId) {
           if (data.delta && 'stop_reason' in data.delta) message.stop_reason = data.delta.stop_reason;
           if (data.delta && 'stop_sequence' in data.delta) message.stop_sequence = data.delta.stop_sequence;
           mergeUsage(message.usage, data.usage);
+          if (startUsage) {
+            deltaOutput = data.usage?.output_tokens ?? deltaOutput;
+            reportUsage();
+          }
           return false;
         case 'message_stop':
           return true;
@@ -121,7 +157,7 @@ function createAssembler(handlers, requestId) {
 async function readStream(response, requestId, deps, handlers) {
   const { signal } = deps;
   const assembler = createAssembler(handlers, requestId);
-  const events = parseSSE(response.body);
+  const events = parseSSE(idleGuarded(response.body, deps.idleTimeoutMs ?? IDLE_TIMEOUT_MS), { maxEventChars: deps.maxEventChars });
   let sawEvent = false;
   try {
     for (;;) {
@@ -129,7 +165,7 @@ async function readStream(response, requestId, deps, handlers) {
       try {
         step = await events.next();
       } catch (err) {
-        if (isAbort(err, signal) || !(err instanceof TypeError)) throw err;
+        if (isAbort(err, signal) || !isNetwork(err)) throw err;
         if (!sawEvent) return { retry: networkError(err, requestId) };
         throw networkError(err, requestId);
       }

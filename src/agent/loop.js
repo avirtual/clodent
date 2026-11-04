@@ -17,6 +17,13 @@ const RELOAD_SKIPS = Object.freeze({ deny: 'denied', ask: 'ask' });
 const RELOAD_HOOK_SKIP = 'hook';
 const RELOAD_USE_ID = 'compact-reload-';
 
+class BudgetStop extends Error {
+  constructor(result) {
+    super('budget');
+    this.result = result;
+  }
+}
+
 function isMidStreamRetryable(err) {
   return err instanceof ApiError && err.status === null && MID_STREAM_RETRYABLE.has(err.type);
 }
@@ -83,25 +90,40 @@ export function createAgent(config, deps) {
     return finish('interrupted', false, stopSignal);
   }
 
+  function admit() {
+    const check = ledger.check();
+    if (!check.ok) throw new BudgetStop(check);
+  }
+
   async function request(signal, partial, { messages = history, toolChoice, quiet = false } = {}) {
+    const sentModel = model;
     const req = buildRequest({ model, system, tools: definitions, messages, effort, baseUrl, toolChoice, sessionId, cacheTtl }, { env: deps.env });
     const streamDeps = { fetch: deps.fetch, sleep: deps.sleep, random: deps.random, now, signal };
     const stream = quiet ? () => {} : emit;
+    let reported = null;
     const handlers = {
       onText: (text, index) => stream({ type: 'text_delta', text, index }),
       onThinking: (text, index) => stream({ type: 'thinking_delta', text, index }),
       onBlockStop: (block) => {
         if (block.type === 'text' && block.text) partial.push(block);
       },
+      onUsage: (usage) => {
+        reported = usage;
+      },
     };
+    admit();
     for (let attempt = 1; ; attempt++) {
       partial.length = 0;
+      reported = null;
       emit({ type: 'request_start', attempt });
       try {
-        return await streamMessage(req, streamDeps, handlers);
+        const result = await streamMessage(req, streamDeps, handlers);
+        return { ...result, cost: ledger.record(sentModel, result.message.usage) };
       } catch (err) {
+        if (reported) ledger.record(sentModel, reported);
         const wait = MID_STREAM_DELAYS_MS[attempt - 1];
         if (signal?.aborted || !isMidStreamRetryable(err) || wait === undefined) throw err;
+        admit();
         partial.length = 0;
         emit({ type: 'warning', message: `${err.message}; retrying in ${wait / 1000} s` });
         await deps.sleep(wait, signal);
@@ -236,15 +258,8 @@ export function createAgent(config, deps) {
     try {
       for (;;) {
         if (signal?.aborted) return interrupt(partial, stopSignal);
-        const check = ledger.check();
-        if (!check.ok) {
-          emit({ type: 'budget_stop', result: check });
-          return finish('budget', false, stopSignal);
-        }
-        const sentModel = model;
-        const { message, requestId, durationMs } = await request(signal, partial);
+        const { message, requestId, durationMs, cost } = await request(signal, partial);
         partial.length = 0;
-        const cost = ledger.record(sentModel, message.usage);
         append('assistant', message.content, 'assistant', { message, requestId, durationMs, usd: cost.usd });
         emit({ type: 'assistant_message', message, requestId, durationMs, usd: cost.usd, priced: cost.priced });
         const stop = message.stop_reason;
@@ -270,6 +285,10 @@ export function createAgent(config, deps) {
       }
     } catch (err) {
       if (signal?.aborted) return interrupt(partial, stopSignal);
+      if (err instanceof BudgetStop) {
+        emit({ type: 'budget_stop', result: err.result });
+        return finish('budget', false, stopSignal);
+      }
       emit({
         type: 'error',
         message: err?.message ?? String(err),
@@ -291,7 +310,10 @@ export function createAgent(config, deps) {
       const { message } = await request(signal, [], { messages: compactMessages(history, instructions, reloadCount), toolChoice: COMPACT_TOOL_CHOICE, quiet: true });
       return { message };
     } catch (err) {
-      return { reason: signal?.aborted ? 'interrupted' : (err?.message ?? String(err)) };
+      if (signal?.aborted) return { reason: 'interrupted' };
+      if (!(err instanceof BudgetStop)) return { reason: err?.message ?? String(err) };
+      emit({ type: 'budget_stop', result: err.result });
+      return { reason: 'budget' };
     }
   }
 
@@ -335,14 +357,11 @@ export function createAgent(config, deps) {
     closeDanglingUses();
     await fireHook('PreCompact', { trigger, custom_instructions: instructions ?? '' }, signal);
     if (signal?.aborted) return { ok: false, reason: 'interrupted' };
-    const check = ledger.check();
-    if (!check.ok) {
-      emit({ type: 'budget_stop', result: check });
-      return { ok: false, reason: 'budget' };
-    }
     const { message, reason } = await summarise(instructions, signal);
-    if (!message) return { ok: false, reason };
-    ledger.record(model, message.usage);
+    if (!message) {
+      const turn = ledger.endTurn();
+      return turn.requests > 0 ? { ok: false, reason, turn } : { ok: false, reason };
+    }
     const summary = summaryOf(message);
     if (message.stop_reason !== 'end_turn' || summary.trim() === '') {
       return { ok: false, reason: message.stop_reason === 'end_turn' ? 'empty summary' : `stop_reason ${message.stop_reason}`, turn: ledger.endTurn() };
