@@ -499,7 +499,7 @@ A rule is `Tool` or `Tool(specifier)`:
 | `Bash(<command>)` | a `Bash` command, see below |
 | any other name, bare or with a specifier (`WebFetch`, `Agent(x)`, `mcp__…`, `NotebookEdit`, `Skill`, …) | nothing; ignored silently |
 
-Names are case-sensitive. A path specifier expands to an absolute pattern:
+Names are case-sensitive. A name that differs from a clodent tool name only in letter case or by surrounding spaces (`read(x)`, `Read (x)`, `BASH`) is a startup error, so a misspelt rule never does less than it says. A path specifier expands to an absolute pattern:
 
 - `//abs/path` is `/abs/path`.
 - `~/p` is `$HOME/p` and `~` is `$HOME`, from the `HOME` environment variable, else the OS home directory.
@@ -508,27 +508,35 @@ Names are case-sensitive. A path specifier expands to an absolute pattern:
 
 In a pattern, `*` matches within one path segment and `**` matches zero or more segments; every other character, a space included, is literal. A rule matches a path when it matches the path itself or any ancestor directory, so `Read(~/.ssh)` also matches `~/.ssh/id_rsa`, and `X/**` also matches `X`.
 
-A file tool's path is checked twice, lexically (resolved against the working directory) and after `realpath`, of the path or, when it does not exist, of its deepest existing ancestor with the rest appended. The call matches when either check does, so a symlink into a denied directory is denied too.
+A file tool's path is checked twice, lexically (resolved against the working directory) and after `realpath`, of the path or, when it does not exist, of its deepest existing ancestor with the rest appended. The call matches when either check does, so a symlink into a denied directory is denied too. On macOS, a path that starts with `/System/Volumes/Data/` is also checked, in both checks, with that prefix removed.
 
-`Grep` and `Glob` also drop every file they would list or search that a deny rule for that tool matches, without a message. Each file is checked on its path under the searched directory and on the same path under the directory's realpath, with no realpath per file. Ask rules apply to the call's `path` only.
+A rule's leading part, up to its first segment with a `*`, is resolved with `realpath` once, on the first check, the same way. When that changes it (on macOS `/etc` is `/private/etc` and `/tmp` is `/private/tmp`; `$HOME` may sit under a symlink), the rule matches both forms, in file tools, in `Grep` and `Glob` listings and in `Bash` mentions.
+
+`Grep` and `Glob` also drop every file they would list or search that a deny rule for that tool matches, or an ask rule unless the mode is `--yolo`, without a message and without asking. Each file is checked on its path under the searched directory and on the same path under the directory's realpath. A listed entry that is a symlink is also checked on its realpath; no other entry is resolved.
 
 `Bash` rules are a best-effort string guard on the command text, not a sandbox:
 
 - `Bash(<prefix>:*)` matches a command whose trimmed text is `<prefix>` or starts with `<prefix>` followed by whitespace. `Bash(<text>)` without `*` matches that exact trimmed text, and any other `*` in the specifier matches any run of characters over the whole text.
 - Each rule is tried on the whole trimmed text and on each simple command in it, split at `;`, `&&`, `||`, `|`, `&`, a newline, `(`, `)` and a backtick outside quotes. So `Bash(git push:*)` matches `git push origin` and `ls && git push`, but not `git pushx`.
-- A command mentions a path rule when its text, with `\ ` read as a space, contains the rule's pattern with each `*` or `**` standing for a run of characters other than whitespace and quotes. The mention must end at the end of the text or before whitespace, a quote, `;`, `|`, `&`, `<`, `>`, `)`, a backtick or `/`, so a rule for `~/.zshrc` does not match `~/.zshrc.bak`. A pattern under `$HOME` is also found written with `~/`, `$HOME/` or `${HOME}/` in place of the home directory.
+- A command mentions a path rule when its text, with `\ ` read as a space, contains the rule's pattern, in any letter case, with each `*` or `**` standing for a run of characters other than whitespace and quotes. The mention may start anywhere in the text, so `cat ~/.SSH/id_rsa` and `cat /System/Volumes/Data/Users/<u>/.ssh/id_rsa` both mention `Read(~/.ssh)`. The mention must end at the end of the text or before whitespace, a quote, `;`, `|`, `&`, `<`, `>`, `)`, a backtick or `/`, so a rule for `~/.zshrc` does not match `~/.zshrc.bak`. A pattern under `$HOME` is also found written with `~/`, `$HOME/` or `${HOME}/` in place of the home directory.
 - A command that mentions a `Read` rule matches it. One that mentions an `Edit` or `Write` rule matches it unless it is read-only by the rules of [Read-only Bash](#read-only-bash): `cat ~/.clodex/messages/x` passes an `Edit` rule for that directory, `rm ~/.clodex/messages/x` does not.
 - It cannot see a path built at run time, through a variable other than `HOME`, a glob, a relative spelling (`cd ~; cat .ssh/id_rsa`), split quoting, a script or an alias, nor a command hidden by quoting from the split.
 
 Deny rules come first: a call a deny rule matches is refused in every mode, `--yolo` included, whatever a `PreToolUse` hook decided apart from its own `deny`, and without an ask, so an interactive `y` never runs it. The model gets `denied by settings rule <rule as written>` as an error tool result, and the turn goes on. A call an ask rule matches asks in the REPL's default mode as a write tool does (see [REPL](#repl)), even a read tool's call or one a hook allowed; `-p` and `--read-only` refuse it with `permission required: run clodent without -p to approve it, or pass --yolo`, and `--yolo` runs it. See [Hooks](#hooks) for the full order.
 
-A bare-name deny of a clodent tool also removes the tool from the request's `tools`, so a call of it is an unknown tool (`unknown tool <name>`).
+A bare-name deny of a clodent tool also removes the tool from the request's `tools`, so a call of it is an unknown tool (`unknown tool <name>`), and clodent's own system prompt does not name it.
+
+Limits:
+
+- The `Bash` guard is a string match on the command text, so a `cd` followed by a relative path evades it.
+- A hard link to a denied file is not detected.
+- The per-file check in `Grep` and `Glob` listings is lexical, except for entries that are symlinks.
 
 Startup errors: each of these prints `clodent: settings <path>: <message>` and exits 2, before the `[clodent:session]` line, any hook, any request and the first `\x1b[?2004h`:
 
 - `permissions` that is not an object: `permissions is not an object`.
 - `deny` or `ask` that is not an array: `permissions.<list> is not an array`; an entry that is not a string: `permissions.<list>[<i>] is not a string`.
-- A malformed rule, `permissions.<list>[<i>] "<rule>": <reason>`, where the reason is `unbalanced parenthesis`, `text after the closing parenthesis`, `no tool name`, `empty () on <Tool>` (for a clodent tool only), or `the path expands to nothing (HOME is not set)`.
+- A malformed rule, `permissions.<list>[<i>] "<rule>": <reason>`, where the reason is `unbalanced parenthesis`, `text after the closing parenthesis`, `no tool name`, `tool name "<name>" is not exactly <Tool>`, `empty () on <Tool>` (for a clodent tool only), or `the path expands to nothing (HOME is not set)`.
 - `sandbox.enabled: true` in any source: `sandbox.enabled is not supported: clodent does not sandbox Bash; remove the sandbox block`.
 
 ### Hooks
