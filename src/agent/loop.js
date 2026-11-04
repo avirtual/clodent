@@ -133,7 +133,7 @@ export function createAgent(config, deps) {
 
   function verdictFor(tool, input, pre, ruled) {
     if (pre.decision === 'deny') return { allow: false, reason: pre.reason };
-    if (ruled?.decision === 'deny') return { allow: false, reason: denialReason(ruled.rule) };
+    if (ruled?.decision === 'deny') return { allow: false, reason: denialReason(ruled.rule, ruled.uncertain) };
     if ((ruled?.decision === 'ask' || pre.decision === 'ask') && permission !== 'yolo') return { allow: false, ask: asksInMode(permission), reason: ASK_DENIAL };
     if (pre.decision === 'allow' && asksInMode(permission)) return ALLOWED;
     return decide(tool, input, permission, deps.cwd, deps.scope);
