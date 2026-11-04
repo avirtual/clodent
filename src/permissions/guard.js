@@ -158,6 +158,7 @@ export function shellWords(text) {
 const HOME_PREFIX = /^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/;
 const USER_PREFIX = /^~([^/]+)/;
 const CWD_TILDE = /^~(?:\+|[+-]?0+)(?=\/|$)/;
+const DIR_STACK = /^~(?:-|[+-]?0*[1-9]\d*)(?=\/|$)/;
 const DATA_PREFIX = /^\/System\/Volumes\/Data(?=\/)/i;
 
 function expandHome(word, home) {
@@ -299,6 +300,7 @@ function braced(word) {
   if (groups.size === 0) return [word];
   const all = expansions(word, groups, 0, word.length, 0);
   if (all) return all;
+  for (const [at, group] of groups) if (!group.seq && word.slice(at + 1, group.close).includes('.')) return [UNKNOWN];
   let out = '';
   for (let k = 0; k < word.length; k += 1) {
     const group = groups.get(k);
@@ -383,13 +385,17 @@ async function globbed(path, list, budget) {
   return heads.map((head) => resolve(head || '/'));
 }
 
+const mayClimb = (segment) =>
+  (segment.includes(UNKNOWN) && segment.replaceAll(UNKNOWN, '') === '..') ||
+  (segment[0] === '.' && GLOB.test(segment) && (segmentRegExp(segment, 's')?.test('..') ?? true));
+
 function looseSegments(path) {
   const out = [];
   for (const segment of path.split('/')) {
     if (segment === '' || segment === '.') continue;
-    if (segment !== '..') out.push(segment);
-    else if (out.at(-1)?.includes(UNKNOWN)) out[out.length - 1] = UNKNOWN;
-    else out.pop();
+    if (segment === '..' ? out.at(-1)?.includes(UNKNOWN) : mayClimb(segment)) return [UNKNOWN];
+    if (segment === '..') out.pop();
+    else out.push(segment);
   }
   return out;
 }
@@ -419,7 +425,7 @@ async function expandWord(word, dirs, scope) {
   const budget = { visited: 0 };
   const seen = new Set();
   for (const text of braced(word)) {
-    const homed = expandHome(text, scope.home);
+    const homed = DIR_STACK.test(text) ? text.replace(DIR_STACK, UNKNOWN) : expandHome(text, scope.home);
     for (const dir of dirs) {
       const value = expandVars(homed, dir, scope.home, scope.env);
       const bases = scope.cdpath && !CDPATH_FREE.test(value) ? [dir, ...scope.cdpath.map((entry) => placed(entry, dir))] : [dir];
@@ -548,6 +554,10 @@ function bashMatch(rules, command, cwd, readOnly, forms, reaches) {
   });
 }
 
+export function uncertainDecision(list, mode) {
+  return list === 'deny' && mode === 'yolo' ? 'deny' : 'ask';
+}
+
 function looseMatch(rules, reaches, forms, readOnly) {
   for (const rule of rules) {
     if (rule.kind !== 'path' || rule.bash === null || (rule.bash !== 'read' && readOnly())) continue;
@@ -625,7 +635,7 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
     return reaches;
   }
 
-  function verdict(tool, input, cwd, paths, ruleForms, reaches) {
+  function verdict(tool, input, cwd, paths, ruleForms, reaches, mode) {
     const bare = (rules) => rules.find((rule) => rule.kind === 'tool' && rule.tool === tool);
     let match;
     let readOnly;
@@ -642,9 +652,10 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
     for (const [decision, rules] of lists) {
       const rule = match(rules);
       if (rule) return { decision, rule };
+      const loose = reaches && looseMatch(rules, reaches, ruleForms, readOnly);
+      if (loose) return { decision: uncertainDecision(decision, mode), ...loose };
     }
-    const loose = reaches && looseMatch([...deny, ...ask], reaches, ruleForms, readOnly);
-    return loose ? { decision: 'ask', ...loose } : null;
+    return null;
   }
 
   function listingFilter(root, rules, ruleForms) {
@@ -669,7 +680,7 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
     const root = await rootOf(tool, input, cwd);
     const paths = rootPaths(root);
     const reaches = tool === 'Bash' && typeof input?.command === 'string' ? await reachesOf(input.command, cwd) : null;
-    const ruled = verdict(tool, input, cwd, paths, ruleForms, reaches);
+    const ruled = verdict(tool, input, cwd, paths, ruleForms, reaches, mode);
     if (!LISTING_TOOLS.has(tool)) return { ruled, hidden: null, approved: null };
     const rules = (mode === 'yolo' ? deny : [...deny, ...ask]).filter((rule) => rule.kind === 'path' && rule.tools.includes(tool));
     const hidden = listingFilter(root, rules, ruleForms);

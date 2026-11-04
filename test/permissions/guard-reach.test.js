@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGuard } from '../../src/permissions/guard.js';
+import { createGuard, uncertainDecision } from '../../src/permissions/guard.js';
 import { builtinDenies, parseRules } from '../../src/permissions/rules.js';
 
 const HOME = '/h';
@@ -37,8 +37,8 @@ function guardOf({ deny = ['Read(~/.ssh)'], ask = [], env = ENV, tree = TREE, ca
   return createGuard(lists, { realpath: missing, lstat: missing, readdir: fakeReaddir(tree, calls), platform: 'linux', env });
 }
 
-async function ruling(guard, command, cwd = '/work') {
-  const { ruled } = await guard.screen('Bash', { command }, cwd, 'ask');
+async function ruling(guard, command, cwd = '/work', mode = 'ask') {
+  const { ruled } = await guard.screen('Bash', { command }, cwd, mode);
   return ruled && `${ruled.decision} ${ruled.rule.text}`;
 }
 
@@ -95,6 +95,7 @@ test('$PWD, $USER, $LOGNAME and $TMPDIR expand; $OLDPWD and any other variable i
     assert.equal(await ruling(guard, command), SSH, command);
   }
   assert.equal(await ruling(guard, 'cat $OLDPWD/id_rsa'), 'ask Read(~/.ssh)');
+  assert.equal(await ruling(guard, 'cat ~-/id_rsa'), 'ask Read(~/.ssh)');
   assert.equal(await ruling(guard, 'cat ~/$X'), 'ask Read(~/.ssh)');
   for (const command of ["sed -n '$p' a.txt", 'cat ~/notes/$X', 'cat /work/$1', "cat '$OLDPWD'/id_rsa", 'cat $PWD/a.txt']) {
     assert.equal(await ruling(guard, command), null, command);
@@ -160,4 +161,32 @@ test('a recursive content search rooted at a rule prefix or an ancestor asks, na
   assert.equal(await ruling(guard, 'cd ~/.ssh && grep -r x'), SSH);
   assert.equal(await ruling(guardOf({ deny: ['Edit(~/.ssh)'], settings: [] }), 'grep -r x ~'), null);
   assert.equal(await ruling(guard, 'grep -r -m 1 x src', HOME), null);
+});
+
+test('an uncertain part that may be .., or follow a word part that may hold one, makes the whole word uncertain', async () => {
+  const guard = guardOf();
+  const names = Array.from({ length: 10_001 }, (_, i) => `d${i}`);
+  const big = guardOf({ tree: { ...TREE, '/h/notes': names } });
+  const climbs = [
+    [guard, 'cat ~/notes/.$OLDPWD./.ssh/id_rsa'],
+    [guard, `cat ~/notes/{.,a}${'{,}'.repeat(10)}/.ssh/id_rsa`],
+    [guard, `cat ~/notes/.${'{,}'.repeat(11)}./.ssh/id_rsa`],
+    [big, 'cat ~/notes/*/.?/.?/.ssh/id_rsa'],
+  ];
+  for (const [one, command] of climbs) assert.equal(await ruling(one, command), 'ask Read(~/.ssh)', command);
+  assert.equal(await ruling(guard, `cat ~/notes/${'{a,b}'.repeat(11)}/.ssh/id_rsa`), null);
+  assert.equal(await ruling(big, 'cat ~/notes/*/x/.ssh/id_rsa'), null);
+});
+
+test('under --yolo an uncertain or recursive reach of a deny rule denies, since an ask would run unasked; an ask rule still asks', async () => {
+  const guard = guardOf();
+  assert.equal(uncertainDecision('deny', 'yolo'), 'deny');
+  assert.equal(uncertainDecision('deny', 'ask'), 'ask');
+  assert.equal(uncertainDecision('ask', 'yolo'), 'ask');
+  assert.equal(await ruling(guard, 'cat $OLDPWD/id_rsa', '/work', 'yolo'), SSH);
+  assert.equal(await ruling(guard, 'grep -r ANTHROPIC ~', '/work', 'yolo'), SSH);
+  for (const mode of ['ask', 'accept-edits', 'read-only']) assert.equal(await ruling(guard, 'grep -r ANTHROPIC ~', '/work', mode), 'ask Read(~/.ssh)', mode);
+  const asks = guardOf({ deny: [], ask: ['Read(~/notes)'], settings: [] });
+  assert.equal(await ruling(asks, 'grep -r x ~', '/work', 'yolo'), 'ask Read(~/notes)');
+  assert.equal(await ruling(asks, 'cat ~/no$X/a.txt', '/work', 'yolo'), 'ask Read(~/notes)');
 });

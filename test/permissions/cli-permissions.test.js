@@ -432,3 +432,25 @@ test('the Bash tool never gets ANTHROPIC_API_KEY, from the environment or settin
   }
   assert.equal(readFileSync(seen, 'utf8'), 'unset');
 });
+
+test('Bash reach: a glob on disk and $TMPDIR from the Bash env deny; an uncertain or recursive reach is refused under -p and denied under --yolo, where an ask rule runs', GUARD, async (t) => {
+  const { cwd, dir, user } = await setup(t);
+  const home = join(user, '.clodent');
+  await plant(user, { '.ssh/id_rsa': 'KEY', 'docs/notes/n.txt': 'note', '.clodent/settings.json': '{}' });
+  const settings = writeSettings(dir, { permissions: { deny: ['Read(~/.ssh)'], ask: ['Read(~/docs/notes)'] } });
+  const env = { HOME: user, TMPDIR: join(user, '.ssh') };
+  const uses = [
+    ['Bash', { command: 'cat ~/.clo?ent/settings.json' }],
+    ['Bash', { command: 'cat $TMPDIR/id_rsa' }],
+    ['Bash', { command: 'cat $OLDPWD/id_rsa' }],
+    ['Bash', { command: 'grep -r KEY ~' }],
+    ['Bash', { command: 'grep -rh note ~/docs' }],
+  ];
+  const builtin = `denied by built-in rule Read(/${join(home, 'settings.json')})`;
+  const print = await runMain(['-p', 'go', '--settings', settings], { home, cwd, env, responses: [toolsReply(uses), textReply('done')] });
+  assert.equal(print.code, 0, print.stderr);
+  assert.deepEqual(results(print), [builtin, denied('Read(~/.ssh)'), ASK_DENIAL, ASK_DENIAL, ASK_DENIAL]);
+  const yolo = await runMain(['-p', 'go', '--yolo', '--settings', settings], { home, cwd, env, responses: [toolsReply(uses), textReply('done')] });
+  assert.equal(yolo.code, 0, yolo.stderr);
+  assert.deepEqual(results(yolo), [builtin, denied('Read(~/.ssh)'), denied('Read(~/.ssh)'), denied('Read(~/.ssh)'), 'note\n[exit 0]']);
+});
