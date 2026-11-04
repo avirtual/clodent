@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createGuard, simpleCommands } from '../../src/permissions/guard.js';
 import { parseRules } from '../../src/permissions/rules.js';
 
@@ -9,8 +12,14 @@ const noRealpath = async () => {
   throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
 };
 
-function guardOf({ deny = [], ask = [] }, deps = { realpath: noRealpath }) {
-  return createGuard({ deny: parseRules(deny, 'permissions.deny', WHERE), ask: parseRules(ask, 'permissions.ask', WHERE) }, deps);
+function guardOf({ deny = [], ask = [] }, deps = {}) {
+  const lists = { deny: parseRules(deny, 'permissions.deny', WHERE), ask: parseRules(ask, 'permissions.ask', WHERE) };
+  return createGuard(lists, { realpath: noRealpath, lstat: noRealpath, platform: 'linux', ...deps });
+}
+
+async function hiddenOf(guard, input, mode, tool = 'Grep') {
+  const { hidden } = await guard.screen(tool, input, '/work', mode);
+  return hidden && ((paths) => Promise.all(paths.map(hidden)));
 }
 
 async function bash(guard, command) {
@@ -112,22 +121,125 @@ test('the path is checked again after realpath, of its deepest existing ancestor
   assert.equal(await guard.check('Read', { file_path: 'other/id_rsa' }, '/work'), null);
 });
 
-test('hidden(tool) lists only deny path rules that guard that listing tool', async () => {
+test('the listing filter hides files a deny path rule for that tool matches, and an ask rule unless the mode is yolo', async () => {
   const guard = guardOf({ deny: ['Read(./r)', 'Edit(./e)', 'Grep(./g)'], ask: ['Read(./a)'] });
-  const grep = await guard.hidden('Grep', {}, '/work');
-  const glob = await guard.hidden('Glob', {}, '/work');
-  assert.deepEqual(['/work/r/x', '/work/e/x', '/work/g/x', '/work/a/x'].map(grep), [true, false, true, false]);
-  assert.deepEqual(['/work/r/x', '/work/g/x'].map(glob), [true, false]);
-  assert.equal(await guard.hidden('Read', { file_path: 'r/x' }, '/work'), null);
-  assert.equal(await guardOf({}).hidden('Grep', {}, '/work'), null);
+  const files = ['/work/r/x', '/work/e/x', '/work/g/x', '/work/a/x'];
+  for (const [mode, expected] of [
+    ['yolo', [true, false, true, false]],
+    ['ask', [true, false, true, true]],
+    ['read-only', [true, false, true, true]],
+  ]) {
+    assert.deepEqual(await (await hiddenOf(guard, {}, mode))(files), expected, mode);
+  }
+  assert.deepEqual(await (await hiddenOf(guard, {}, 'yolo', 'Glob'))(['/work/r/x', '/work/g/x']), [true, false]);
+  assert.equal(await hiddenOf(guard, { file_path: 'r/x' }, 'ask', 'Read'), null);
+  assert.equal(await hiddenOf(guardOf({}), {}, 'ask'), null);
+  assert.equal(await hiddenOf(guardOf({ ask: ['Read(./a)'] }), {}, 'yolo'), null);
 });
 
-test('hidden(tool) also tests each listed file under the realpath of a symlinked root', async () => {
+test('the listing filter also tests each listed file under the realpath of a symlinked root', async () => {
   const realpath = async (path) => {
     if (path === '/work/h') return HOME;
     throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
   };
+  const grep = await hiddenOf(guardOf({ deny: ['Read(~/.ssh)'] }, { realpath }), { path: 'h' }, 'yolo');
+  assert.deepEqual(await grep(['/work/h/.ssh/id_rsa', '/work/h/notes.txt', `${HOME}/.ssh/x`]), [true, false, true]);
+});
+
+test('the listing filter resolves a symlink entry with realpath and hides it when the target matches; other entries stay lexical', async () => {
+  const links = { '/work/k': `${HOME}/.ssh/id_rsa`, '/work/ok': '/work/notes.txt' };
+  const asked = [];
+  const realpath = async (path) => {
+    asked.push(path);
+    if (Object.hasOwn(links, path)) return links[path];
+    throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+  };
+  const lstat = async (path) => ({ isSymbolicLink: () => Object.hasOwn(links, path) });
+  const guard = guardOf({ deny: ['Read(~/.ssh)'] }, { realpath, lstat });
+  for (const tool of ['Grep', 'Glob']) {
+    const hide = await hiddenOf(guard, {}, 'yolo', tool);
+    asked.length = 0;
+    assert.deepEqual(await hide(['/work/k', '/work/ok', '/work/notes.txt']), [true, false, false], tool);
+    assert.deepEqual(asked, ['/work/k', '/work/ok'], tool);
+  }
+});
+
+test('screen resolves a listing root with realpath once and returns the verdict with the listing filter', async () => {
+  const asked = [];
+  const realpath = async (path) => {
+    asked.push(path);
+    if (path === '/work/h') return HOME;
+    throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+  };
   const guard = guardOf({ deny: ['Read(~/.ssh)'] }, { realpath });
-  const grep = await guard.hidden('Grep', { path: 'h' }, '/work');
-  assert.deepEqual(['/work/h/.ssh/id_rsa', '/work/h/notes.txt', `${HOME}/.ssh/x`].map(grep), [true, false, true]);
+  await guard.check('Bash', { command: 'true' }, '/work');
+  asked.length = 0;
+  const { ruled, hidden } = await guard.screen('Grep', { path: 'h' }, '/work', 'ask');
+  assert.deepEqual(asked, ['/work/h']);
+  assert.equal(ruled, null);
+  assert.equal(await hidden('/work/h/.ssh/id_rsa'), true);
+  assert.equal((await guard.screen('Glob', { path: 'h/.ssh' }, '/work', 'ask')).ruled?.rule.text, 'Read(~/.ssh)');
+});
+
+test('rule prefixes are resolved with realpath once, on the first check, and a rule matches its real form too', async () => {
+  const asked = [];
+  const realpath = async (path) => {
+    asked.push(path);
+    if (path === `${HOME}/.ssh`) return '/vault/ssh';
+    throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+  };
+  const guard = guardOf({ deny: ['Read(~/.ssh)'], ask: ['Edit(~/.ssh/**/*.pub)'] }, { realpath });
+  assert.deepEqual(asked, []);
+  const rule = async (tool, input) => {
+    const ruled = await guard.check(tool, input, '/work');
+    return ruled && `${ruled.decision} ${ruled.rule.text}`;
+  };
+  assert.equal(await rule('Read', { file_path: '/vault/ssh/id_rsa' }), 'deny Read(~/.ssh)');
+  assert.equal(await rule('Bash', { command: 'cat /vault/ssh/id_rsa' }), 'deny Read(~/.ssh)');
+  assert.equal(await rule('Bash', { command: 'cat ~/.ssh/id_rsa' }), 'deny Read(~/.ssh)');
+  assert.equal(await rule('Write', { file_path: '/vault/ssh/k/a.pub' }), 'ask Edit(~/.ssh/**/*.pub)');
+  assert.equal(await rule('Write', { file_path: '/vault/ssh/k/a.txt' }), null);
+  assert.deepEqual(await (await hiddenOf(guard, { path: '/vault' }, 'yolo'))(['/vault/ssh/id_rsa', '/vault/x']), [true, false]);
+  assert.equal(asked.filter((path) => path === `${HOME}/.ssh`).length, 1);
+});
+
+test('a rule on <tmp>/link/secret, where link -> real, denies Read of <tmp>/real/secret on the real filesystem', async (t) => {
+  const tmp = mkdtempSync(join(tmpdir(), 'clodent-guard-'));
+  t.after(() => rmSync(tmp, { recursive: true, force: true }));
+  mkdirSync(join(tmp, 'real'));
+  writeFileSync(join(tmp, 'real/secret'), 'x');
+  symlinkSync(join(tmp, 'real'), join(tmp, 'link'));
+  const text = `Read(/${tmp}/link/secret)`;
+  const guard = createGuard({ deny: parseRules([text], 'permissions.deny', WHERE) });
+  assert.equal((await guard.check('Read', { file_path: join(tmp, 'real/secret') }, '/work'))?.rule.text, text);
+  assert.equal(await guard.check('Read', { file_path: join(tmp, 'real/other') }, '/work'), null);
+  assert.equal((await guard.check('Bash', { command: `cat ${realpathSync(tmp)}/real/secret` }, '/work'))?.rule.text, text);
+  const { hidden } = await guard.screen('Grep', { path: join(tmp, 'real') }, '/work', 'yolo');
+  assert.equal(await hidden(join(tmp, 'real/secret')), true);
+});
+
+test('darwin: a path under /System/Volumes/Data is also checked without that prefix, lexically, after realpath and in listings', async () => {
+  const realpath = async (path) => {
+    if (path === '/work/x') return `/System/Volumes/Data${HOME}/.ssh`;
+    throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+  };
+  const rules = { deny: ['Read(~/.ssh)'] };
+  const darwin = guardOf(rules, { realpath, platform: 'darwin' });
+  const linux = guardOf(rules, { realpath, platform: 'linux' });
+  const read = async (guard, file_path) => (await guard.check('Read', { file_path }, '/work'))?.rule.text ?? null;
+  assert.equal(await read(darwin, `/System/Volumes/Data${HOME}/.ssh/id_rsa`), 'Read(~/.ssh)');
+  assert.equal(await read(darwin, 'x/id_rsa'), 'Read(~/.ssh)');
+  assert.equal(await read(linux, `/System/Volumes/Data${HOME}/.ssh/id_rsa`), null);
+  assert.equal(await read(linux, 'x/id_rsa'), null);
+  assert.equal(await read(darwin, `/System/Volumes/Datax${HOME}/.ssh/id_rsa`), null);
+  assert.deepEqual(await (await hiddenOf(darwin, { path: '/System/Volumes/Data' }, 'yolo'))([`/System/Volumes/Data${HOME}/.ssh/id_rsa`]), [true]);
+  assert.deepEqual(await (await hiddenOf(darwin, { path: 'x' }, 'yolo'))(['/work/x/id_rsa']), [true]);
+});
+
+test('Bash: a mention matches in any letter case and after a /System/Volumes/Data prefix, on every platform', async () => {
+  const guard = guardOf({ deny: ['Read(~/.ssh)', 'Edit(//etc/hosts)'] });
+  for (const command of ['cat ~/.SSH/id_rsa', `cat /USERS/U/.ssh/x`, 'cat $HOME/.Ssh', 'echo x > /ETC/Hosts', `cat /System/Volumes/Data${HOME}/.ssh/id_rsa`]) {
+    assert.match(await bash(guard, command), /^deny /, command);
+  }
+  for (const command of ['cat ~/.SSHX', 'cat /etc/hostsx']) assert.equal(await bash(guard, command), null, command);
 });
