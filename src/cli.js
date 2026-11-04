@@ -191,6 +191,7 @@ function createRuntime(prep, opts, deps, render) {
       {
         model: current.model,
         effort: opts.effort ?? settings.effortLevel,
+        cacheTtl: opts.cacheTtl ?? settings.cacheTtl,
         system: current.system,
         baseUrl,
         sessionId: session.sessionId,

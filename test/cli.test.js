@@ -99,6 +99,11 @@ test('a parse error prints the error and a pointer to --help, and returns 2', as
     stdout: '',
     stderr: 'clodent: --effort must be low, medium, high, xhigh or max, got "ultra"\nclodent: see --help\n',
   });
+  assert.deepEqual(await run(['--cache-ttl', '2h']), {
+    code: 2,
+    stdout: '',
+    stderr: 'clodent: --cache-ttl must be 5m or 1h, got "2h"\nclodent: see --help\n',
+  });
   assert.deepEqual(await run(['--permission-mode', 'plan', '--yolo']), {
     code: 2,
     stdout: '',

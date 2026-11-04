@@ -17,7 +17,7 @@ function strip(value) {
   return JSON.parse(JSON.stringify(value, (key, v) => (key === 'cache_control' ? undefined : v)));
 }
 
-function harness(responses, { history, interrupted, budgetUsd, context = {}, onFire, onFetch } = {}) {
+function harness(responses, { history, interrupted, budgetUsd, context = {}, onFire, onFetch, cacheTtl } = {}) {
   const events = [];
   const fired = [];
   const inner = createFakeFetch(responses);
@@ -35,7 +35,7 @@ function harness(responses, { history, interrupted, budgetUsd, context = {}, onF
     },
   };
   const agent = createAgent(
-    { model: 'claude-opus-5-5', system: 'sys', tools: [TOOL], permission: 'yolo', history, interrupted },
+    { model: 'claude-opus-5-5', system: 'sys', tools: [TOOL], permission: 'yolo', history, interrupted, cacheTtl },
     {
       fetch,
       env: { ANTHROPIC_API_KEY: 'k' },
@@ -150,4 +150,28 @@ test('a budget that cannot cover the summary request stops the compact before it
   assert.equal(h.fetch.calls.length, 1);
   assert.equal(h.events.at(-1).type, 'budget_stop');
   assert.deepEqual(h.agent.messages(), before);
+});
+
+test('the compact summary request carries the settled pin on the last real user turn before its prompt', async () => {
+  const h = harness([reply('one'), reply('the summary')]);
+  await h.agent.runTurn('first');
+  assert.equal((await h.agent.compact(MANUAL)).ok, true);
+  const [first, summary] = h.bodies();
+  const marked = (body) => body.messages.flatMap((message, i) => message.content.flatMap((block, j) => (block.cache_control ? [[i, j]] : [])));
+  assert.deepEqual(marked(first), [[0, 0]]);
+  assert.deepEqual(marked(summary), [[0, 0], [2, 0]]);
+  assert.deepEqual(summary.messages[0].content.at(-1).cache_control, { type: 'ephemeral' });
+});
+
+test('with cacheTtl 1h the compact summary request marks system, tool and settled pin 1h and keeps the tail 5m', async () => {
+  const h = harness([reply('one'), reply('the summary')], { cacheTtl: '1h' });
+  await h.agent.runTurn('first');
+  assert.equal((await h.agent.compact(MANUAL)).ok, true);
+  const summary = h.bodies()[1];
+  const long = { type: 'ephemeral', ttl: '1h' };
+  assert.deepEqual(
+    [summary.system[0].cache_control, summary.tools[0].cache_control, summary.messages[0].content.at(-1).cache_control, summary.messages[2].content.at(-1).cache_control],
+    [long, long, long, { type: 'ephemeral' }],
+  );
+  assert.equal(JSON.stringify(summary).match(/"cache_control"/g).length, 4);
 });

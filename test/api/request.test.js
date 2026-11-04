@@ -134,11 +134,11 @@ test('an invalid effort throws', () => {
   }
 });
 
-test('exactly three cache breakpoints: system, last tool, last message block', () => {
+test('a first-turn request carries three cache breakpoints: system, last tool, last message block', () => {
   const messages = [
     { role: 'user', content: [{ type: 'text', text: 'first' }] },
-    { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
-    { role: 'user', content: [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }] },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: {} }, { type: 'tool_use', id: 't2', name: 'Read', input: {} }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'a' }, { type: 'tool_result', tool_use_id: 't2', content: 'b' }] },
   ];
   const { body } = buildRequest(base({ messages }), deps);
   assert.deepEqual(cachePaths(body), ['$.system[0]', '$.tools[1]', '$.messages[2].content[1]']);
@@ -146,17 +146,20 @@ test('exactly three cache breakpoints: system, last tool, last message block', (
 
 test('string content of the last message becomes a marked text block', () => {
   const messages = [
+    { role: 'user', content: 'zero' },
+    { role: 'assistant', content: 'ok' },
     { role: 'user', content: 'first' },
     { role: 'assistant', content: 'ok' },
     { role: 'user', content: 'again' },
   ];
   const { body } = buildRequest(base({ messages }), deps);
-  assert.equal(body.messages[0].content, 'first');
+  assert.equal(body.messages[0].content, 'zero');
   assert.equal(body.messages[1].content, 'ok');
-  assert.deepEqual(body.messages[2].content, [
+  assert.equal(body.messages[3].content, 'ok');
+  assert.deepEqual(body.messages[4].content, [
     { type: 'text', text: 'again', cache_control: { type: 'ephemeral' } },
   ]);
-  assert.equal(cachePaths(body).length, 3);
+  assert.deepEqual(cachePaths(body), ['$.system[0]', '$.tools[1]', '$.messages[2].content[0]', '$.messages[4].content[0]']);
 });
 
 test('a trailing thinking block is skipped for the nearest other block', () => {
@@ -197,11 +200,194 @@ test('building twice over a growing history keeps three markers and never mutate
 test('stale cache_control on caller blocks is dropped so the count stays three', () => {
   const messages = [
     { role: 'user', content: [{ type: 'text', text: 'old', cache_control: { type: 'ephemeral' } }] },
-    { role: 'assistant', content: [{ type: 'text', text: 'reply' }] },
-    { role: 'user', content: 'new' },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: {}, cache_control: { type: 'ephemeral' } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'new' }] },
   ];
   const tools = [{ ...TOOLS[0], cache_control: { type: 'ephemeral' } }, TOOLS[1]];
   const { body } = buildRequest(base({ messages, tools }), deps);
   assert.deepEqual(cachePaths(body), ['$.system[0]', '$.tools[1]', '$.messages[2].content[0]']);
   assert.deepEqual(messages[0].content[0].cache_control, { type: 'ephemeral' });
+});
+
+const userText = (text) => ({ role: 'user', content: text });
+const toolUse = (id) => ({
+  role: 'assistant',
+  content: [{ type: 'thinking', thinking: 'plan', signature: 'sig' }, { type: 'tool_use', id, name: 'Read', input: {} }],
+});
+const toolResult = (id) => ({ role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'r' }] });
+const answer = (text) => ({ role: 'assistant', content: [{ type: 'text', text }] });
+const TURN_ONE = [userText('one'), toolUse('t1'), toolResult('t1'), answer('done one')];
+
+function messagePaths(body) {
+  return cachePaths(body).filter((path) => path.startsWith('$.messages'));
+}
+
+test('turn 1 carries no settled pin: three breakpoints on request 1 and after a tool round', () => {
+  const first = buildRequest(base({ messages: [userText('one')] }), deps).body;
+  assert.deepEqual(cachePaths(first), ['$.system[0]', '$.tools[1]', '$.messages[0].content[0]']);
+  const second = buildRequest(base({ messages: TURN_ONE.slice(0, 3) }), deps).body;
+  assert.deepEqual(cachePaths(second), ['$.system[0]', '$.tools[1]', '$.messages[2].content[0]']);
+});
+
+test('turn 2 request 1 pins msg 0 as one marked text block and leaves the caller history unchanged', () => {
+  const messages = [...structuredClone(TURN_ONE), userText('two')];
+  const snapshot = structuredClone(messages);
+  const { body } = buildRequest(base({ messages }), deps);
+  assert.deepEqual(cachePaths(body), ['$.system[0]', '$.tools[1]', '$.messages[0].content[0]', '$.messages[4].content[0]']);
+  assert.deepEqual(body.messages[0].content, [{ type: 'text', text: 'one', cache_control: { type: 'ephemeral' } }]);
+  assert.deepEqual(messages, snapshot);
+  assert.equal(messages[0].content, 'one');
+});
+
+test('turn 2 request 2 onward pins turn 2 opening user message', () => {
+  const messages = [...structuredClone(TURN_ONE), userText('two'), toolUse('t2'), toolResult('t2')];
+  const second = buildRequest(base({ messages }), deps).body;
+  assert.deepEqual(messagePaths(second), ['$.messages[4].content[0]', '$.messages[6].content[0]']);
+  assert.deepEqual(second.messages[4].content, [{ type: 'text', text: 'two', cache_control: { type: 'ephemeral' } }]);
+  messages.push(toolUse('t3'), toolResult('t3'));
+  const third = buildRequest(base({ messages }), deps).body;
+  assert.deepEqual(messagePaths(third), ['$.messages[4].content[0]', '$.messages[8].content[0]']);
+  assert.equal(cachePaths(third).length, 4);
+});
+
+test('a tool_result-only user message is never the anchor; a tool_result with a text block is a boundary', () => {
+  const skipped = buildRequest(base({ messages: [...TURN_ONE.slice(0, 3), toolUse('t2'), toolResult('t2'), answer('x'), userText('two')] }), deps).body;
+  assert.deepEqual(messagePaths(skipped), ['$.messages[0].content[0]', '$.messages[6].content[0]']);
+  const withText = {
+    role: 'user',
+    content: [{ type: 'tool_result', tool_use_id: 't1', content: 'r' }, { type: 'text', text: 'also this' }],
+  };
+  const opening = buildRequest(base({ messages: [userText('one'), toolUse('t1'), withText] }), deps).body;
+  assert.deepEqual(messagePaths(opening), ['$.messages[0].content[0]', '$.messages[2].content[1]']);
+  const advanced = buildRequest(base({ messages: [userText('one'), toolUse('t1'), withText, toolUse('t2'), toolResult('t2')] }), deps).body;
+  assert.deepEqual(messagePaths(advanced), ['$.messages[2].content[1]', '$.messages[4].content[0]']);
+  const blank = buildRequest(base({ messages: [userText('one'), answer('a'), userText('  \n'), toolUse('t2'), toolResult('t2')] }), deps).body;
+  assert.deepEqual(messagePaths(blank), ['$.messages[4].content[0]']);
+});
+
+test('with no tools the breakpoints are the system block, the settled pin and the tail', () => {
+  const { body } = buildRequest(base({ tools: [], messages: [...structuredClone(TURN_ONE), userText('two')] }), deps);
+  assert.deepEqual(cachePaths(body), ['$.system[0]', '$.messages[0].content[0]', '$.messages[4].content[0]']);
+});
+
+test('a scripted 3-turn session with tool rounds never sends more than four breakpoints', () => {
+  const messages = [];
+  const pins = [];
+  for (const [turn, rounds] of [['one', 1], ['two', 2], ['three', 0]]) {
+    messages.push(userText(turn));
+    for (let round = 0; round <= rounds; round++) {
+      if (round > 0) messages.push(toolUse(`${turn}${round}`), toolResult(`${turn}${round}`));
+      const paths = cachePaths(buildRequest(base({ messages }), deps).body);
+      assert.ok(paths.length <= 4, `${paths.length} breakpoints at ${messages.length} messages`);
+      pins.push(paths.length === 4 ? paths[2] : null);
+    }
+    messages.push(answer(`done ${turn}`));
+  }
+  assert.deepEqual(pins, [
+    null,
+    null,
+    '$.messages[0].content[0]',
+    '$.messages[4].content[0]',
+    '$.messages[4].content[0]',
+    '$.messages[4].content[0]',
+  ]);
+  assert.deepEqual(cachePaths(messages), []);
+});
+
+const FIXTURE_5M = readFileSync(new URL('./fixtures/request-5m-body.json', import.meta.url), 'utf8').trimEnd();
+const ONE_HOUR = { type: 'ephemeral', ttl: '1h' };
+const FIVE_MIN = { type: 'ephemeral' };
+
+function cacheMarks(value, path = '$', out = []) {
+  if (Array.isArray(value)) {
+    value.forEach((item, i) => cacheMarks(item, `${path}[${i}]`, out));
+  } else if (value && typeof value === 'object') {
+    for (const [key, child] of Object.entries(value)) {
+      if (key === 'cache_control') out.push([path, child]);
+      else cacheMarks(child, `${path}.${key}`, out);
+    }
+  }
+  return out;
+}
+
+function fixtureInput(tools, cacheTtl) {
+  const messages = [...structuredClone(TURN_ONE), userText('two'), toolUse('t2'), toolResult('t2')];
+  return base({ tools, messages, effort: 'high', sessionId: '00000000-0000-4000-8000-000000000000', cacheTtl });
+}
+
+test('5m mode sends the pre-change request bytes; only the tool order differs, and an unsorted tool list sorts into them', () => {
+  const sorted = [TOOLS[1], TOOLS[0]];
+  for (const cacheTtl of [undefined, '5m']) {
+    assert.equal(JSON.stringify(buildRequest(fixtureInput(sorted, cacheTtl), deps).body), FIXTURE_5M);
+    assert.equal(JSON.stringify(buildRequest(fixtureInput(TOOLS, cacheTtl), deps).body), FIXTURE_5M);
+  }
+});
+
+test('an unknown cacheTtl throws', () => {
+  assert.throws(() => buildRequest(base({ cacheTtl: '2h' }), deps), /invalid cacheTtl "2h": expected one of 5m, 1h/);
+});
+
+test('1h turn 1: system and last tool carry ttl 1h, the tail stays 5m', () => {
+  const { body } = buildRequest(base({ messages: [userText('one')], cacheTtl: '1h' }), deps);
+  assert.deepEqual(cacheMarks(body), [
+    ['$.system[0]', ONE_HOUR],
+    ['$.tools[1]', ONE_HOUR],
+    ['$.messages[0].content[0]', FIVE_MIN],
+  ]);
+});
+
+test('1h turn 2 requests 1 and 2: system, last tool and settled pin carry ttl 1h, the tail stays 5m', () => {
+  const messages = [...structuredClone(TURN_ONE), userText('two')];
+  assert.deepEqual(cacheMarks(buildRequest(base({ messages, cacheTtl: '1h' }), deps).body), [
+    ['$.system[0]', ONE_HOUR],
+    ['$.tools[1]', ONE_HOUR],
+    ['$.messages[0].content[0]', ONE_HOUR],
+    ['$.messages[4].content[0]', FIVE_MIN],
+  ]);
+  messages.push(toolUse('t2'), toolResult('t2'));
+  assert.deepEqual(cacheMarks(buildRequest(base({ messages, cacheTtl: '1h' }), deps).body), [
+    ['$.system[0]', ONE_HOUR],
+    ['$.tools[1]', ONE_HOUR],
+    ['$.messages[4].content[0]', ONE_HOUR],
+    ['$.messages[6].content[0]', FIVE_MIN],
+  ]);
+});
+
+test('1h with no tools: system and settled pin carry ttl 1h, the tail stays 5m', () => {
+  const { body } = buildRequest(base({ tools: [], messages: [...structuredClone(TURN_ONE), userText('two')], cacheTtl: '1h' }), deps);
+  assert.deepEqual(cacheMarks(body), [
+    ['$.system[0]', ONE_HOUR],
+    ['$.messages[0].content[0]', ONE_HOUR],
+    ['$.messages[4].content[0]', FIVE_MIN],
+  ]);
+});
+
+test('1h: no request in a scripted 3-turn session sends a 1h marker after a 5m one', () => {
+  const messages = [];
+  let requests = 0;
+  for (const [turn, rounds] of [['one', 1], ['two', 2], ['three', 0]]) {
+    messages.push(userText(turn));
+    for (let round = 0; round <= rounds; round++) {
+      if (round > 0) messages.push(toolUse(`${turn}${round}`), toolResult(`${turn}${round}`));
+      const { body } = buildRequest(base({ messages, cacheTtl: '1h' }), deps);
+      const ttls = ['tools', 'system', 'messages'].flatMap((key) => cacheMarks(body[key])).map(([, mark]) => mark.ttl ?? '5m');
+      const where = `${ttls.join(' ')} at ${messages.length} messages`;
+      assert.equal(ttls.slice(ttls.indexOf('5m') + 1).includes('1h'), false, where);
+      assert.deepEqual([ttls.filter((ttl) => ttl === '5m').length, ttls.at(-1)], [1, '5m'], where);
+      requests++;
+    }
+    messages.push(answer(`done ${turn}`));
+  }
+  assert.equal(requests, 6);
+});
+
+test('tools go out sorted by name in code-unit order with the marker on the last, and the caller list keeps its order', () => {
+  const tools = ['Write', 'Bash', 'grep', 'Read', 'Glob'].map((name) => ({ name, description: name, input_schema: { type: 'object' } }));
+  const order = tools.map((tool) => tool.name);
+  for (const cacheTtl of ['5m', '1h']) {
+    const { body } = buildRequest(base({ tools, cacheTtl }), deps);
+    assert.deepEqual(body.tools.map((tool) => tool.name), ['Bash', 'Glob', 'Read', 'Write', 'grep']);
+    assert.deepEqual(cacheMarks(body.tools).map(([path]) => path), ['$[4]']);
+    assert.deepEqual(tools.map((tool) => tool.name), order);
+  }
 });

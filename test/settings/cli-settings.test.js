@@ -77,6 +77,28 @@ test('settings model, effortLevel and extra directories apply when the flags are
   assert.deepEqual(flags.calls[0].body.output_config, { effort: 'low' });
 });
 
+test('cacheTtl: the default is 5m, settings 1h reaches the wire, --cache-ttl beats settings, and a bad settings value warns', async (t) => {
+  const { home, cwd, dir } = await setup(t);
+  const ttls = (body) => [body.system[0].cache_control, body.tools.at(-1).cache_control, body.messages.at(-1).content.at(-1).cache_control];
+  const short = { type: 'ephemeral' };
+  const long = { type: 'ephemeral', ttl: '1h' };
+  const plain = await runMain(['-p', 'hi'], { home, cwd, responses: [textReply('ok')] });
+  assert.equal(plain.code, 0, plain.stderr);
+  assert.deepEqual(ttls(plain.calls[0].body), [short, short, short]);
+  const settings = writeSettings(dir, { cacheTtl: '1h' });
+  const fromSettings = await runMain(['-p', 'hi', '--settings', settings], { home, cwd, responses: [textReply('ok')] });
+  assert.deepEqual(ttls(fromSettings.calls[0].body), [long, long, short]);
+  const flagWins = await runMain(['-p', 'hi', '--settings', settings, '--cache-ttl', '5m'], { home, cwd, responses: [textReply('ok')] });
+  assert.deepEqual(ttls(flagWins.calls[0].body), [short, short, short]);
+  const flagOnly = await runMain(['-p', 'hi', '--cache-ttl', '1h'], { home, cwd, responses: [textReply('ok')] });
+  assert.deepEqual(ttls(flagOnly.calls[0].body), [long, long, short]);
+  const bad = writeSettings(dir, { cacheTtl: '1d' }, 'bad.json');
+  const warned = await runMain(['-p', 'hi', '--settings', bad], { home, cwd, responses: [textReply('ok')] });
+  assert.equal(warned.code, 0, warned.stderr);
+  assert.ok(warned.stderr.includes(`clodent: settings ${bad}: cacheTtl "1d" is not 5m or 1h; ignored\n`), warned.stderr);
+  assert.deepEqual(ttls(warned.calls[0].body), [short, short, short]);
+});
+
 test('$CLODENT_HOME/settings.json loads first, --settings paths resolve against cwd, and warnings follow the session line', async (t) => {
   const { home, cwd } = await setup(t);
   writeFileSync(join(home, 'settings.json'), JSON.stringify({ model: 'claude-haiku-5-5', effortLevel: 'ultra' }));
