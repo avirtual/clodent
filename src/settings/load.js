@@ -1,6 +1,6 @@
 import { readFile as fsReadFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { EFFORTS } from '../api/request.js';
+import { CACHE_TTLS, EFFORTS } from '../api/request.js';
 import { stripModelSuffix } from '../args.js';
 import { parseRules, RuleError, ruleHome } from '../permissions/rules.js';
 import { sandboxGuard } from './sandbox.js';
@@ -144,6 +144,10 @@ function mergeSource(acc, source, warn) {
     if (EFFORTS.includes(source.effortLevel)) acc.effortLevel = source.effortLevel;
     else warn(`effortLevel ${JSON.stringify(source.effortLevel)} is not low, medium, high, xhigh or max; ignored`);
   }
+  if (source.cacheTtl !== undefined) {
+    if (CACHE_TTLS.includes(source.cacheTtl)) acc.cacheTtl = source.cacheTtl;
+    else warn(`cacheTtl ${JSON.stringify(source.cacheTtl)} is not 5m or 1h; ignored`);
+  }
   if (source.model !== undefined) {
     if (typeof source.model === 'string' && source.model !== '') acc.model = stripModelSuffix(source.model);
     else warn('model is not a non-empty string; ignored');
@@ -155,7 +159,7 @@ export async function loadSettings({ clodentHome, files = [], cwd = process.cwd(
   const sources = [];
   if (clodentHome) sources.push({ path: join(clodentHome, 'settings.json'), optional: true });
   for (const path of files) sources.push({ path, optional: false });
-  const acc = { hooks: new Map(), statusLine: null, env: new Map(), extraDirs: new Set(), effortLevel: null, model: null, deny: [], ask: [], envDeny: new Set() };
+  const acc = { hooks: new Map(), statusLine: null, env: new Map(), extraDirs: new Set(), effortLevel: null, cacheTtl: null, model: null, deny: [], ask: [], envDeny: new Set() };
   const warnings = [];
   for (const { path, optional } of sources) {
     const source = await readSource(path, optional, readFile);
@@ -176,6 +180,7 @@ export async function loadSettings({ clodentHome, files = [], cwd = process.cwd(
     extraDirs: [...acc.extraDirs],
   };
   if (acc.effortLevel) settings.effortLevel = acc.effortLevel;
+  if (acc.cacheTtl) settings.cacheTtl = acc.cacheTtl;
   if (acc.model) settings.model = acc.model;
   if (acc.deny.length > 0 || acc.ask.length > 0) settings.permissions = { deny: acc.deny, ask: acc.ask };
   if (acc.envDeny.size > 0) settings.envDeny = [...acc.envDeny];

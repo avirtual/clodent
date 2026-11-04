@@ -277,6 +277,28 @@ test('/clear opens a new session and transcript, fires SessionStart (clear), and
   assert.match(repl.out.text, /requests 2\)/);
 });
 
+test('--cache-ttl 1h holds for every request across /compact, /model and /clear', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  const replies = ['a', 'summary', 'b', 'c', 'd'].map((text) => textReply(text));
+  const repl = startRepl(['--cache-ttl', '1h'], { home, cwd, replies });
+  await repl.prompts(1);
+  const steps = ['one', '/compact', 'two', '/model claude-haiku-5-5', 'three', '/clear', 'four'];
+  for (const [i, step] of steps.entries()) {
+    repl.stdin.type(`${step}\r`);
+    await repl.prompts(i + 2);
+  }
+  const calls = repl.fetch.calls;
+  assert.equal(calls.length, 5);
+  for (const { body } of calls) {
+    assert.deepEqual(body.system[0].cache_control, { type: 'ephemeral', ttl: '1h' });
+    assert.deepEqual(body.tools.at(-1).cache_control, { type: 'ephemeral', ttl: '1h' });
+    assert.deepEqual(body.messages.at(-1).content.at(-1).cache_control, { type: 'ephemeral' });
+  }
+  assert.deepEqual(calls.map(({ body }) => body.model), ['claude-opus-5-5', 'claude-opus-5-5', 'claude-opus-5-5', 'claude-haiku-5-5', 'claude-haiku-5-5']);
+  assert.equal(repl.sessionIds().length, 2);
+  assertCleanExit(repl, await exitWith(repl, '\x04'));
+});
+
 test('/clear pushes a statusLine update with zero usage and the new session id', GUARD, async (t) => {
   const { home, cwd, dir } = await dirs(t);
   const status = join(dir, 'status.jsonl');

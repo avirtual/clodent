@@ -142,6 +142,24 @@ test('effortLevel ultra warns and is not kept; xhigh and max are kept', async ()
   }
 });
 
+test('cacheTtl: the last valid value wins, anything but 5m or 1h warns and is ignored, absent by default', async () => {
+  const fs = fakeFs({
+    [HOME_FILE]: { cacheTtl: '1h' },
+    '/1.json': { cacheTtl: '5m' },
+    '/2.json': { cacheTtl: '1h' },
+    '/3.json': { cacheTtl: '2h' },
+    '/4.json': { cacheTtl: 60 },
+  });
+  const { settings, warnings } = await loadSettings({ clodentHome: HOME, files: ['/1.json', '/2.json', '/3.json', '/4.json'] }, fs);
+  assert.equal(settings.cacheTtl, '1h');
+  assert.deepEqual(warnings, [
+    'settings /3.json: cacheTtl "2h" is not 5m or 1h; ignored',
+    'settings /4.json: cacheTtl 60 is not 5m or 1h; ignored',
+  ]);
+  assert.equal((await loadSettings({ clodentHome: HOME, files: ['/1.json'] }, fs)).settings.cacheTtl, '5m');
+  assert.equal(Object.hasOwn((await loadSettings({ files: ['/3.json'] }, fs)).settings, 'cacheTtl'), false);
+});
+
 test('settings model drops one trailing [suffix]', async () => {
   const { settings } = await loadSettings({ files: ['/1.json'] }, fakeFs({ '/1.json': { model: 'claude-opus-5-5[1m]' } }));
   assert.equal(settings.model, 'claude-opus-5-5');

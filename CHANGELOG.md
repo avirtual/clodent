@@ -6,6 +6,8 @@ clodent was named clay up to 0.2.0.
 
 - Requests carry `metadata.user_id` = `{"session_id":"<id>"}` so a proxy such as wirescope can group requests by session.
 - Requests carry a fourth cache breakpoint on the settled user turn, so a long turn re-caches only its own messages when the tail misses.
+- `--cache-ttl 5m|1h` and the settings key `cacheTtl` choose the prompt-cache TTL: with `1h` the system block, the last tool and the settled pin are cached for an hour while the tail stays 5 minutes; the default stays `5m`
+- Tool definitions are sent sorted by name, so a proxy that sorts `tools[]` (wirescope's SORT_TOOLS) leaves them and their cache breakpoint as sent
 
 ## 0.3.0 — 2026-11-04
 

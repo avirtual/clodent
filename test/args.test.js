@@ -40,6 +40,8 @@ const VALUE_FLAGS = [
   ['--model', 'model', 'claude-haiku-5-5[1m]', 'claude-haiku-5-5'],
   ['--model', 'model', 'claude-opus-5-5[1m][2m]', 'claude-opus-5-5[1m]'],
   ['--model', 'model', '[1m]', '[1m]'],
+  ['--cache-ttl', 'cacheTtl', '5m', '5m'],
+  ['--cache-ttl', 'cacheTtl', '1h', '1h'],
   ['--budget', 'budgetUsd', '2.5', 2.5],
   ['--budget', 'budgetUsd', '0.01', 0.01],
   ['--budget', 'budgetUsd', '3', 3],
@@ -185,6 +187,15 @@ test('--budget rejects anything but a finite number greater than 0', () => {
   }
 });
 
+test('--cache-ttl rejects anything but 5m or 1h, and is absent unless given', () => {
+  for (const raw of ['1H', '5M', '60m', '2h', '1d', ' 1h', '300']) {
+    assert.equal(err([`--cache-ttl=${raw}`]), `--cache-ttl must be 5m or 1h, got "${raw}"`);
+  }
+  assert.equal(err(['--cache-ttl']), '--cache-ttl needs a value');
+  assert.equal(err(['--cache-ttl', '1h', '--cache-ttl', '5m']), '--cache-ttl given more than once');
+  assert.equal(Object.hasOwn(ok([]), 'cacheTtl'), false);
+});
+
 test('--session-id rejects anything not shaped like a UUID', () => {
   for (const raw of ['abc', `${UUID}0`, UUID.replaceAll('-', ''), `{${UUID}}`, UUID.replace('1', 'g')]) {
     assert.match(err(['--session-id', raw]), /^--session-id must be a UUID/);
@@ -258,6 +269,7 @@ test('givenFlags names every flag present, in table order', () => {
     if (f.long === 'effort') return ['--effort', 'low'];
     if (f.long === 'permission-mode') return ['--permission-mode', 'bypassPermissions'];
     if (f.long === 'budget') return ['--budget', '1'];
+    if (f.long === 'cache-ttl') return ['--cache-ttl', '1h'];
     if (f.long === 'session-id') return ['--session-id', UUID];
     return [`--${f.long}`, 'x'];
   });

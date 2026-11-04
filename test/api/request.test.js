@@ -293,3 +293,101 @@ test('a scripted 3-turn session with tool rounds never sends more than four brea
   ]);
   assert.deepEqual(cachePaths(messages), []);
 });
+
+const FIXTURE_5M = readFileSync(new URL('./fixtures/request-5m-body.json', import.meta.url), 'utf8').trimEnd();
+const ONE_HOUR = { type: 'ephemeral', ttl: '1h' };
+const FIVE_MIN = { type: 'ephemeral' };
+
+function cacheMarks(value, path = '$', out = []) {
+  if (Array.isArray(value)) {
+    value.forEach((item, i) => cacheMarks(item, `${path}[${i}]`, out));
+  } else if (value && typeof value === 'object') {
+    for (const [key, child] of Object.entries(value)) {
+      if (key === 'cache_control') out.push([path, child]);
+      else cacheMarks(child, `${path}.${key}`, out);
+    }
+  }
+  return out;
+}
+
+function fixtureInput(tools, cacheTtl) {
+  const messages = [...structuredClone(TURN_ONE), userText('two'), toolUse('t2'), toolResult('t2')];
+  return base({ tools, messages, effort: 'high', sessionId: '00000000-0000-4000-8000-000000000000', cacheTtl });
+}
+
+test('5m mode sends the pre-change request bytes; only the tool order differs, and an unsorted tool list sorts into them', () => {
+  const sorted = [TOOLS[1], TOOLS[0]];
+  for (const cacheTtl of [undefined, '5m']) {
+    assert.equal(JSON.stringify(buildRequest(fixtureInput(sorted, cacheTtl), deps).body), FIXTURE_5M);
+    assert.equal(JSON.stringify(buildRequest(fixtureInput(TOOLS, cacheTtl), deps).body), FIXTURE_5M);
+  }
+});
+
+test('an unknown cacheTtl throws', () => {
+  assert.throws(() => buildRequest(base({ cacheTtl: '2h' }), deps), /invalid cacheTtl "2h": expected one of 5m, 1h/);
+});
+
+test('1h turn 1: system and last tool carry ttl 1h, the tail stays 5m', () => {
+  const { body } = buildRequest(base({ messages: [userText('one')], cacheTtl: '1h' }), deps);
+  assert.deepEqual(cacheMarks(body), [
+    ['$.system[0]', ONE_HOUR],
+    ['$.tools[1]', ONE_HOUR],
+    ['$.messages[0].content[0]', FIVE_MIN],
+  ]);
+});
+
+test('1h turn 2 requests 1 and 2: system, last tool and settled pin carry ttl 1h, the tail stays 5m', () => {
+  const messages = [...structuredClone(TURN_ONE), userText('two')];
+  assert.deepEqual(cacheMarks(buildRequest(base({ messages, cacheTtl: '1h' }), deps).body), [
+    ['$.system[0]', ONE_HOUR],
+    ['$.tools[1]', ONE_HOUR],
+    ['$.messages[0].content[0]', ONE_HOUR],
+    ['$.messages[4].content[0]', FIVE_MIN],
+  ]);
+  messages.push(toolUse('t2'), toolResult('t2'));
+  assert.deepEqual(cacheMarks(buildRequest(base({ messages, cacheTtl: '1h' }), deps).body), [
+    ['$.system[0]', ONE_HOUR],
+    ['$.tools[1]', ONE_HOUR],
+    ['$.messages[4].content[0]', ONE_HOUR],
+    ['$.messages[6].content[0]', FIVE_MIN],
+  ]);
+});
+
+test('1h with no tools: system and settled pin carry ttl 1h, the tail stays 5m', () => {
+  const { body } = buildRequest(base({ tools: [], messages: [...structuredClone(TURN_ONE), userText('two')], cacheTtl: '1h' }), deps);
+  assert.deepEqual(cacheMarks(body), [
+    ['$.system[0]', ONE_HOUR],
+    ['$.messages[0].content[0]', ONE_HOUR],
+    ['$.messages[4].content[0]', FIVE_MIN],
+  ]);
+});
+
+test('1h: no request in a scripted 3-turn session sends a 1h marker after a 5m one', () => {
+  const messages = [];
+  let requests = 0;
+  for (const [turn, rounds] of [['one', 1], ['two', 2], ['three', 0]]) {
+    messages.push(userText(turn));
+    for (let round = 0; round <= rounds; round++) {
+      if (round > 0) messages.push(toolUse(`${turn}${round}`), toolResult(`${turn}${round}`));
+      const { body } = buildRequest(base({ messages, cacheTtl: '1h' }), deps);
+      const ttls = ['tools', 'system', 'messages'].flatMap((key) => cacheMarks(body[key])).map(([, mark]) => mark.ttl ?? '5m');
+      const where = `${ttls.join(' ')} at ${messages.length} messages`;
+      assert.equal(ttls.slice(ttls.indexOf('5m') + 1).includes('1h'), false, where);
+      assert.deepEqual([ttls.filter((ttl) => ttl === '5m').length, ttls.at(-1)], [1, '5m'], where);
+      requests++;
+    }
+    messages.push(answer(`done ${turn}`));
+  }
+  assert.equal(requests, 6);
+});
+
+test('tools go out sorted by name in code-unit order with the marker on the last, and the caller list keeps its order', () => {
+  const tools = ['Write', 'Bash', 'grep', 'Read', 'Glob'].map((name) => ({ name, description: name, input_schema: { type: 'object' } }));
+  const order = tools.map((tool) => tool.name);
+  for (const cacheTtl of ['5m', '1h']) {
+    const { body } = buildRequest(base({ tools, cacheTtl }), deps);
+    assert.deepEqual(body.tools.map((tool) => tool.name), ['Bash', 'Glob', 'Read', 'Write', 'grep']);
+    assert.deepEqual(cacheMarks(body.tools).map(([path]) => path), ['$[4]']);
+    assert.deepEqual(tools.map((tool) => tool.name), order);
+  }
+});
