@@ -408,7 +408,7 @@ The permission decision for a tool call goes in this order:
 1. A hook `deny` wins: the call does not run and the model gets the hook's reason as an error tool result.
 2. `--read-only` refuses write and exec tools; a hook `allow` does not override it.
 3. A hook `allow` runs the call without the default mode's refusal.
-4. A hook `ask`, or no decision, leaves it to the mode (see [Print mode](#print-mode)).
+4. A hook `ask`, or no decision, leaves it to the mode (see [Print mode](#print-mode)); in the REPL the default mode asks (see [REPL](#repl)).
 
 A hook `updatedInput` replaces the input before the decision and the run, and the `tool_use` event and the `● <Tool> <summary>` line show it. The history sent to the API keeps the model's own `tool_use` block; the transcript's `toolUseResult.input` records the input that ran.
 
