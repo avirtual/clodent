@@ -15,13 +15,13 @@ import { plant, useTempDir } from '../tools/tmp-dir.js';
 
 const MODEL = 'claude-opus-5-5';
 
-function harness(responses, { tools = [], permission = 'yolo', budgetUsd, cwd = '/work', onEvent, sleep, history, interrupted, hooks } = {}) {
+function harness(responses, { tools = [], permission = 'yolo', budgetUsd, cwd = '/work', onEvent, sleep, history, interrupted, hooks, cacheTtl } = {}) {
   const events = [];
   const sleeps = [];
   const fetch = createFakeFetch(responses);
   const ledger = createLedger({ budgetUsd }, {});
   const agent = createAgent(
-    { model: MODEL, system: 'You are a test.', tools, permission, history, interrupted },
+    { model: MODEL, system: 'You are a test.', tools, permission, history, interrupted, cacheTtl },
     {
       fetch,
       env: { ANTHROPIC_API_KEY: 'sk-test' },
@@ -85,6 +85,21 @@ test('EVENT_TYPES is a frozen list naming every event the loop emits', () => {
 test('session_start names the model, cwd, tools and permission mode', () => {
   const h = harness([], { tools: [fakeTool('A', 'read', [])], permission: 'ask' });
   assert.deepEqual(h.events, [{ type: 'session_start', model: MODEL, cwd: '/work', tools: ['A'], permission: 'ask' }]);
+});
+
+test('the wire gets the tools sorted by name, marked on the last; session_start and tool dispatch keep the given order', async () => {
+  const log = [];
+  const tools = ['Write', 'Bash', 'Read'].map((name) => fakeTool(name, 'read', log));
+  const h = harness([toolReply([{ name: 'Write', input: { n: 1 } }]), textReply('ok')], { tools, cacheTtl: '1h' });
+  assert.deepEqual(h.of('session_start')[0].tools, ['Write', 'Bash', 'Read']);
+  assert.deepEqual(await h.agent.runTurn('go'), { stopReason: 'end_turn', ok: true });
+  assert.deepEqual(log.map((entry) => entry.name), ['Write']);
+  for (const call of h.fetch.calls) {
+    assert.deepEqual(call.body.tools.map((tool) => tool.name), ['Bash', 'Read', 'Write']);
+    assert.deepEqual(call.body.tools.map((tool) => tool.cache_control), [undefined, undefined, { type: 'ephemeral', ttl: '1h' }]);
+    assert.deepEqual(call.body.system[0].cache_control, { type: 'ephemeral', ttl: '1h' });
+  }
+  assert.deepEqual(tools.map((tool) => tool.name), ['Write', 'Bash', 'Read']);
 });
 
 test('a text-only turn streams deltas, records the message and ends ok', async () => {

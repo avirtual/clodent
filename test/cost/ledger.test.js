@@ -125,3 +125,17 @@ test('a budget that is not a finite non-negative number throws', () => {
   }
   assert.deepEqual(createLedger({ budgetUsd: null }).check(), { ok: true });
 });
+
+test('a 1h cache write is priced at cacheWrite1h in the request, the turn and the session', () => {
+  const ledger = createLedger();
+  const usage = {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_input_tokens: 10000,
+    cache_creation: { ephemeral_5m_input_tokens: 4000, ephemeral_1h_input_tokens: 6000 },
+  };
+  const usd = 0.068;
+  assert.deepEqual(ledger.record(OPUS, usage), { usd, tokens: { in: 0, cacheRead: 0, cacheWrite: 10000, out: 0 }, priced: true });
+  assert.equal(ledger.endTurn().usd, usd);
+  assert.equal(ledger.session().usd, usd);
+});
