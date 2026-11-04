@@ -189,3 +189,15 @@ test('a settings file shaped like the Clodex-written one loads with no warnings'
   assert.deepEqual(settings.hooks.PostToolUse.at(-1).matcher, 'Agent|Task');
   assert.equal(settings.hooks.UserPromptSubmit[0].hooks.length, 7);
 });
+
+test('compactReloadFiles: an integer from 0 to 20, the last one wins, absent by default; any other value throws naming the path', async () => {
+  const fs = fakeFs({ [HOME_FILE]: { compactReloadFiles: 20 }, '/1.json': { compactReloadFiles: 0 } });
+  assert.equal((await loadSettings({ clodentHome: HOME }, fs)).settings.compactReloadFiles, 20);
+  assert.equal((await loadSettings({ clodentHome: HOME, files: ['/1.json'] }, fs)).settings.compactReloadFiles, 0);
+  assert.equal(Object.hasOwn((await loadSettings({ files: [] }, fs)).settings, 'compactReloadFiles'), false);
+  for (const value of [-1, 21, 2.5, '5', null, true]) {
+    const bad = fakeFs({ '/b.json': { compactReloadFiles: value } });
+    const message = `settings /b.json: compactReloadFiles ${JSON.stringify(value)} is not an integer from 0 to 20`;
+    await assert.rejects(loadSettings({ files: ['/b.json'] }, bad), { message });
+  }
+});

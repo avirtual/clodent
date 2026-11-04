@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, truncateSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
+import { DEFAULT_RELOAD_FILES } from './agent/compact.js';
 import { createAgent } from './agent/loop.js';
 import { DEFAULT_MODEL, FLAGS, givenFlags, parseArgs } from './args.js';
 import { createLedger } from './cost/ledger.js';
@@ -192,6 +193,7 @@ function createRuntime(prep, opts, deps, render) {
         model: current.model,
         effort: opts.effort ?? settings.effortLevel,
         cacheTtl: opts.cacheTtl ?? settings.cacheTtl,
+        compactReloadFiles: settings.compactReloadFiles ?? DEFAULT_RELOAD_FILES,
         system: current.system,
         baseUrl,
         sessionId: session.sessionId,

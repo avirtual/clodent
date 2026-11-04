@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { COMPACT_PROMPT } from '../../src/agent/compact.js';
+import { COMPACT_PROMPT, reloadRequest } from '../../src/agent/compact.js';
 import { HELP } from '../../src/repl/slash.js';
 import { transcriptPath } from '../../src/session/paths.js';
 import { hookGroup, readJsonl, textReply, toolsReply, writeSettings } from '../helpers/run-main.js';
@@ -80,7 +80,7 @@ test('/compact writes status compacting, compact_boundary with the REPL token co
   assert.ok(result.total_cost_usd > first.total_cost_usd);
   const summary = s.fetch.calls[1].body;
   assert.deepEqual(summary.tool_choice, { type: 'none' });
-  assert.deepEqual(lastUserTexts(s.fetch.calls[1]), [`${COMPACT_PROMPT}\n\nAdditional instructions: keep paths`]);
+  assert.deepEqual(lastUserTexts(s.fetch.calls[1]), [`${COMPACT_PROMPT}\n${reloadRequest(5)}\n\nAdditional instructions: keep paths`]);
   const records = readJsonl(transcriptPath(home, cwd, UUID));
   assert.deepEqual(records.slice(-2).map((r) => r.subtype ?? (r.isCompactSummary ? 'summary' : r.type)), ['compact_boundary', 'summary']);
   assert.deepEqual(hooks.read(), [

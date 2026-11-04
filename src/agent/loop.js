@@ -3,7 +3,7 @@ import { buildRequest } from '../api/request.js';
 import { streamMessage } from '../api/stream.js';
 import { emptyOutcome, hookContextBlock, NO_HOOKS } from '../hooks/fire.js';
 import { denialReason, OPEN_GUARD } from '../permissions/guard.js';
-import { COMPACT_TOOL_CHOICE, compactMessages, compactTokens, NOTHING_TO_COMPACT, summaryMessage, summaryOf } from './compact.js';
+import { COMPACT_TOOL_CHOICE, compactMessages, compactTokens, NOTHING_TO_COMPACT, RELOAD_BUDGET_BYTES, reloadBlock, reloadPaths, summaryMessage, summaryOf } from './compact.js';
 import { appendMessage } from './history.js';
 import { ASK_DENIAL, asksInMode, decide } from './permission.js';
 
@@ -13,6 +13,8 @@ export const USER_DENIAL = 'denied by the user';
 export const MID_STREAM_DELAYS_MS = Object.freeze([2000, 4000]);
 const MID_STREAM_RETRYABLE = new Set(['overloaded_error', 'api_error']);
 const ALLOWED = Object.freeze({ allow: true });
+const NO_HOOK_DECISION = Object.freeze({});
+const RELOAD_SKIPS = Object.freeze({ deny: 'denied', ask: 'ask' });
 
 function isMidStreamRetryable(err) {
   return err instanceof ApiError && err.status === null && MID_STREAM_RETRYABLE.has(err.type);
@@ -30,6 +32,7 @@ export function createAgent(config, deps) {
   const { effort, permission, baseUrl, sessionId, cacheTtl } = config;
   let { model, system } = config;
   const tools = config.tools ?? [];
+  const reloadCount = config.compactReloadFiles ?? 0;
   const { emit, ledger, now } = deps;
   const hooks = deps.hooks ?? NO_HOOKS;
   const guard = deps.guard ?? OPEN_GUARD;
@@ -283,11 +286,43 @@ export function createAgent(config, deps) {
 
   async function summarise(instructions, signal) {
     try {
-      const { message } = await request(signal, [], { messages: compactMessages(history, instructions), toolChoice: COMPACT_TOOL_CHOICE, quiet: true });
+      const { message } = await request(signal, [], { messages: compactMessages(history, instructions, reloadCount), toolChoice: COMPACT_TOOL_CHOICE, quiet: true });
       return { message };
     } catch (err) {
       return { reason: signal?.aborted ? 'interrupted' : (err?.message ?? String(err)) };
     }
+  }
+
+  async function reloadOne(path, signal) {
+    const input = { file_path: path };
+    const ruled = guard.active ? (await guard.screen('Read', input, deps.cwd, permission)).ruled : null;
+    const tool = byName.get('Read');
+    const verdict = tool ? verdictFor(tool, input, NO_HOOK_DECISION, ruled) : { allow: false, reason: 'unknown tool Read' };
+    if (!verdict.allow) return { reason: RELOAD_SKIPS[ruled?.decision] ?? verdict.reason };
+    try {
+      const outcome = await tool.run(input, { cwd: deps.cwd, env: deps.env, signal, hidden: null });
+      return outcome.isError ? { reason: outcome.content } : { output: outcome.content };
+    } catch (err) {
+      return { reason: `Read failed: ${err?.message ?? err}` };
+    }
+  }
+
+  async function reloadFiles(paths, signal) {
+    const files = { blocks: [], reloaded: [], skipped: [] };
+    let spent = 0;
+    for (const path of paths) {
+      const { output, reason } = signal?.aborted ? { reason: 'interrupted' } : await reloadOne(path, signal);
+      const bytes = output === undefined ? 0 : Buffer.byteLength(output);
+      const skip = reason ?? (spent + bytes > RELOAD_BUDGET_BYTES ? 'budget' : null);
+      if (skip !== null) {
+        files.skipped.push({ path, reason: skip });
+        continue;
+      }
+      spent += bytes;
+      files.reloaded.push({ path, bytes });
+      files.blocks.push(reloadBlock(path, output));
+    }
+    return files;
   }
 
   async function compact({ instructions, trigger } = {}, { signal } = {}) {
@@ -308,10 +343,12 @@ export function createAgent(config, deps) {
       return { ok: false, reason: message.stop_reason === 'end_turn' ? 'empty summary' : `stop_reason ${message.stop_reason}`, turn: ledger.endTurn() };
     }
     const { preTokens, postTokens } = compactTokens(message.usage);
-    history.splice(0, history.length, summaryMessage(summary));
+    const { blocks, reloaded, skipped } = await reloadFiles(reloadPaths(summary, history, { cwd: deps.cwd, count: reloadCount }), signal);
+    const next = summaryMessage(summary, blocks);
+    history.splice(0, history.length, next);
     interruptedBefore = false;
     const turn = ledger.endTurn();
-    emit({ type: 'compacted', trigger, summary, preTokens, postTokens, turn });
+    emit({ type: 'compacted', trigger, summary, message: structuredClone(next), reloaded, skipped, preTokens, postTokens, turn });
     await fireSessionStart('compact', { signal });
     return { ok: true, preTokens, postTokens, turn };
   }

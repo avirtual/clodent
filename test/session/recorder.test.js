@@ -75,7 +75,8 @@ test('messageCount and durationMs restart with each turn', () => {
 test('compacted writes the compact_boundary and isCompactSummary records, which no turn counts', () => {
   const transcript = { ...capture(), lastUuid: () => 'u-last' };
   const record = createRecorder(transcript, { now: () => 0 });
-  record({ type: 'compacted', trigger: 'manual', summary: 'S', preTokens: 300, postTokens: 40, turn: {} });
+  const message = { role: 'user', content: [{ type: 'text', text: `${SUMMARY_PREFIX}S` }] };
+  record({ type: 'compacted', trigger: 'manual', summary: 'S', message, reloaded: [], skipped: [], preTokens: 300, postTokens: 40, turn: {} });
   record({ type: 'message_append', role: 'user', content: [{ type: 'text', text: 'next' }], kind: 'prompt', meta: {} });
   record({ type: 'turn_end' });
   assert.deepEqual(transcript.records, [
@@ -86,9 +87,9 @@ test('compacted writes the compact_boundary and isCompactSummary records, which 
       level: 'info',
       parentUuid: null,
       logicalParentUuid: 'u-last',
-      compactMetadata: { trigger: 'manual', preTokens: 300, postTokens: 40 },
+      compactMetadata: { trigger: 'manual', preTokens: 300, postTokens: 40, reloadedFiles: [] },
     },
-    { type: 'user', message: { role: 'user', content: [{ type: 'text', text: `${SUMMARY_PREFIX}S` }] }, isVisibleInTranscriptOnly: true, isCompactSummary: true },
+    { type: 'user', message, isVisibleInTranscriptOnly: true, isCompactSummary: true },
     { type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'next' }] } },
     { type: 'system', subtype: 'turn_duration', durationMs: 0, messageCount: 1 },
   ]);
