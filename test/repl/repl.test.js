@@ -170,7 +170,8 @@ test('another key between two Ctrl-Cs cancels the pending exit: ^C x ^U ^C shows
   repl.stdin.type('\x03x\x15\x03');
   await repl.until(EXIT_HINT, 2);
   repl.stdin.type('/cost\r');
-  await repl.until('session total', 1);
+  await repl.prompts(4);
+  assert.match(repl.out.text, /> \/cost\n\[clay:cost\] session total /);
   assert.equal(count(repl.out.text, EXIT_HINT), 2);
   assertCleanExit(repl, await exitWith(repl, '\x04'));
 });

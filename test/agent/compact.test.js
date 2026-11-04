@@ -17,10 +17,15 @@ function strip(value) {
   return JSON.parse(JSON.stringify(value, (key, v) => (key === 'cache_control' ? undefined : v)));
 }
 
-function harness(responses, { history, interrupted, budgetUsd, context = {}, onFire, onEvent } = {}) {
+function harness(responses, { history, interrupted, budgetUsd, context = {}, onFire, onFetch } = {}) {
   const events = [];
   const fired = [];
-  const fetch = createFakeFetch(responses);
+  const inner = createFakeFetch(responses);
+  const fetch = (url, init) => {
+    onFetch?.(inner.calls.length + 1);
+    return inner(url, init);
+  };
+  fetch.calls = inner.calls;
   const ledger = createLedger({ budgetUsd }, {});
   const hooks = {
     async fire(event, extra, signal) {
@@ -40,10 +45,7 @@ function harness(responses, { history, interrupted, budgetUsd, context = {}, onF
       now: () => 0,
       ledger,
       hooks,
-      emit: (event) => {
-        events.push(event);
-        onEvent?.(event);
-      },
+      emit: (event) => events.push(event),
     },
   );
   return { agent, events, fired, fetch, ledger, types: () => events.map((e) => e.type), bodies: () => fetch.calls.map((call) => call.body) };
@@ -122,18 +124,16 @@ test('a failed summary leaves the history as it was, records its cost apart from
 test('an abort during PreCompact or the summary request fails as interrupted with the history unchanged', async () => {
   for (const when of ['PreCompact', 'request']) {
     const controller = new AbortController();
-    let compacting = false;
     const h = harness([reply('one'), reply('sum')], {
       onFire: (event) => {
         if (event === 'PreCompact' && when === 'PreCompact') controller.abort();
       },
-      onEvent: (event) => {
-        if (compacting && event.type === 'request_start' && when === 'request') controller.abort();
+      onFetch: (n) => {
+        if (n === 2 && when === 'request') controller.abort();
       },
     });
     await h.agent.runTurn('first');
     const before = h.agent.messages();
-    compacting = true;
     assert.deepEqual(await h.agent.compact(MANUAL, { signal: controller.signal }), { ok: false, reason: 'interrupted' }, when);
     assert.deepEqual(h.agent.messages(), before, when);
     assert.equal(h.fetch.calls.length, when === 'request' ? 2 : 1, when);
