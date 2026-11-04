@@ -1,5 +1,6 @@
 import { readFile as fsReadFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { MAX_RELOAD_FILES } from '../agent/compact.js';
 import { CACHE_TTLS, EFFORTS } from '../api/request.js';
 import { stripModelSuffix } from '../args.js';
 import { parseRules, RuleError, ruleHome } from '../permissions/rules.js';
@@ -127,6 +128,15 @@ function mergeGuard(acc, source, where, warn) {
   for (const name of sandbox.envDeny) acc.envDeny.add(name);
 }
 
+function mergeReloadFiles(acc, source, path) {
+  const value = source.compactReloadFiles;
+  if (value === undefined) return;
+  if (!Number.isInteger(value) || value < 0 || value > MAX_RELOAD_FILES) {
+    throw new Error(`settings ${path}: compactReloadFiles ${JSON.stringify(value)} is not an integer from 0 to ${MAX_RELOAD_FILES}`);
+  }
+  acc.compactReloadFiles = value;
+}
+
 function mergeSource(acc, source, warn) {
   if (source.hooks !== undefined) mergeHooks(acc, source.hooks, warn);
   if (source.statusLine !== undefined) {
@@ -159,7 +169,7 @@ export async function loadSettings({ clodentHome, files = [], cwd = process.cwd(
   const sources = [];
   if (clodentHome) sources.push({ path: join(clodentHome, 'settings.json'), optional: true });
   for (const path of files) sources.push({ path, optional: false });
-  const acc = { hooks: new Map(), statusLine: null, env: new Map(), extraDirs: new Set(), effortLevel: null, cacheTtl: null, model: null, deny: [], ask: [], envDeny: new Set() };
+  const acc = { hooks: new Map(), statusLine: null, env: new Map(), extraDirs: new Set(), effortLevel: null, cacheTtl: null, model: null, compactReloadFiles: null, deny: [], ask: [], envDeny: new Set() };
   const warnings = [];
   for (const { path, optional } of sources) {
     const source = await readSource(path, optional, readFile);
@@ -171,6 +181,7 @@ export async function loadSettings({ clodentHome, files = [], cwd = process.cwd(
       if (err instanceof RuleError) throw new Error(`settings ${path}: ${err.message}`);
       throw err;
     }
+    mergeReloadFiles(acc, source, path);
     mergeSource(acc, source, warn);
   }
   const settings = {
@@ -182,6 +193,7 @@ export async function loadSettings({ clodentHome, files = [], cwd = process.cwd(
   if (acc.effortLevel) settings.effortLevel = acc.effortLevel;
   if (acc.cacheTtl) settings.cacheTtl = acc.cacheTtl;
   if (acc.model) settings.model = acc.model;
+  if (acc.compactReloadFiles !== null) settings.compactReloadFiles = acc.compactReloadFiles;
   if (acc.deny.length > 0 || acc.ask.length > 0) settings.permissions = { deny: acc.deny, ask: acc.ask };
   if (acc.envDeny.size > 0) settings.envDeny = [...acc.envDeny];
   return { settings, warnings };

@@ -96,8 +96,10 @@ export function createRenderer({ out, err, mode }) {
       finalText = '';
       denied.clear();
     },
-    compacted({ preTokens, postTokens, turn }) {
+    compacted({ preTokens, postTokens, reloaded, skipped, turn }) {
       line(`clodent: conversation compacted (${preTokens} → ${postTokens} tokens)`);
+      if (reloaded.length > 0) line(`clodent: reloaded ${reloaded.length} file(s) after compact: ${reloaded.map((file) => file.path).join(', ')}`);
+      for (const { path, reason } of skipped) line(`clodent: not reloaded ${path}: ${reason}`);
       warnUnpriced(turn);
       line(formatCost(turn), 'dim');
     },
