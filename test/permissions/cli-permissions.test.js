@@ -254,6 +254,18 @@ test('Bash under --yolo: a Read path mention and a Bash(prefix:*) rule deny; an 
   assert.equal(existsSync(join(user, 'notes/n.txt')), true);
 });
 
+test('Bash: a deny rule only the conservative pass matches refuses as an ask in -p and denies under --yolo, saying the command could not be parsed with certainty', GUARD, async (t) => {
+  const { home, cwd, dir } = await setup(t);
+  const settings = writeSettings(dir, { permissions: { deny: ['Bash(rm:*)'] } });
+  const uses = [['Bash', { command: 'git commit -m "x; rm y"' }]];
+  const uncertain = `${denied('Bash(rm:*)')}, which may apply to a command that could not be parsed with certainty`;
+  for (const [flags, expected] of [[[], ASK_DENIAL], [['--yolo'], uncertain]]) {
+    const res = await runMain(['-p', 'go', ...flags, '--settings', settings], { home, cwd, responses: [toolsReply(uses), textReply('done')] });
+    assert.equal(res.code, 0, res.stderr);
+    assert.deepEqual(results(res), [expected], flags.join(' '));
+  }
+});
+
 test('a malformed rule, sandbox shape or --disallowedTools entry exits 2 with its message, before SessionStart and any request', GUARD, async (t) => {
   const { home, cwd, dir } = await setup(t);
   const marker = join(dir, 'session-started');

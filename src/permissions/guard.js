@@ -20,9 +20,12 @@ export function sentTools({ deny = [] } = {}) {
   return CLODENT_TOOLS.filter((tool) => !removedBy(deny, tool));
 }
 
-export function denialReason(rule) {
-  return `denied by ${rule.builtin ? 'built-in' : 'settings'} rule ${rule.text}`;
+export function denialReason(rule, uncertain = false) {
+  const reason = `denied by ${rule.builtin ? 'built-in' : 'settings'} rule ${rule.text}`;
+  return uncertain ? `${reason}, which may apply to a command that could not be parsed with certainty` : reason;
 }
+
+export const uncertainDecision = (list, mode) => (list === 'deny' && mode === 'yolo' ? 'deny' : 'ask');
 
 async function realpathDeep(path, realpath) {
   const rest = [];
@@ -48,15 +51,19 @@ const tokenOf = (c) => (' \t\n;&|()'.includes(c) ? 'none' : '<>'.includes(c) ? '
 const startsComment = (token) => token === 'none' || token === 'redirect';
 const gluesParen = (token) => token === 'glue' || token === 'redirect';
 
-function frameOf(frames, close, quote, word) {
-  frames.push({ close, quote, word, ticked: close === '`' || frames.at(-1)?.ticked === true });
+function frameOf(frames, close, quote, inWord) {
+  frames.push({ close, quote, inWord, ticked: close === '`' || frames.at(-1)?.ticked === true });
+}
+
+function popToTick(frames) {
+  while (frames.at(-1).close !== '`') frames.pop();
 }
 
 function pastComment(text, at, frames) {
   const ticked = frames.at(-1)?.ticked === true;
   let k = at;
   while (k < text.length && text[k] !== '\n' && !(ticked && text[k] === '`')) k += ticked && text[k] === '\\' && text[k + 1] !== '\n' ? 2 : 1;
-  if (text[k] === '`') while (frames.at(-1).close !== '`') frames.pop();
+  if (text[k] === '`') popToTick(frames);
   return k - 1;
 }
 
@@ -70,9 +77,9 @@ export function simpleCommands(text) {
     if (current.trim() !== '') out.push(current.trim());
     current = '';
   };
-  const enter = (close, word) => {
+  const enter = (close, inWord) => {
     push();
-    frameOf(frames, close, quote, word);
+    frameOf(frames, close, quote, inWord);
     quote = null;
     token = 'none';
   };
@@ -80,11 +87,12 @@ export function simpleCommands(text) {
     push();
     const frame = frames.pop();
     quote = frame.quote;
-    token = frame.word ? 'word' : 'none';
+    token = frame.inWord ? 'word' : 'none';
   };
   for (let i = 0; i < text.length; i += 1) {
     const c = text[i];
     const j = c === '$' ? pastContinuations(text, i + 1) : i + 1;
+    const braced = frames.at(-1)?.close === '}';
     if (quote === "'" || quote === "$'") {
       current += c;
       if (c === '\\' && quote === "$'" && i + 1 < text.length) current += text[++i];
@@ -93,17 +101,22 @@ export function simpleCommands(text) {
       current += c + text[++i];
       if (text[i] !== '\n') token = 'word';
     } else if (c === '`') {
-      if (frames.at(-1)?.close === '`') leave();
-      else enter('`', true);
-    } else if (quote === '"' && c === '$' && text[j] === '(') {
+      if (frames.at(-1)?.ticked) {
+        popToTick(frames);
+        leave();
+      } else enter('`', true);
+    } else if (c === '$' && text[j] === '(') {
       current += text.slice(i, j);
       i = j;
       enter(')', true);
+    } else if (c === '$' && text[j] === '{') {
+      current += text.slice(i, j + 1);
+      i = j;
+      frameOf(frames, '}', quote, true);
+      quote = null;
     } else if (quote === '"') {
       current += c;
       if (c === '"') quote = null;
-    } else if (c === '#' && startsComment(token)) {
-      i = pastComment(text, i, frames);
     } else if (c === '$' && (text[j] === '$' || text[j] === "'")) {
       if (text[j] === "'") quote = "$'";
       current += text.slice(i, j + 1);
@@ -113,13 +126,21 @@ export function simpleCommands(text) {
       quote = c;
       current += c;
       token = 'word';
+    } else if (braced && c === '}') {
+      current += c;
+      quote = frames.pop().quote;
+      token = 'word';
+    } else if (braced && (c === '#' || c === '(' || c === ')')) {
+      current += c;
+    } else if (c === '#' && startsComment(token)) {
+      i = pastComment(text, i, frames);
     } else if (c === '(') {
       enter(')', gluesParen(token));
     } else if (c === ')' && frames.at(-1)?.close === ')') {
       leave();
     } else if (';&|\n)'.includes(c)) {
       push();
-      token = 'none';
+      token = c === ')' ? 'word' : 'none';
       if ((c === '&' || c === '|') && text[i + 1] === c) i += 1;
     } else {
       current += c;
@@ -162,9 +183,9 @@ export function shellWords(text) {
     word = (word ?? '') + chars;
     token = 'word';
   };
-  const enter = (close, continues) => {
+  const enter = (close, inWord) => {
     end();
-    frameOf(frames, close, quote, continues);
+    frameOf(frames, close, quote, inWord);
     quote = null;
     token = 'none';
   };
@@ -172,11 +193,12 @@ export function shellWords(text) {
     end();
     const frame = frames.pop();
     quote = frame.quote;
-    token = frame.word ? 'word' : 'none';
+    token = frame.inWord ? 'word' : 'none';
   };
   for (let i = 0; i < text.length; i += 1) {
     const c = text[i];
     const j = c === '$' ? pastContinuations(text, i + 1) : i + 1;
+    const braced = frames.at(-1)?.close === '}';
     if (quote === "'") {
       if (c === "'") quote = null;
       else add(c);
@@ -184,16 +206,20 @@ export function shellWords(text) {
       const next = text[++i];
       if (quote === '"' && !DOUBLE_ESCAPES.includes(next)) add(c + next);
       else if (next !== '\n') add(next);
-    } else if (c === '`' && frames.at(-1)?.close === '`') {
+    } else if (c === '`' && frames.at(-1)?.ticked) {
+      popToTick(frames);
       leave();
     } else if (c === '`' || (c === '$' && text[j] === '(')) {
       if (c === '$') i = j;
       enter(c === '`' ? '`' : ')', true);
+    } else if (c === '$' && text[j] === '{') {
+      add('${');
+      i = j;
+      frameOf(frames, '}', quote, true);
+      quote = null;
     } else if (quote === '"') {
       if (c === '"') quote = null;
       else add(c);
-    } else if (c === '#' && startsComment(token)) {
-      i = pastComment(text, i, frames);
     } else if (c === '$' && text[j] === '$') {
       add('$$');
       i = j;
@@ -208,13 +234,20 @@ export function shellWords(text) {
     } else if (c === "'" || c === '"') {
       quote = c;
       token = 'word';
+    } else if (braced && c === '}') {
+      add(c);
+      quote = frames.pop().quote;
+    } else if (braced && (c === '#' || c === '(' || c === ')')) {
+      add(c);
+    } else if (c === '#' && startsComment(token)) {
+      i = pastComment(text, i, frames);
     } else if (c === '(') {
       enter(')', gluesParen(token));
     } else if (c === ')' && frames.at(-1)?.close === ')') {
       leave();
     } else if (WORD_BREAK.includes(c)) {
       end();
-      token = tokenOf(c);
+      token = c === ')' ? 'word' : tokenOf(c);
     } else {
       add(c);
       token = tokenOf(c);
@@ -223,6 +256,33 @@ export function shellWords(text) {
   end();
   return words;
 }
+
+const RAW_UNQUOTE = /['"\\]/g;
+
+export function rawCommands(text) {
+  return text
+    .split(/[;&|\n()`#]/)
+    .map((piece) => piece.replace(RAW_UNQUOTE, '').trim())
+    .filter((piece) => piece !== '');
+}
+
+export function rawWords(text) {
+  return text
+    .replace(RAW_UNQUOTE, '')
+    .split(/[ \t\n;&|()<>`#]+/)
+    .flatMap((word) => {
+      const at = word.indexOf('=');
+      return at === -1 ? [word] : [word, word.slice(at + 1)];
+    })
+    .flatMap((word) => {
+      const bare = word.replaceAll('${', '$').replaceAll('}', '');
+      return bare === word ? [word] : [word, bare];
+    })
+    .filter((word) => word !== '');
+}
+
+const PRECISE = { commands: simpleCommands, words: shellWords };
+const RAW = { commands: rawCommands, words: rawWords };
 
 const HOME_PREFIX = /^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/;
 const USER_PREFIX = /^~([^/]+)/;
@@ -239,8 +299,8 @@ function expandHome(word, home) {
   return user ? join(dirname(home), user[1]) + word.slice(user[0].length) : word;
 }
 
-function wordPaths(command, cwd) {
-  const words = shellWords(command).flatMap((word) => {
+function wordPaths(command, cwd, split) {
+  const words = split(command).flatMap((word) => {
     const at = word.indexOf('=');
     return at === -1 ? [word] : [word, word.slice(at + 1)];
   });
@@ -263,11 +323,11 @@ function pathMatch(rules, tool, paths, forms) {
   return rules.find((rule) => rule.kind === 'path' && rule.tools.includes(tool) && matchesPaths(rule, paths, forms));
 }
 
-function bashMatch(rules, command, cwd, readOnly, forms) {
+function bashMatch(rules, command, cwd, readOnly, forms, pass = PRECISE) {
   const trimmed = command.trim();
-  const commands = [trimmed, ...simpleCommands(command)];
+  const commands = [trimmed, ...pass.commands(command)];
   const text = command.replaceAll('\\ ', ' ');
-  const words = wordPaths(command, cwd);
+  const words = wordPaths(command, cwd, pass.words);
   return rules.find((rule) => {
     if (rule.kind === 'bash') return commands.some((one) => rule.test(one));
     if (rule.kind !== 'path' || rule.bash === null || !mentions(rule, text, words, forms)) return false;
@@ -321,14 +381,16 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
 
   const rootPaths = (root) => (root ? [...spellings(root.lexical), ...spellings(root.real)] : []);
 
-  function verdict(tool, input, cwd, paths, ruleForms) {
+  function verdict(tool, input, cwd, paths, ruleForms, mode) {
     const bare = (rules) => rules.find((rule) => rule.kind === 'tool' && rule.tool === tool);
     let match;
+    let unsure = () => undefined;
     if (tool === 'Bash') {
       const command = input?.command;
       let classified;
       const readOnly = () => (classified ??= classifyBash(command, cwd)).readOnly;
       match = (rules) => bare(rules) ?? (typeof command === 'string' ? bashMatch(rules, command, cwd, readOnly, ruleForms) : undefined);
+      unsure = (rules) => (typeof command === 'string' ? bashMatch(rules, command, cwd, readOnly, ruleForms, RAW) : undefined);
     } else if (Object.hasOwn(PATH_FIELDS, tool)) {
       match = (rules) => bare(rules) ?? pathMatch(rules, tool, paths, ruleForms);
     } else {
@@ -337,6 +399,8 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
     for (const [decision, rules] of lists) {
       const rule = match(rules);
       if (rule) return { decision, rule };
+      const raw = unsure(rules);
+      if (raw) return { decision: uncertainDecision(decision, mode), rule: raw, uncertain: true };
     }
     return null;
   }
@@ -362,7 +426,7 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
     const ruleForms = await formsOf();
     const root = await rootOf(tool, input, cwd);
     const paths = rootPaths(root);
-    const ruled = verdict(tool, input, cwd, paths, ruleForms);
+    const ruled = verdict(tool, input, cwd, paths, ruleForms, mode);
     if (!LISTING_TOOLS.has(tool)) return { ruled, hidden: null, approved: null };
     const rules = (mode === 'yolo' ? deny : [...deny, ...ask]).filter((rule) => rule.kind === 'path' && rule.tools.includes(tool));
     const hidden = listingFilter(root, rules, ruleForms);

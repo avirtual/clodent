@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createGuard, denialReason, shellWords, simpleCommands } from '../../src/permissions/guard.js';
+import { createGuard, denialReason, rawCommands, rawWords, shellWords, simpleCommands, uncertainDecision } from '../../src/permissions/guard.js';
 import { builtinDenies, parseRules } from '../../src/permissions/rules.js';
 
 const HOME = '/Users/u';
@@ -374,6 +374,62 @@ test('Bash: $(…) and a backtick inside double quotes open a nested command con
   assert.deepEqual(simpleCommands('echo "$(echo "$(rm x)")"'), ['echo "$', 'echo "$', 'rm x', '"', '"']);
   assert.deepEqual(shellWords('echo "$(echo "$(rm x)")"'), ['echo', 'echo', 'rm', 'x']);
   assert.deepEqual(simpleCommands('echo "a;b"'), ['echo "a;b"']);
+});
+
+async function decided(guard, command, mode) {
+  const { ruled } = await guard.screen('Bash', { command }, '/work', mode);
+  return ruled && `${ruled.decision}${ruled.uncertain ? ' uncertain' : ''} ${ruled.rule.text}`;
+}
+
+test('Bash: ${…} is a brace frame where #, ( and ) are literal, so neither hides a later command or word', async () => {
+  const guard = guardOf({ deny: ['Read(~/.ssh)', 'Bash(rm:*)'] });
+  assert.equal(await bash(guard, 'echo ${x:- #}; rm x'), 'deny Bash(rm:*)');
+  assert.equal(await bash(guard, 'echo ${x:- #}; cat ~//.ssh/id_rsa'), 'deny Read(~/.ssh)');
+  assert.equal(await bash(guard, 'echo "$(echo ${x/(/y})"; rm z'), 'deny Bash(rm:*)');
+  assert.equal(await bash(guard, 'echo "`echo ${x/(/y}`"; rm z'), 'deny Bash(rm:*)');
+});
+
+test('Bash: a backtick closes through every frame opened inside it, as bash finds the closing backtick first', async () => {
+  assert.equal(await bash(guardOf({ deny: ['Bash(rm:*)'] }), 'echo "`echo (`"; rm z'), 'deny Bash(rm:*)');
+});
+
+test('Bash: a ) that matches no frame keeps the word open, so a case pattern ) that closed $(…) early does not turn the next # into a comment', async () => {
+  assert.equal(await bash(guardOf({ deny: ['Bash(rm:*)'] }), 'echo $(case x in a) echo;; esac)#; rm z'), 'deny Bash(rm:*)');
+});
+
+test('Bash: a ( inside $(…) opens its own frame, the word stays open after $(…), and a comment inside backticks ends at the closing backtick', async () => {
+  const guard = guardOf({ deny: ['Bash(rm:*)'] });
+  for (const command of ['"$( (a); rm x )"', 'echo $(true)#; rm x', 'echo `#`; rm x']) {
+    assert.equal(await bash(guard, command), 'deny Bash(rm:*)', command);
+  }
+});
+
+test('Bash: a rule only the conservative pass matches is uncertain: a deny rule asks, and denies under yolo; an ask rule asks in both modes', async () => {
+  const deny = guardOf({ deny: ['Bash(rm:*)'] });
+  const ask = guardOf({ ask: ['Bash(rm:*)'] });
+  for (const command of ["case x in a)#'\nrm z", 'git commit -m "x; rm y"']) {
+    assert.deepEqual(
+      [await decided(deny, command), await decided(deny, command, 'yolo'), await decided(ask, command), await decided(ask, command, 'yolo')],
+      ['ask uncertain Bash(rm:*)', 'deny uncertain Bash(rm:*)', 'ask uncertain Bash(rm:*)', 'ask uncertain Bash(rm:*)'],
+      command,
+    );
+  }
+  assert.deepEqual(rawCommands("case x in a)#'\nrm z"), ['case x in a', 'rm z']);
+  assert.deepEqual(rawCommands('git commit -m "x; rm y"'), ['git commit -m x', 'rm y']);
+  assert.deepEqual(rawWords('echo ${x:- #}; cat ~//.ssh/id_rsa'), ['echo', '${x:-', '$x:-', 'cat', '~//.ssh/id_rsa']);
+  assert.deepEqual(
+    [uncertainDecision('deny', 'yolo'), uncertainDecision('deny', 'default'), uncertainDecision('ask', 'yolo'), uncertainDecision('ask', 'acceptEdits')],
+    ['deny', 'ask', 'ask', 'ask'],
+  );
+  const { ruled } = await deny.screen('Bash', { command: 'git commit -m "x; rm y"' }, '/work', 'yolo');
+  assert.equal(denialReason(ruled.rule, ruled.uncertain), 'denied by settings rule Bash(rm:*), which may apply to a command that could not be parsed with certainty');
+});
+
+test('Bash: echo hello, ls src and cat a.js match no rule in either pass', async () => {
+  const guard = guardOf({ deny: ['Read(~/.ssh)', 'Bash(rm:*)'], ask: ['Edit(~/.bashrc)', 'Bash(git push:*)'] });
+  for (const command of ['echo hello', 'ls src', 'cat a.js']) {
+    assert.deepEqual([await decided(guard, command), await decided(guard, command, 'yolo')], [null, null], command);
+  }
 });
 
 function countedReads(text, limit) {
