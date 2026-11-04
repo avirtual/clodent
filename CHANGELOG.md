@@ -8,6 +8,9 @@ clodent was named clay up to 0.2.0.
 - Requests carry a fourth cache breakpoint on the settled user turn, so a long turn re-caches only its own messages when the tail misses.
 - `--cache-ttl 5m|1h` and the settings key `cacheTtl` choose the prompt-cache TTL: with `1h` the system block, the last tool and the settled pin are cached for an hour while the tail stays 5 minutes; the default stays `5m`
 - Tool definitions are sent sorted by name, so a proxy that sorts `tools[]` (wirescope's SORT_TOOLS) leaves them and their cache breakpoint as sent
+- Stream JSON io: `-p --input-format stream-json --output-format stream-json` reads prompts, interrupts and `set_model` as JSON lines on stdin and writes `init`, `assistant`, `user`, `result` and `control_response` lines on stdout, as Clodex's Claude stream codec expects; `-p "<prompt>" --output-format stream-json` prints one turn the same way.
+- Permission prompts over stdio: with `--permission-prompt-tool stdio` a permission ask is a `can_use_tool` control request answered by an allow or deny `control_response`; a deny writes a `permission_denied` line.
+- `-p` directly followed by another flag parses as a bare flag with an empty prompt, so `-p --input-format stream-json` works.
 
 ## 0.3.0 — 2026-11-04
 

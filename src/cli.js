@@ -14,6 +14,8 @@ import { killPendingGroups } from './proc/run.js';
 import { buildSystemPrompt } from './prompt/system.js';
 import { createRenderer } from './render/terminal.js';
 import { runRepl } from './repl/repl.js';
+import { createStreamOutput } from './stream/output.js';
+import { runStream } from './stream/run.js';
 import { loadSettings } from './settings/load.js';
 import { openSession } from './session/open.js';
 import { clodentHome } from './session/paths.js';
@@ -141,7 +143,7 @@ async function prepare(opts, deps) {
   }
   const permissions = { deny: [...(settings.permissions?.deny ?? []), ...disallowed], ask: settings.permissions?.ask ?? [] };
   const env = { ...deps.env, ...settings.env };
-  if (opts.print === '') return fail('-p needs a non-empty prompt');
+  if (opts.print === '' && opts.inputFormat !== 'stream-json') return fail('-p needs a non-empty prompt');
   if (!env.ANTHROPIC_API_KEY) return fail('ANTHROPIC_API_KEY is not set');
   const base = baseUrlFrom(env);
   if (!base.ok) return fail('invalid ANTHROPIC_BASE_URL');
@@ -179,7 +181,7 @@ function createRuntime(prep, opts, deps, render) {
   const statusOf = (session, usage) =>
     statusState(usage, { modelId: current.model, sessionId: session.sessionId, transcriptPath: session.transcriptPath }, ledger);
 
-  function open(session, { ask } = {}) {
+  function open(session, { ask, drain } = {}) {
     const record = createRecorder(session.transcript, { now: deps.now });
     const hooks = createHookFirer(
       { settings, env, cwd, sessionId: session.sessionId, transcriptPath: session.transcriptPath, permission: opts.permission },
@@ -198,6 +200,7 @@ function createRuntime(prep, opts, deps, render) {
         history: session.history,
         interrupted: session.interrupted,
         ask,
+        drain,
       },
       {
         fetch: deps.fetch,
@@ -250,15 +253,43 @@ export function ignoreBrokenPipes(stream) {
   return stream;
 }
 
-async function runPrint(opts, deps) {
-  const { stdout, stderr } = deps;
-  const prep = await prepare(opts, deps);
-  if (prep.code !== undefined) return prep.code;
+function headLines(opts, prep, stderr) {
   stderr.write(`[clodent:session] ${prep.session.sessionId}\n`);
   for (const line of ignoredFlags(opts)) stderr.write(line);
   for (const warning of prep.warnings) stderr.write(`clodent: ${warning}\n`);
-  const render = createRenderer({ out: stdout, err: stderr, mode: 'print' });
-  const runtime = createRuntime(prep, opts, deps, render);
+}
+
+function streamRuntime(prep, opts, deps) {
+  const plain = { write: (text) => deps.stderr.write(text) };
+  const toStderr = createRenderer({ out: { write() {} }, err: plain, mode: 'print' });
+  const output = createStreamOutput(
+    { version: version(), sessionId: () => prep.session.sessionId },
+    { out: deps.stdout, now: deps.now, uuid: deps.uuid, totalUsd: () => runtime.ledger.session().usd },
+  );
+  const runtime = createRuntime(prep, opts, deps, (event) => {
+    toStderr(event);
+    output.event(event);
+  });
+  return { runtime, output };
+}
+
+async function runStreamInput(opts, deps) {
+  const prep = await prepare(opts, deps);
+  if (prep.code !== undefined) return prep.code;
+  headLines(opts, prep, deps.stderr);
+  const { runtime, output } = streamRuntime(prep, opts, deps);
+  return runStream(
+    { runtime, output, session: prep.session, resume: opts.resume !== undefined, stdioAsk: opts.permissionPromptTool === 'stdio', signalExit: SIGNAL_EXIT },
+    { stdin: deps.stdin, onSignal: deps.onSignal, uuid: deps.uuid, warn: (message) => deps.stderr.write(`clodent: ${message}\n`) },
+  );
+}
+
+async function runPrint(opts, deps) {
+  const prep = await prepare(opts, deps);
+  if (prep.code !== undefined) return prep.code;
+  headLines(opts, prep, deps.stderr);
+  const stream = opts.outputFormat === 'stream-json' ? streamRuntime(prep, opts, deps) : null;
+  const runtime = stream?.runtime ?? createRuntime(prep, opts, deps, createRenderer({ out: deps.stdout, err: deps.stderr, mode: 'print' }));
   const agent = runtime.open(prep.session);
   const controller = new AbortController();
   const stopHooks = new AbortController();
@@ -276,6 +307,8 @@ async function runPrint(opts, deps) {
   let result;
   try {
     await agent.fireSessionStart(opts.resume === undefined ? 'startup' : 'resume', { signal: controller.signal });
+    stream?.output.init();
+    stream?.output.beginTurn();
     result = await agent.runTurn(opts.print, { signal: controller.signal, stopSignal: stopHooks.signal });
   } finally {
     for (const off of offs) off();
@@ -319,6 +352,7 @@ export async function main(argv, deps) {
     return 2;
   }
   try {
+    if (opts.inputFormat === 'stream-json') return await runStreamInput(opts, deps);
     return await (opts.print !== undefined ? runPrint(opts, deps) : runInteractive(opts, deps));
   } finally {
     killPendingGroups();

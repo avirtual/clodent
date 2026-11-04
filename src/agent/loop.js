@@ -204,6 +204,7 @@ export function createAgent(config, deps) {
       const block = hookContextBlock(event, texts);
       if (block) blocks.push(block);
     }
+    if (!signal?.aborted) for (const text of config.drain?.() ?? []) blocks.push({ type: 'text', text });
     append('user', blocks, 'tool_results');
   }
 
@@ -235,9 +236,10 @@ export function createAgent(config, deps) {
           emit({ type: 'budget_stop', result: check });
           return finish('budget', false, stopSignal);
         }
+        const sentModel = model;
         const { message, requestId, durationMs } = await request(signal, partial);
         partial.length = 0;
-        const cost = ledger.record(model, message.usage);
+        const cost = ledger.record(sentModel, message.usage);
         append('assistant', message.content, 'assistant', { message, requestId, durationMs, usd: cost.usd });
         emit({ type: 'assistant_message', message, requestId, durationMs, usd: cost.usd, priced: cost.priced });
         const stop = message.stop_reason;

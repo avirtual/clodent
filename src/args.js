@@ -5,10 +5,15 @@ export const PERMISSION_MODE_NAMES = Object.freeze({ default: 'ask', plan: 'read
 
 const MODEL_SUFFIX = /^(.+)\[[^[\]]*\]$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const FORMATS = ['text', 'stream-json'];
 const DECIMAL = /^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
 export const FLAGS = [
-  { long: 'print', short: 'p', key: 'print', arg: 'prompt', allowEmpty: true, help: 'run one prompt without the REPL, print the reply and exit' },
+  { long: 'print', short: 'p', key: 'print', arg: 'prompt', allowEmpty: true, bare: '', help: 'run one prompt without the REPL, print the reply and exit' },
+  { long: 'input-format', key: 'inputFormat', arg: 'format', check: checkFormat('--input-format'), help: 'with -p: text (the -p prompt) or stream-json (JSON lines on stdin)' },
+  { long: 'output-format', key: 'outputFormat', arg: 'format', check: checkFormat('--output-format'), help: 'with -p: text (the final answer) or stream-json (JSON lines on stdout)' },
+  { long: 'verbose', key: 'verbose', value: true, help: 'accepted; no effect' },
+  { long: 'permission-prompt-tool', key: 'permissionPromptTool', arg: 'name', check: checkPromptTool, help: 'stdio: ask permission over stdin and stdout (needs --input-format stream-json)' },
   { long: 'model', key: 'model', arg: 'id', check: checkModel, help: `model id (default ${DEFAULT_MODEL}); a trailing [suffix] such as [1m] is dropped` },
   { long: 'effort', key: 'effort', arg: 'level', check: checkEffort, help: 'reasoning effort: low, medium, high, xhigh or max' },
   { long: 'cache-ttl', key: 'cacheTtl', arg: 'ttl', check: checkCacheTtl, help: 'prompt-cache lifetime for the system prompt, tools and settled history: 5m (default) or 1h' },
@@ -52,6 +57,15 @@ function checkModel(raw) {
 function checkPermissionMode(raw) {
   if (Object.hasOwn(PERMISSION_MODE_NAMES, raw)) return { value: PERMISSION_MODE_NAMES[raw] };
   return { error: `--permission-mode must be default, plan, acceptEdits or bypassPermissions, got "${raw}"` };
+}
+
+function checkFormat(name) {
+  return (raw) => (FORMATS.includes(raw) ? { value: raw } : { error: `${name} must be text or stream-json, got "${raw}"` });
+}
+
+function checkPromptTool(raw) {
+  if (raw === 'stdio') return { value: raw };
+  return { error: `--permission-prompt-tool must be stdio, got "${raw}"` };
 }
 
 function checkEffort(raw) {
@@ -105,6 +119,17 @@ function permissionOf(opts, seen) {
   return { mode: given[0].mode };
 }
 
+function formatError(opts, seen) {
+  const streamIn = opts.inputFormat === 'stream-json';
+  if ((streamIn || opts.outputFormat === 'stream-json') && !seen.has('print')) {
+    return `${streamIn ? '--input-format' : '--output-format'} stream-json requires -p`;
+  }
+  if (streamIn && opts.outputFormat !== 'stream-json') return '--input-format stream-json requires --output-format stream-json';
+  if (streamIn && opts.print !== '') return '--input-format stream-json reads prompts from stdin: give -p no prompt';
+  if (seen.has('permission-prompt-tool') && !streamIn) return '--permission-prompt-tool requires --input-format stream-json';
+  return null;
+}
+
 export function parseArgs(argv) {
   const opts = { permission: 'ask', settings: [], addDirs: [], appendSystemPrompt: [], appendSystemPromptFile: [], disallowedTools: [] };
   const seen = new Set();
@@ -127,9 +152,12 @@ export function parseArgs(argv) {
     let raw = inline;
     if (raw === undefined) {
       const next = argv[i + 1];
-      if (next === undefined || isFlag(next)) return fail(`${name} needs a value`);
-      raw = next;
-      i++;
+      if (next !== undefined && isFlag(next) && flag.bare !== undefined) raw = flag.bare;
+      else if (next === undefined || isFlag(next)) return fail(`${name} needs a value`);
+      else {
+        raw = next;
+        i++;
+      }
     }
     if (raw === '' && !flag.allowEmpty) return fail(`${name} needs a value`);
     let value = raw;
@@ -152,6 +180,8 @@ export function parseArgs(argv) {
   if (seen.has('system-prompt') && seen.has('system-prompt-file')) {
     return fail('--system-prompt and --system-prompt-file cannot be combined');
   }
+  const formats = formatError(opts, seen);
+  if (formats) return fail(formats);
   return { ok: true, opts };
 }
 

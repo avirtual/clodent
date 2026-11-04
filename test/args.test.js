@@ -128,7 +128,6 @@ test('a value flag at the end of argv is a missing value', () => {
 test('a value flag followed by another clodent flag is a missing value', () => {
   assert.equal(err(['--model', '--yolo']), '--model needs a value');
   assert.equal(err(['--resume', '--fork-session']), '--resume needs a value');
-  assert.equal(err(['-p', '-v']), '--print needs a value');
   assert.equal(err(['--add-dir', '--settings=x']), '--add-dir needs a value');
 });
 
@@ -271,7 +270,40 @@ test('givenFlags names every flag present, in table order', () => {
     if (f.long === 'budget') return ['--budget', '1'];
     if (f.long === 'cache-ttl') return ['--cache-ttl', '1h'];
     if (f.long === 'session-id') return ['--session-id', UUID];
+    if (f.long === 'print') return ['-p'];
+    if (f.long === 'input-format' || f.long === 'output-format') return [`--${f.long}`, 'stream-json'];
+    if (f.long === 'permission-prompt-tool') return ['--permission-prompt-tool', 'stdio'];
     return [`--${f.long}`, 'x'];
   });
   assert.deepEqual(givenFlags(ok(argv)), every.map((f) => f.long));
+});
+
+const STREAM = ['--input-format', 'stream-json', '--output-format', 'stream-json'];
+
+test('-p followed by another clodent flag is a bare flag with an empty prompt; -p at the end still needs a value', () => {
+  const opts = ok(['-p', ...STREAM, '--verbose', '--session-id', UUID, '--permission-prompt-tool', 'stdio']);
+  assert.deepEqual([opts.print, opts.inputFormat, opts.outputFormat, opts.verbose, opts.permissionPromptTool], ['', 'stream-json', 'stream-json', true, 'stdio']);
+  assert.equal(ok(['-p', '', ...STREAM]).print, '');
+  assert.equal(ok(['-p=', ...STREAM]).print, '');
+  assert.deepEqual([ok(['-p', '-v']).print, ok(['-p', '-v']).version], ['', true]);
+  assert.equal(ok(['-p', '--fix-it']).print, '--fix-it');
+  assert.equal(err(['--model', 'x', '-p']), '--print needs a value');
+});
+
+test('--input-format and --output-format take text or stream-json, naming both', () => {
+  assert.equal(ok(['-p', 'x', '--input-format', 'text', '--output-format', 'text']).outputFormat, 'text');
+  assert.equal(ok(['-p', 'x', '--output-format', 'stream-json']).outputFormat, 'stream-json');
+  assert.equal(err(['-p', 'x', '--input-format', 'json']), '--input-format must be text or stream-json, got "json"');
+  assert.equal(err(['-p', 'x', '--output-format=jsonl']), '--output-format must be text or stream-json, got "jsonl"');
+});
+
+test('stream-json needs -p, stream input needs stream output and no prompt, and --permission-prompt-tool needs stream input', () => {
+  assert.equal(err(STREAM), '--input-format stream-json requires -p');
+  assert.equal(err(['--output-format', 'stream-json']), '--output-format stream-json requires -p');
+  assert.equal(err(['-p', '--input-format', 'stream-json']), '--input-format stream-json requires --output-format stream-json');
+  assert.equal(err(['-p', '--input-format', 'stream-json', '--output-format', 'text']), '--input-format stream-json requires --output-format stream-json');
+  assert.equal(err(['-p', 'hi', ...STREAM]), '--input-format stream-json reads prompts from stdin: give -p no prompt');
+  assert.equal(err(['-p', 'hi', '--permission-prompt-tool', 'stdio']), '--permission-prompt-tool requires --input-format stream-json');
+  assert.equal(err(['-p', ...STREAM, '--permission-prompt-tool', 'mcp__x']), '--permission-prompt-tool must be stdio, got "mcp__x"');
+  assert.equal(err(['--verbose=1']), '--verbose takes no value');
 });

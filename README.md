@@ -73,7 +73,11 @@ A summary for a host adapter; each point links to the section that pins it down.
 
 | flag | status | meaning |
 |---|---|---|
-| `-p`, `--print <prompt>` | works | run one prompt without the REPL, print the reply and exit; without `-p`, clodent starts the [REPL](#repl) |
+| `-p`, `--print <prompt>` | works | run one prompt without the REPL, print the reply and exit; with `--input-format stream-json`, read prompts from stdin instead (see [Stream JSON](#stream-json)); without `-p`, clodent starts the [REPL](#repl) |
+| `--input-format <format>` | works | with `-p`: `text` (default: the `-p` prompt) or `stream-json` (JSON lines on stdin); see [Stream JSON](#stream-json) |
+| `--output-format <format>` | works | with `-p`: `text` (default: the final answer) or `stream-json` (JSON lines on stdout); see [Stream JSON](#stream-json) |
+| `--verbose` | works | accepted; no effect |
+| `--permission-prompt-tool <name>` | works | `stdio`, the only value, with `--input-format stream-json`: permission asks go over stdout and stdin; see [Stream JSON](#stream-json) |
 | `--model <id>` | works | model id; default the settings `model`, else `claude-opus-5-5`. One trailing bracketed suffix is dropped before any use (`claude-haiku-5-5[1m]` is `claude-haiku-5-5`), as it is from the settings `model` and `/model <id>` |
 | `--effort <level>` | works | `low`, `medium`, `high`, `xhigh` or `max`, sent as is; default the settings `effortLevel`, else none |
 | `--cache-ttl <ttl>` | works | prompt-cache lifetime, `5m` or `1h`; default the settings `cacheTtl`, else `5m`. With `1h` the system block, the last tool and the settled pin are cached for an hour and the tail for 5 minutes; see [API wire](#api-wire). Fixed for the process, across `/clear`, `/compact` and `/model`. Any other value exits 2 |
@@ -103,10 +107,10 @@ A summary for a host adapter; each point links to the section that pins it down.
 
 Parsing:
 
-- A value is the next argument, or the text after the first `=` (`--model=x`, `-p=x`). When the next argument is itself a clodent flag, such as `--yolo` or `-p`, the value counts as missing; the `=` form passes such text.
+- A value is the next argument, or the text after the first `=` (`--model=x`, `-p=x`). When the next argument is itself a clodent flag, such as `--yolo` or `-p`, the value counts as missing; the `=` form passes such text. The exception is `-p`: followed by a clodent flag it takes an empty prompt (`-p --input-format stream-json`), and only `-p` as the last argument counts as missing.
 - `--settings`, `--add-dir`, `--append-system-prompt`, `--append-system-prompt-file`, `--disallowedTools`, `--allowedTools`, `--plugin-dir` and `--mcp-config` collect every occurrence in argv order; the two spellings of `--disallowedTools` and of `--allowedTools` count as one flag. Any other flag given twice is an error.
-- An empty value (`--model ''` or `--model=`) counts as missing, except for `-p`, `--system-prompt` and `--append-system-prompt`, which take it. An empty `-p` prompt is a startup error (see [Print mode](#print-mode)); an empty `--system-prompt` leaves the base part out, and an empty `--append-system-prompt` adds nothing.
-- These are errors: an unknown flag, a positional argument (clodent takes none), a missing value, a value on a flag that takes none, an `--effort` other than `low`, `medium`, `high`, `xhigh` or `max`, a `--permission-mode` other than `default`, `plan`, `acceptEdits` or `bypassPermissions`, a `--budget` that is not a decimal number greater than 0, a `--session-id` not shaped as 8-4-4-4-12 hex digits, two of `--yolo`, `--read-only`, `--dangerously-skip-permissions` and `--permission-mode` that name different modes (`--<a> and --<b> cannot be combined`, in table order; flags that name the same mode combine), `--fork-session` without `--resume`, `--session-id` with `--resume` but without `--fork-session` (`--session-id with --resume requires --fork-session`), and `--system-prompt` with `--system-prompt-file`.
+- An empty value (`--model ''` or `--model=`) counts as missing, except for `-p`, `--system-prompt` and `--append-system-prompt`, which take it. An empty `--system-prompt` leaves the base part out, and an empty `--append-system-prompt` adds nothing.
+- These are errors: an unknown flag, a positional argument (clodent takes none), a missing value, a value on a flag that takes none, an `--effort` other than `low`, `medium`, `high`, `xhigh` or `max`, a `--permission-mode` other than `default`, `plan`, `acceptEdits` or `bypassPermissions`, a `--budget` that is not a decimal number greater than 0, a `--session-id` not shaped as 8-4-4-4-12 hex digits, two of `--yolo`, `--read-only`, `--dangerously-skip-permissions` and `--permission-mode` that name different modes (`--<a> and --<b> cannot be combined`, in table order; flags that name the same mode combine), `--fork-session` without `--resume`, `--session-id` with `--resume` but without `--fork-session` (`--session-id with --resume requires --fork-session`), `--system-prompt` with `--system-prompt-file`, an `--input-format` or `--output-format` other than `text` or `stream-json`, a `--permission-prompt-tool` other than `stdio`, and the format combinations [Stream JSON](#stream-json) lists.
 
 `--disallowedTools <list>`: each value is split at commas and whitespace outside parentheses, and each entry is a deny rule parsed exactly as a settings `permissions.deny` entry (see [Permission rules](#permission-rules)), so `Bash`, `Bash(git push:*)` and `Read(~/x)` all work and other tool names are ignored silently; a `/p` path is relative to the working directory. These rules follow the settings deny rules. A malformed entry prints `clodent: --disallowedTools: "<entry>": <reason>` and exits 2, before the `[clodent:session]` line, any hook and any request.
 
@@ -133,6 +137,8 @@ The settings `env` (see [Settings](#settings)) is laid over the process environm
 
 `clodent -p "<prompt>"` runs one turn of the agent loop: it sends the prompt, runs every tool the model calls, sends the results back, and repeats until the model ends its turn.
 
+With `--output-format stream-json`, stdout gets JSON lines instead, and the lines below go to stderr uncoloured; see [Stream JSON](#stream-json).
+
 stdout gets only the final answer: the text blocks of the turn's last assistant message whose `stop_reason` is not `tool_use`, joined, then a newline. When there is no such message or it has no text, stdout gets nothing; text the model writes alongside a tool call is never printed. Thinking is never printed. stderr gets everything else, one line each:
 
 - `[clodent:session] <session-id>` first, before any other line; see [Sessions](#sessions).
@@ -149,7 +155,7 @@ Exit codes:
 
 - 0: the model ended its turn (`end_turn` or `stop_sequence`). A `pause_turn` response is sent back for the model to continue.
 - 1: an API error, a budget stop, a refusal, `max_tokens` (warned as `clodent: response hit max_tokens`), or any other stop reason (warned as `clodent: unexpected stop_reason <reason>`).
-- 2: an argument error; a settings file error, printed as `clodent: <message>` (see [Settings](#settings)); an empty prompt (`-p ''` or `-p=`), printed as `clodent: -p needs a non-empty prompt`; `ANTHROPIC_API_KEY` unset, printed as `clodent: ANTHROPIC_API_KEY is not set`; an invalid `ANTHROPIC_BASE_URL`, printed as `clodent: invalid ANTHROPIC_BASE_URL`; an unreadable prompt file, printed as `clodent: <message>`; a malformed `--disallowedTools` entry (see [Flags](#flags)); or a session error (see [Sessions](#sessions)). Settings warnings print first, as `clodent: <warning>` lines. No request is sent and no `[clodent:session]` line is printed.
+- 2: an argument error; a settings file error, printed as `clodent: <message>` (see [Settings](#settings)); an empty prompt (`-p ''`, `-p=`, or `-p` followed by another flag, without `--input-format stream-json`), printed as `clodent: -p needs a non-empty prompt`; `ANTHROPIC_API_KEY` unset, printed as `clodent: ANTHROPIC_API_KEY is not set`; an invalid `ANTHROPIC_BASE_URL`, printed as `clodent: invalid ANTHROPIC_BASE_URL`; an unreadable prompt file, printed as `clodent: <message>`; a malformed `--disallowedTools` entry (see [Flags](#flags)); or a session error (see [Sessions](#sessions)). Settings warnings print first, as `clodent: <warning>` lines. No request is sent and no `[clodent:session]` line is printed.
 - 130: SIGINT; 143: SIGTERM; 129: SIGHUP. clodent aborts the request, the running tool or the running hooks, waits for them to return (each process group gets SIGTERM, then SIGKILL 2 s later), prints `clodent: interrupted` and the turn's cost line, fires `Stop` (a second signal kills it), prints the session total, waits for the statusLine command, sends any pending SIGKILL (see [Tools](#tools)), and exits. The transcript ends with the interrupt and `turn_duration` records, so `--resume` continues it.
 
 Permissions in `-p` go by the tool's kind (see [Tools](#tools)), and for `Bash` by the command (see [Read-only Bash](#read-only-bash)). A refused call is not run: the model gets the reason as an error tool result, and the turn goes on.
@@ -162,6 +168,77 @@ Permissions in `-p` go by the tool's kind (see [Tools](#tools)), and for `Bash` 
 | `--read-only`, `--permission-mode plan` | runs | refused: `--read-only: <Tool> is not allowed` | a read-only command runs; any other is refused: `--read-only: Bash command is not read-only (<reason>)` |
 
 A `PreToolUse` hook can refuse any call or let a call run in the default or `acceptEdits` mode; see [Hooks](#hooks) for the order. A call a settings deny rule matches is refused in every mode, and one an ask rule matches is refused unless the mode is `--yolo`'s; see [Permission rules](#permission-rules).
+
+### Stream JSON
+
+`clodent -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio` speaks the JSON-lines protocol of Clodex's Claude stream codec: prompts, permission replies and control requests arrive on stdin, and stdout carries one JSON object per line. `clodent -p "<prompt>" --output-format stream-json` (text input) runs that one prompt, writes the same output lines, and exits as [Print mode](#print-mode) does.
+
+Flags:
+
+- `--input-format` and `--output-format` take `text` (the default) or `stream-json`; any other value prints `--input-format must be text or stream-json, got "<value>"` (or `--output-format …`).
+- `--verbose` is accepted and has no effect.
+- `--permission-prompt-tool` takes only `stdio` (else `--permission-prompt-tool must be stdio, got "<value>"`).
+- `-p` directly followed by another clodent flag takes an empty prompt, so Clodex's `-p --input-format stream-json …` parses; `-p ''` works too.
+- These are argument errors (exit 2): a `stream-json` format without `-p` (`--input-format stream-json requires -p`, or `--output-format …`), `--input-format stream-json` without `--output-format stream-json` (`--input-format stream-json requires --output-format stream-json`), `--input-format stream-json` with a non-empty `-p` prompt (`--input-format stream-json reads prompts from stdin: give -p no prompt`), and `--permission-prompt-tool` without `--input-format stream-json` (`--permission-prompt-tool requires --input-format stream-json`).
+- Every other flag works as without them.
+
+stdout holds JSON lines only. stderr gets the [Print mode](#print-mode) lines, never coloured: `[clodent:session] <id>` first, the ignored-flag and settings warnings, `● <Tool> <summary>`, `[clodent:permit <Tool> <tool_use id>] <summary>` and `  ✗ <reason>` lines, `clodent: <message>` warnings and errors (the stdin warnings below included), `clodent: interrupted`, the `[clodent:budget]` line, each turn's `[clodent:cost]` line, and the session total on exit.
+
+Output lines. Every `session_id` is the session's id, as on the `[clodent:session]` line, and every `uuid` is a fresh v4 UUID.
+
+| line | fields | when |
+|---|---|---|
+| `{"type":"system","subtype":"init",…}` | `cwd`, `session_id`, `model` (the id with any `[…]` suffix dropped), `tools` (the names of the tools sent to the API), `permissionMode` (`default`, `acceptEdits`, `plan` or `bypassPermissions`), `slash_commands` (`[]`), `apiKeySource` (`"ANTHROPIC_API_KEY"`), `clodent_version`, `uuid` | once, after the `SessionStart` hooks and before stdin is read |
+| `{"type":"assistant",…}` | `message` (`id`, `type: "message"`, `role: "assistant"`, `model`, `content` with its text, thinking (signature kept) and tool_use blocks, `stop_reason`, `stop_sequence` and `usage`, as the API sent them), `parent_tool_use_id: null`, `session_id`, `uuid` | once per API response. An interrupt during a response writes one for the text blocks it completed, if any, with `message` `{"role":"assistant","content":[…],"stop_reason":null}` |
+| `{"type":"user",…}` | `message` (`role: "user"`, `content`: the `tool_result` blocks `{type, tool_use_id, content, is_error}`, then any hook context block and folded prompt text blocks), `parent_tool_use_id: null`, `session_id`, `uuid` | once per tool-results message. An interrupt writes one with `content` `[{"type":"text","text":"[Request interrupted by user]"}]` |
+| `{"type":"control_request",…}` | `request_id` (a v4 UUID), `request`: `subtype: "can_use_tool"`, `tool_name`, `display_name` (the tool name), `input` (the tool input), `description` (the summary of the `● <Tool>` line), `permission_suggestions: []`, `tool_use_id` | a permission ask, with `--permission-prompt-tool stdio` |
+| `{"type":"system","subtype":"permission_denied",…}` | `tool_name`, `tool_use_id`, `message` (the refusal reason), `session_id`, `uuid` | when a reply denies an ask |
+| `{"type":"control_response",…}` | `response`: `subtype` (`success` or `error`), `request_id` (the request's, echoed), `error` (with `error` only) | in reply to each stdin `control_request` |
+| `{"type":"result",…}` | below | once per turn, as its last line; once per empty prompt |
+
+Result fields, in this order:
+
+- `subtype`: `error_during_execution` when `is_error`, else `success`.
+- `is_error`: true for an API error after retries, a budget stop, or an empty prompt.
+- `duration_ms`: the turn's wall time in ms, from the prompt to the end of the turn, before the `Stop` hook.
+- `duration_api_ms`: the summed durations of the turn's API responses.
+- `num_turns`: the number of API responses in the turn.
+- `result`: the text blocks of the turn's last response that did not stop for `tool_use`, joined, or `""`. For an API error it is the error message; for a budget stop, the `[clodent:budget]` line; for an interrupt, the text that streamed in the interrupted response before the interrupt, or `""`; for an empty prompt, `clodent: empty prompt (image input is not supported)`.
+- `stop_reason`: the last response's `stop_reason`; null after an interrupt, an API error, a budget stop, a response without one, and for an empty prompt.
+- `session_id`.
+- `total_cost_usd`: the session total so far, the number on the `[clodent:cost] session total` line. It is cumulative for the process and never resets.
+- `usage`: `input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens` and `output_tokens`, summed over the turn's responses.
+- `permission_denials`: always `[]`.
+- `uuid`.
+
+An interrupted turn, in either input mode, has `subtype: "success"`, `is_error: false` and `stop_reason: null`.
+
+Input lines, with `--input-format stream-json`: one JSON object per line, UTF-8; a trailing `\r` is dropped.
+
+| line | effect |
+|---|---|
+| `{"type":"user","message":{"role":"user","content":<text or blocks>}}` | a prompt: the string, or the `text` blocks' `text` joined with `\n\n`. Each `image` block is dropped with `clodent: stdin: dropped an image block: image input is not supported`, any other block with `clodent: stdin: dropped a "<type>" block: only text blocks are read`, and content that is neither with `clodent: stdin: a user message without string or array content`. A prompt with no non-whitespace text left is empty: it gets an `is_error` result and sends no request. `session_id`, `uuid`, `parent_tool_use_id` and other fields are ignored |
+| `{"type":"control_response","response":{"subtype":"success","request_id":<id>,"response":{"behavior":"allow",…}}}` | answers the ask with that `request_id`: the call runs with the `input` of its `control_request`. `updatedInput` and `updatedPermissions` are ignored |
+| any other `control_response` for a waiting ask, such as `"behavior":"deny","message":<text>` | refuses the call with the reason `message`, or `denied by the user` when it is missing or empty: the `permission_denied` line, then the model gets the reason as the error tool result, and the turn goes on |
+| `{"type":"control_request","request_id":<id>,"request":{"subtype":"interrupt"}}` | the `success` reply, then, if a turn is running, the REPL's Ctrl-C: the request, tool or hooks are aborted, the transcript gets the interrupt records, the turn's cost line goes to stderr, and its result follows. When idle, only the reply, unless a prompt read before it in the same stdin chunk has not started yet: that prompt's turn is then interrupted before its first request |
+| `{"type":"control_request","request_id":<id>,"request":{"subtype":"set_model","model":<id>}}` | the REPL's `/model <id>`: the id less one trailing `[…]` suffix is used from the next request and the system prompt is rebuilt; then the `success` reply. A missing model replies `error` with `set_model needs a model id`, and a failed rebuild with its message, keeping the model |
+| a `control_request` of any other subtype | the reply `{"subtype":"error","request_id":<id>,"error":"unsupported control request: <subtype>"}` |
+
+A line that is empty or only whitespace is skipped without a warning.
+
+Warnings, each one `clodent: <warning>` line on stderr, after which the line is ignored: `stdin: ignoring a line that is not JSON: <the line, cut to 60 characters and …>`, `stdin: ignoring a message of unknown type "<type>"` (`null` when there is none), and `stdin: no permission request "<id>" is waiting; reply ignored` for a reply to an unknown or already answered ask.
+
+Turns:
+
+- A prompt that arrives while no turn runs starts its own turn, after any prompt waiting ahead of it, and never joins that prompt's tool results: `UserPromptSubmit` fires, then the turn runs as in [Print mode](#print-mode).
+- A prompt that arrives during a turn joins the turn's next tool-results message as one more `text` block, after any hook context: no new turn and no extra result, and `UserPromptSubmit` does not fire for it. If the turn ends first, or is interrupted, the prompt runs as its own turn after the result, and never joins a later turn's tool results. Waiting prompts run one at a time in arrival order; an empty one gets its `is_error` result in its place.
+- A line that starts with `/` is a prompt; stdin has no slash commands.
+- stdin closing (EOF) refuses a waiting ask, and any later one, with `denied: input closed`, lets the running turn and the waiting prompts finish, and exits 0 as the REPL's Ctrl-D does: the session total on stderr, then the wait for the statusLine command. A stdin read error counts as stdin closing; one other than `EIO` first prints `clodent: stdin: <message>`.
+- SIGINT exits 130, SIGTERM 143, SIGHUP 129: the running turn is interrupted and its result written, waiting prompts are dropped, and clodent exits as print mode does on a signal. A second signal kills a running `Stop` hook.
+
+Permissions go as in print mode (see [Print mode](#print-mode) and [Permission rules](#permission-rules)), except that with `--permission-prompt-tool stdio` a call the REPL would ask about writes a `control_request` and waits for its reply. The `PreToolUse` hooks, the settings deny rules and the mode decide first, in the REPL's order, and `--yolo`'s mode never asks. The `Notification` hook fires at the ask exactly as in the REPL. An interrupt abandons a waiting ask, and the call is refused with `interrupted by user`. Without `--permission-prompt-tool stdio`, such a call is refused with the print mode reason.
+
+Everything else is the REPL's: hooks, the statusLine after each response, the transcript records, cost and `--budget`, retries, `AGENTS.md`, `--add-dir`, `--resume` and `--fork-session`.
 
 ### REPL
 
@@ -394,7 +471,7 @@ Per-command rules. Any match makes the command not read-only. For every command 
 
 ### Events
 
-Internal; serialized by a later stream-json mode. The agent loop reports everything through typed events, each `{type, ...fields}`; the terminal renderer and the session recorder consume them.
+Internal; [Stream JSON](#stream-json) writes its lines from them. The agent loop reports everything through typed events, each `{type, ...fields}`; the terminal renderer and the session recorder consume them.
 
 | type | fields | emitted |
 |---|---|---|
