@@ -35,12 +35,13 @@ export function buildHookInput(event, base = {}, extra = {}) {
 function matcherSubject(event, input) {
   if (TOOL_EVENTS.has(event)) return input?.tool_name;
   if (event === 'SessionStart') return input?.source;
+  if (event === 'PreCompact') return input?.trigger;
   return undefined;
 }
 
 function groupMatches(event, matcher, input, warnings) {
   if (matcher === undefined || matcher === null || matcher === '' || matcher === '*') return true;
-  if (!TOOL_EVENTS.has(event) && event !== 'SessionStart') return true;
+  if (!TOOL_EVENTS.has(event) && event !== 'SessionStart' && event !== 'PreCompact') return true;
   let re;
   try {
     re = new RegExp(`^(?:${matcher})$`);

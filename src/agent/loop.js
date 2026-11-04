@@ -2,6 +2,7 @@ import { ApiError } from '../api/errors.js';
 import { buildRequest } from '../api/request.js';
 import { streamMessage } from '../api/stream.js';
 import { emptyOutcome, hookContextBlock, NO_HOOKS } from '../hooks/fire.js';
+import { COMPACT_TOOL_CHOICE, compactMessages, compactTokens, NOTHING_TO_COMPACT, summaryMessage, summaryOf } from './compact.js';
 import { appendMessage } from './history.js';
 import { decide } from './permission.js';
 
@@ -75,12 +76,13 @@ export function createAgent(config, deps) {
     return finish('interrupted', false, stopSignal);
   }
 
-  async function request(signal, partial) {
-    const req = buildRequest({ model, system, tools: definitions, messages: history, effort, baseUrl }, { env: deps.env });
+  async function request(signal, partial, { messages = history, toolChoice, quiet = false } = {}) {
+    const req = buildRequest({ model, system, tools: definitions, messages, effort, baseUrl, toolChoice }, { env: deps.env });
     const streamDeps = { fetch: deps.fetch, sleep: deps.sleep, random: deps.random, now, signal };
+    const stream = quiet ? () => {} : emit;
     const handlers = {
-      onText: (text, index) => emit({ type: 'text_delta', text, index }),
-      onThinking: (text, index) => emit({ type: 'thinking_delta', text, index }),
+      onText: (text, index) => stream({ type: 'text_delta', text, index }),
+      onThinking: (text, index) => stream({ type: 'thinking_delta', text, index }),
       onBlockStop: (block) => {
         if (block.type === 'text' && block.text) partial.push(block);
       },
@@ -253,13 +255,51 @@ export function createAgent(config, deps) {
     }
   }
 
+  async function fireSessionStart(source, { signal } = {}) {
+    const outcome = await fireHook('SessionStart', { source }, signal);
+    heldContext.push(...outcome.additionalContext);
+    return outcome;
+  }
+
+  async function summarise(instructions, signal) {
+    try {
+      const { message } = await request(signal, [], { messages: compactMessages(history, instructions), toolChoice: COMPACT_TOOL_CHOICE, quiet: true });
+      return { message };
+    } catch (err) {
+      return { reason: signal?.aborted ? 'interrupted' : (err?.message ?? String(err)) };
+    }
+  }
+
+  async function compact({ instructions, trigger } = {}, { signal } = {}) {
+    if (history.length === 0) return { ok: false, reason: NOTHING_TO_COMPACT };
+    closeDanglingUses();
+    await fireHook('PreCompact', { trigger, custom_instructions: instructions ?? '' }, signal);
+    if (signal?.aborted) return { ok: false, reason: 'interrupted' };
+    const check = ledger.check();
+    if (!check.ok) {
+      emit({ type: 'budget_stop', result: check });
+      return { ok: false, reason: 'budget' };
+    }
+    const { message, reason } = await summarise(instructions, signal);
+    if (!message) return { ok: false, reason };
+    ledger.record(model, message.usage);
+    const summary = summaryOf(message);
+    if (message.stop_reason !== 'end_turn' || summary.trim() === '') {
+      ledger.endTurn();
+      return { ok: false, reason: message.stop_reason === 'end_turn' ? 'empty summary' : `stop_reason ${message.stop_reason}` };
+    }
+    const { preTokens, postTokens } = compactTokens(message.usage);
+    history.splice(0, history.length, summaryMessage(summary));
+    interruptedBefore = false;
+    emit({ type: 'compacted', trigger, summary, preTokens, postTokens, turn: ledger.endTurn() });
+    await fireSessionStart('compact', { signal });
+    return { ok: true, preTokens, postTokens };
+  }
+
   return {
     runTurn,
-    async fireSessionStart(source, { signal } = {}) {
-      const outcome = await fireHook('SessionStart', { source }, signal);
-      heldContext.push(...outcome.additionalContext);
-      return outcome;
-    },
+    compact,
+    fireSessionStart,
     fireNotification(fields, { signal } = {}) {
       return fireHook('Notification', fields, signal);
     },
