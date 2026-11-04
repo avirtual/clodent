@@ -228,7 +228,7 @@ Internal; serialized by a later stream-json mode. The agent loop reports everyth
 
 `stopReason` is the API's `stop_reason` (`end_turn`, `stop_sequence`, `max_tokens`, `refusal`, or another value), or one of `budget`, `interrupted`, `error` and `unknown` (the response carried no `stop_reason`).
 
-When a response that does not stop for `tool_use` still holds `tool_use` blocks, none of them runs: each gets a `tool_use` event and an error result `interrupted by user`, so the next request stays valid.
+When a response that does not stop for `tool_use` still holds `tool_use` blocks, none of them runs: each gets a `tool_use` event and an error result `interrupted by user`, so the next request stays valid. A turn that starts on a history ending in an assistant message with `tool_use` blocks (a resumed session that was killed while a tool ran) does the same for those blocks before it adds the prompt.
 
 ### Sessions
 
@@ -249,10 +249,11 @@ Session id:
 
 Loading a transcript:
 
-- User and assistant records that are not `isMeta: true` are replayed in file order into the history, consecutive records of one role joining one message, exactly as the live history merged them. Other record types and meta records are skipped.
+- User and assistant records that carry neither `isMeta: true` nor `isVisibleInTranscriptOnly: true` are replayed in file order into the history, consecutive records of one role joining one message, exactly as the live history merged them. Other record types and records with either flag are skipped.
 - A last line without its `\n` is a write cut short by a crash. clay prints `clay: <path>: ignoring a truncated last line` right after the `[clay:session]` line; when resuming in place, it cuts the file back to its last complete line before appending.
 - Any other line that is not a JSON object, or a user or assistant record without a `message.content` array, prints `clay: <path>: line <n> is not valid JSON`, `… is not a record` or `… has no message content` and exits 2.
 - When the last user record is the interrupt record, the next prompt goes to the API prefixed with the text block `[clay: previous turn interrupted by the user]`, as it would have in the interrupted run.
+- When the history ends in an assistant record with `tool_use` blocks and no results (clay was killed while a tool ran), the next turn first writes a tool results record giving each of them the error result `interrupted by user`, then the prompt, prefixed with that same text block.
 
 Every record carries:
 
@@ -276,7 +277,7 @@ Record kinds, in the order a turn writes them:
 | assistant | `type: "assistant"`, `message` (the API message: `id`, `model`, `role`, `content`, `stop_reason`, `stop_sequence`, `usage` as the API reported it), `requestId` (the `request-id` response header, or null), `costUsd` (this request's cost; 0 for an unpriced model), `durationMs` (this request's duration in whole milliseconds). A response with empty content is recorded too. |
 | tool results | `type: "user"`, `message: {role: "user", content: [tool_result blocks]}`, `toolUseResult: {name, isError}` describing the first block |
 | partial assistant | `type: "assistant"`, `message: {role: "assistant", content: [the completed text blocks], stop_reason: null}`; written on an interrupt that kept text |
-| interrupt | `type: "user"`, `message: {role: "user", content: [{type: "text", text: "[Request interrupted by user]"}]}`, `isMeta: true` |
+| interrupt | `type: "user"`, `message: {role: "user", content: [{type: "text", text: "[Request interrupted by user]"}]}`, `isVisibleInTranscriptOnly: true`; no `isMeta` |
 | turn end | `type: "system"`, `subtype: "turn_duration"`, `durationMs` (the turn's duration in whole milliseconds), `messageCount` (the turn's user and assistant records, the interrupt record included); after the turn's last record |
 
 A turn the model ended has `stop_reason: "end_turn"` on its last assistant record.

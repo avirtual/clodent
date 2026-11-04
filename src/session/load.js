@@ -4,7 +4,7 @@ import { INTERRUPT_TEXT } from './transcript.js';
 
 function isInterrupt(record) {
   const content = record.message?.content;
-  return record.isMeta === true && content?.length === 1 && content[0].type === 'text' && content[0].text === INTERRUPT_TEXT;
+  return record.isVisibleInTranscriptOnly === true && content?.length === 1 && content[0].type === 'text' && content[0].text === INTERRUPT_TEXT;
 }
 
 function parseLine(line, number, path) {
@@ -23,7 +23,8 @@ function parseLine(line, number, path) {
 export function loadTranscript(path, { readFileSync }) {
   const text = readFileSync(path, 'utf8');
   const end = text.lastIndexOf('\n') + 1;
-  const warnings = end < text.length ? [`${path}: ignoring a truncated last line`] : [];
+  const truncated = end < text.length;
+  const warnings = truncated ? [`${path}: ignoring a truncated last line`] : [];
   const lines = text.slice(0, end).split('\n').slice(0, -1);
   const records = [];
   const history = [];
@@ -35,7 +36,7 @@ export function loadTranscript(path, { readFileSync }) {
     lastUuid = record.uuid ?? lastUuid;
     if (record.type !== 'user' && record.type !== 'assistant') return;
     if (record.type === 'user') interruptedLast = isInterrupt(record);
-    if (record.isMeta === true) return;
+    if (record.isMeta === true || record.isVisibleInTranscriptOnly === true) return;
     if (!Array.isArray(record.message?.content)) throw new Error(`${path}: line ${i + 1} has no message content`);
     appendMessage(history, record.type, record.message.content);
   });
@@ -45,6 +46,7 @@ export function loadTranscript(path, { readFileSync }) {
     lastUuid,
     interruptedLast,
     warnings,
+    truncated,
     validBytes: Buffer.byteLength(text.slice(0, end)),
     sessionId: basename(path, '.jsonl'),
   };

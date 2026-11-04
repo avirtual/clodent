@@ -134,7 +134,16 @@ export function createAgent(config, deps) {
     });
   }
 
+  function closeDanglingUses() {
+    const last = history.at(-1);
+    const uses = last?.role === 'assistant' ? last.content.filter((block) => block.type === 'tool_use') : [];
+    if (uses.length === 0) return;
+    append('user', notRun(uses).map(resultBlock), 'tool_results');
+    interruptedBefore = true;
+  }
+
   async function runTurn(userText, { signal } = {}) {
+    closeDanglingUses();
     addUserText(userText);
     const partial = [];
     try {

@@ -88,6 +88,7 @@ test('replaying the transcript rebuilds the live history exactly, merged roles i
   assert.equal(loaded.lastUuid, live.transcript.lastUuid());
   assert.equal(loaded.interruptedLast, false);
   assert.deepEqual(loaded.warnings, []);
+  assert.equal(loaded.truncated, false);
   assert.equal(loaded.sessionId, 's');
   assert.equal(loaded.records.length, readFileSync(path, 'utf8').trimEnd().split('\n').length);
 });
@@ -112,6 +113,7 @@ test('system, meta and unknown records are skipped; same-role records merge', as
     user('a', 'one'),
     { type: 'system', uuid: 'b', subtype: 'turn_duration' },
     user('c', 'meta', { isMeta: true }),
+    user('c2', 'transcript only', { isVisibleInTranscriptOnly: true }),
     { type: 'file-history-snapshot', uuid: 'd' },
     user('e', 'two'),
     { type: 'assistant', uuid: 'f', message: { role: 'assistant', content: [{ type: 'text', text: 'r' }] } },
@@ -123,7 +125,7 @@ test('system, meta and unknown records are skipped; same-role records merge', as
     { role: 'assistant', content: [{ type: 'text', text: 'r' }] },
   ]);
   assert.equal(loaded.lastUuid, 'f');
-  assert.equal(loaded.records.length, 7);
+  assert.equal(loaded.records.length, 8);
 });
 
 test('a truncated last line is ignored with a warning and validBytes ends at the last newline', async (t) => {
@@ -134,6 +136,7 @@ test('a truncated last line is ignored with a warning and validBytes ends at the
   const loaded = loadTranscript(path, fs);
   assert.deepEqual(loaded.history, [{ role: 'user', content: [{ type: 'text', text: 'é one' }] }]);
   assert.deepEqual(loaded.warnings, [`${path}: ignoring a truncated last line`]);
+  assert.equal(loaded.truncated, true);
   assert.equal(loaded.validBytes, Buffer.byteLength(good));
   assert.equal(loaded.lastUuid, 'a');
 });

@@ -32,7 +32,7 @@ export function createRecorder(transcript, { now }) {
       append(record);
     },
     interrupted() {
-      append({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: INTERRUPT_TEXT }] }, isMeta: true });
+      append({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: INTERRUPT_TEXT }] }, isVisibleInTranscriptOnly: true });
     },
     turn_end() {
       const durationMs = turnStart === null ? 0 : Math.round(now() - turnStart);

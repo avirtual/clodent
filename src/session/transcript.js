@@ -11,7 +11,7 @@ export function createTranscript({ path, sessionId, cwd, version, parentUuid = n
 
   function write(entry) {
     appendFileSync(path, `${JSON.stringify(entry)}\n`, { mode: FILE_MODE });
-    last = entry.uuid;
+    last = entry.uuid ?? last;
     return entry;
   }
 

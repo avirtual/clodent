@@ -77,3 +77,12 @@ test('copy re-stamps the sessionId keeping uuids, and the next record chains fro
   assert.equal(records[2].parentUuid, 'b');
   assert.equal(records[2].sessionId, 'new');
 });
+
+test('a copied record without a uuid leaves the chain on the last uuid seen', async (t) => {
+  const dir = await useTempDir(t);
+  const path = join(dir, 'f.jsonl');
+  const transcript = createTranscript({ path, sessionId: 'new', cwd: '/w', version: '1' }, { appendFileSync, mkdirSync, clock: CLOCK, uuid: counter() });
+  transcript.copy([{ type: 'user', uuid: 'a', parentUuid: null }, { type: 'summary' }]);
+  transcript.append({ type: 'user', message: { role: 'user', content: [] } });
+  assert.equal(lines(path)[2].parentUuid, 'a');
+});

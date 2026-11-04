@@ -32,14 +32,14 @@ export function openSession({ sessionId, resume, forkSession, home, cwd, version
   const base = { ok: true, history: loaded.history, interrupted: loaded.interruptedLast, warnings: loaded.warnings };
   if (forkSession) {
     const id = sessionId ?? deps.uuid();
-    if (sessionId !== undefined && deps.existsSync(transcriptPath(home, cwd, id))) {
+    if (sessionId !== undefined && (id === resume || deps.existsSync(transcriptPath(home, cwd, id)))) {
       return fail(`session ${id} already exists; use --resume`);
     }
     const { path, transcript } = fresh(id, where, deps);
     transcript.copy(loaded.records);
     return { ...base, sessionId: id, transcriptPath: path, transcript };
   }
-  if (loaded.warnings.length > 0) deps.truncateSync(source, loaded.validBytes);
+  if (loaded.truncated) deps.truncateSync(source, loaded.validBytes);
   const transcript = createTranscript({ path: source, sessionId: resume, cwd, version, parentUuid: loaded.lastUuid }, deps);
   return { ...base, sessionId: resume, transcriptPath: source, transcript };
 }

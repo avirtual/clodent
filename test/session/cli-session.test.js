@@ -1,12 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { INTERRUPT_MARKER } from '../../src/agent/loop.js';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { INTERRUPT_MARKER, INTERRUPTED_RESULT } from '../../src/agent/loop.js';
 import { main } from '../../src/cli.js';
 import { transcriptPath } from '../../src/session/paths.js';
 import { createFakeFetch } from '../helpers/fake-fetch.js';
 import { sse } from '../helpers/sse-builder.js';
+import { assertValidHistory } from '../helpers/valid-history.js';
 import { useTempDir } from '../tools/tmp-dir.js';
 
 const ID = '123e4567-e89b-42d3-a456-426614174000';
@@ -58,6 +59,19 @@ async function run(argv, { home, cwd, responses = [], onFetch }) {
 
 function records(path) {
   return readFileSync(path, 'utf8').trimEnd().split('\n').map((l) => JSON.parse(l));
+}
+
+function clodexIsInterruptEntry(obj) {
+  if (!obj || obj.isSidechain === true || obj.isMeta === true) return false;
+  if ((obj.type || '') !== 'user') return false;
+  const content = (obj.message || {}).content;
+  if (!Array.isArray(content)) return false;
+  const text = content
+    .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text)
+    .join('\n')
+    .trim();
+  return text === '[Request interrupted by user]' || text === '[Request interrupted by user for tool use]';
 }
 
 function strip(messages) {
@@ -144,13 +158,49 @@ test('a resume after an interrupt carries INTERRUPT_MARKER in the next request',
   const onFetch = ({ signals }) => signals.SIGINT?.();
   const first = await run(['-p', 'first', '--session-id', ID], { home, cwd, responses: [textReply('never')], onFetch });
   assert.equal(first.code, 130, first.stderr);
-  const meta = records(transcriptPath(home, cwd, ID)).filter((r) => r.isMeta);
-  assert.deepEqual(meta.map((r) => r.message.content), [[{ type: 'text', text: '[Request interrupted by user]' }]]);
+  const interrupts = records(transcriptPath(home, cwd, ID)).filter(clodexIsInterruptEntry);
+  assert.deepEqual(interrupts.map((r) => r.message.content), [[{ type: 'text', text: '[Request interrupted by user]' }]]);
   const second = await run(['-p', 'second', '--resume', ID], { home, cwd, responses: [textReply('ok')] });
   assert.equal(second.code, 0, second.stderr);
   assert.deepEqual(strip(second.calls[0].body.messages), [
     { role: 'user', content: [{ type: 'text', text: 'first' }, { type: 'text', text: INTERRUPT_MARKER }, { type: 'text', text: 'second' }] },
   ]);
+});
+
+test('a resume of a session killed during a tool run closes the dangling tool_use first', async (t) => {
+  const { home, cwd } = await setup(t);
+  const path = transcriptPath(home, cwd, ID);
+  mkdirSync(dirname(path), { recursive: true });
+  const message = {
+    id: 'msg_1',
+    model: 'claude-opus-5-5',
+    role: 'assistant',
+    content: [{ type: 'text', text: 'Reading.' }, { type: 'tool_use', id: 'toolu_1', name: 'Read', input: { file_path: 'notes.md' } }],
+    stop_reason: 'tool_use',
+    stop_sequence: null,
+    usage: { input_tokens: 1, output_tokens: 1 },
+  };
+  writeFileSync(path, [
+    { type: 'user', uuid: 'r1', parentUuid: null, sessionId: ID, message: { role: 'user', content: [{ type: 'text', text: 'read notes' }] } },
+    { type: 'assistant', uuid: 'r2', parentUuid: 'r1', sessionId: ID, message },
+  ].map((r) => `${JSON.stringify(r)}\n`).join(''));
+  const res = await run(['-p', 'next', '--resume', ID], { home, cwd, responses: [textReply('ok')] });
+  assert.equal(res.code, 0, res.stderr);
+  const sent = strip(res.calls[0].body.messages);
+  assertValidHistory(sent);
+  assert.deepEqual(sent[2].content, [
+    { type: 'tool_result', tool_use_id: 'toolu_1', content: INTERRUPTED_RESULT, is_error: true },
+    { type: 'text', text: INTERRUPT_MARKER },
+    { type: 'text', text: 'next' },
+  ]);
+  const recs = records(path);
+  assert.equal(recs[2].parentUuid, 'r2');
+  assert.deepEqual(recs[2].message.content, [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'interrupted by user', is_error: true }]);
+  assert.deepEqual(recs[2].toolUseResult, { name: 'Read', isError: true });
+  const again = await run(['-p', 'more', '--resume', ID], { home, cwd, responses: [textReply('fine')] });
+  assert.equal(again.code, 0, again.stderr);
+  assertValidHistory(strip(again.calls[0].body.messages));
+  assert.equal(again.calls[0].body.messages.length, 5);
 });
 
 test('--resume finds a session recorded under another project dir and appends there', async (t) => {
@@ -196,7 +246,21 @@ test('session errors exit 2 before any request', async (t) => {
   assert.deepEqual([missing.code, missing.stderr], [2, `clay: no session ${OTHER}\n`]);
   const both = await run(['-p', 'hi', '--resume', ID, '--session-id', OTHER], { home, cwd });
   assert.deepEqual([both.code, both.stderr], [2, 'clay: --session-id with --resume requires --fork-session\nclay: see --help\n']);
-  for (const res of [exists, forkOnto, missing, both]) assert.equal(res.calls.length, 0);
+  const elsewhere = await useTempDir(t);
+  const forkAcross = await run(['-p', 'hi', '--resume', ID, '--fork-session', '--session-id', ID], { home, cwd: elsewhere });
+  assert.deepEqual([forkAcross.code, forkAcross.stderr], [2, `clay: session ${ID} already exists; use --resume\n`]);
+  assert.equal(existsSync(transcriptPath(home, elsewhere, ID)), false);
+  for (const res of [exists, forkOnto, missing, both, forkAcross]) assert.equal(res.calls.length, 0);
+});
+
+test('a CLAY_HOME that cannot hold a transcript exits 2 with the error, before any request', async (t) => {
+  const { home, cwd } = await setup(t);
+  const file = join(home, 'not-a-dir');
+  writeFileSync(file, '');
+  const res = await run(['-p', 'hi'], { home: file, cwd, responses: [textReply('one')] });
+  assert.equal(res.code, 2);
+  assert.match(res.stderr, /^clay: ENOTDIR[^\n]*\n$/);
+  assert.equal(res.calls.length, 0);
 });
 
 test('a truncated last line is dropped with a warning and the session resumes cleanly', async (t) => {

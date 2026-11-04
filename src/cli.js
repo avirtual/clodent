@@ -86,7 +86,12 @@ async function runPrint(opts, deps) {
     stderr.write(`clay: ${err.message}\n`);
     return 2;
   }
-  const session = startSession(opts, deps);
+  let session;
+  try {
+    session = startSession(opts, deps);
+  } catch (err) {
+    session = { ok: false, error: err.message };
+  }
   if (!session.ok) {
     stderr.write(`clay: ${session.error}\n`);
     return 2;

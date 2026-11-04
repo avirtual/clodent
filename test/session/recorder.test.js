@@ -54,7 +54,7 @@ test('the recorder maps appends, the interrupt and turn_end to transcript record
       toolUseResult: { name: 'Read', isError: true },
     },
     { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Kept.' }], stop_reason: null } },
-    { type: 'user', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] }, isMeta: true },
+    { type: 'user', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] }, isVisibleInTranscriptOnly: true },
     { type: 'system', subtype: 'turn_duration', durationMs: 1500, messageCount: 5 },
   ]);
 });
@@ -71,7 +71,7 @@ test('messageCount and durationMs restart with each turn', () => {
   assert.deepEqual(transcript.records.filter((r) => r.type === 'system').map((r) => [r.durationMs, r.messageCount]), [[10, 1], [10, 1]]);
 });
 
-test('an interrupt mid-stream writes the partial assistant and the interrupt meta record, then turn_duration', async (t) => {
+test('an interrupt mid-stream writes the partial assistant and the interrupt record, then turn_duration', async (t) => {
   const dir = await useTempDir(t);
   const path = join(dir, 's.jsonl');
   let n = 0;
@@ -100,7 +100,7 @@ test('an interrupt mid-stream writes the partial assistant and the interrupt met
   );
   await agent.runTurn('go', { signal: controller.signal });
   const records = readFileSync(path, 'utf8').trimEnd().split('\n').map((line) => JSON.parse(line));
-  assert.deepEqual(records.map((r) => [r.type, r.message?.stop_reason, r.isMeta, r.message?.content?.[0]?.text]), [
+  assert.deepEqual(records.map((r) => [r.type, r.message?.stop_reason, r.isVisibleInTranscriptOnly, r.message?.content?.[0]?.text]), [
     ['user', undefined, undefined, 'go'],
     ['assistant', null, undefined, 'Kept.'],
     ['user', undefined, true, INTERRUPT_TEXT],
