@@ -75,7 +75,7 @@ test('EVENT_TYPES is a frozen list naming every event the loop emits', () => {
   assert.ok(Object.isFrozen(EVENT_TYPES));
   assert.deepEqual(EVENT_TYPES, [
     'session_start', 'request_start', 'text_delta', 'thinking_delta', 'assistant_message', 'message_append', 'tool_use',
-    'permission', 'tool_result', 'turn_end', 'budget_stop', 'warning', 'error', 'interrupted', 'session_end',
+    'permission_request', 'permission', 'tool_result', 'turn_end', 'budget_stop', 'warning', 'error', 'interrupted', 'session_end',
   ]);
 });
 
