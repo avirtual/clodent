@@ -19,10 +19,10 @@ function textLines(buf) {
   return lines.map((line) => (line.endsWith('\r') ? line.slice(0, -1) : line));
 }
 
-async function targetFiles(target, keep, ctx, execFile) {
+async function targetFiles(target, keep, ctx, deps) {
   const info = await stat(target);
   if (!info.isDirectory()) return [target];
-  const rels = await listFiles(target, { env: ctx.env, signal: ctx.signal, execFile });
+  const rels = await listFiles(target, { env: ctx.env, envDeny: deps.envDeny, signal: ctx.signal, execFile: deps.execFile });
   const files = rels.filter(keep).map((rel) => join(target, rel));
   if (!ctx.hidden) return files.sort();
   const hide = await Promise.all(files.map((file) => ctx.hidden(file)));
@@ -68,7 +68,7 @@ export function createGrep(deps = {}) {
       const target = resolve(ctx.cwd, input.path ?? '.');
       let files;
       try {
-        files = await targetFiles(target, keep, ctx, deps.execFile);
+        files = await targetFiles(target, keep, ctx, deps);
       } catch (err) {
         return fail(describeFsError(err, target));
       }

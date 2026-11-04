@@ -1,9 +1,11 @@
 import { execFile as nodeExecFile } from 'node:child_process';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { toolEnv } from './env.js';
 
 const SKIP_DIRS = new Set(['.git', 'node_modules']);
-const GIT_ARGS = ['ls-files', '-z', '--cached', '--others', '--exclude-standard'];
+const GIT_SAFE = ['-c', 'core.fsmonitor=false'];
+const GIT_ARGS = [...GIT_SAFE, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'];
 
 function gitFiles(root, { env, signal, execFile }) {
   return new Promise((done) => {
@@ -16,7 +18,7 @@ function gitFiles(root, { env, signal, execFile }) {
 
 function gitIgnored(root, { env, signal, execFile }) {
   return new Promise((done) => {
-    execFile('git', ['check-ignore', '-q', '.'], { cwd: root, env, signal }, (err) => done(!err));
+    execFile('git', [...GIT_SAFE, 'check-ignore', '-q', '.'], { cwd: root, env, signal }, (err) => done(!err));
   });
 }
 
@@ -40,8 +42,9 @@ async function walk(root, signal) {
   return out;
 }
 
-export async function listFiles(root, { env, signal, execFile = nodeExecFile } = {}) {
-  if (await gitIgnored(root, { env, signal, execFile })) return walk(root, signal);
-  const tracked = await gitFiles(root, { env, signal, execFile });
+export async function listFiles(root, { env, envDeny, signal, execFile = nodeExecFile } = {}) {
+  const git = { env: toolEnv(env, envDeny), signal, execFile };
+  if (await gitIgnored(root, git)) return walk(root, signal);
+  const tracked = await gitFiles(root, git);
   return tracked ?? walk(root, signal);
 }

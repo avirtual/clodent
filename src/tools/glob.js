@@ -43,7 +43,7 @@ export function createGlob(deps = {}) {
       } catch (err) {
         return fail(`Invalid glob ${input.pattern}: ${err.message}`);
       }
-      const rels = await listFiles(root, { env: ctx.env, signal: ctx.signal, execFile: deps.execFile });
+      const rels = await listFiles(root, { env: ctx.env, envDeny: deps.envDeny, signal: ctx.signal, execFile: deps.execFile });
       if (ctx.signal?.aborted) return fail('Search aborted');
       const hits = [];
       for (const rel of rels) {
