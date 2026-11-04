@@ -100,13 +100,13 @@ test('a user message sent during a turn joins the next tool result: one result, 
   await s.fetch.called(2);
   s.fetch.push(textReply('done'));
   await s.until('result');
+  const last = s.fetch.calls[1].body.messages.at(-1);
+  assert.equal(last.content[0].type, 'tool_result');
+  assert.deepEqual(lastUserTexts(s.fetch.calls[1]), ['<system>also check B</system>']);
   s.close();
   assert.equal(await s.done, 0);
   assert.equal(results(s).length, 1);
   assert.equal(s.fetch.calls.length, 2);
-  const last = s.fetch.calls[1].body.messages.at(-1);
-  assert.equal(last.content[0].type, 'tool_result');
-  assert.deepEqual(lastUserTexts(s.fetch.calls[1]), ['<system>also check B</system>']);
   const user = parseRecords(s.out.text).find((record) => record.type === 'user');
   assert.equal(user.message.content.at(-1).text, '<system>also check B</system>');
 });
