@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 const FIXTURE_DIR = new URL('../fixtures/sse/', import.meta.url);
 const FIXTURE_NAME = /^[\w-]+\.sse$/;
 const encoder = new TextEncoder();
+export const STALL = Symbol('stall');
 
 export function readFixture(name) {
   return readFileSync(new URL(name, FIXTURE_DIR), 'utf8');
@@ -23,10 +24,10 @@ function chunksFor(body, chunkEvery) {
   const parts = Array.isArray(body)
     ? body
     : [typeof body === 'string' && FIXTURE_NAME.test(body) ? readFixture(body) : body];
-  if (!chunkEvery) return parts.map((part) => (part instanceof Error ? part : toBytes(part)));
+  if (!chunkEvery) return parts.map((part) => (part instanceof Error || part === STALL ? part : toBytes(part)));
   const out = [];
   for (const part of parts) {
-    if (part instanceof Error) out.push(part);
+    if (part instanceof Error || part === STALL) out.push(part);
     else out.push(...splitEvery(toBytes(part), chunkEvery));
   }
   return out;
@@ -48,6 +49,7 @@ function streamOf(chunks, signal) {
         return;
       }
       const chunk = chunks[i++];
+      if (chunk === STALL) return new Promise(() => {});
       if (chunk instanceof Error) controller.error(chunk);
       else controller.enqueue(chunk);
     },

@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { streamMessage } from '../../src/api/stream.js';
+import { IDLE_TIMEOUT_MS, streamMessage } from '../../src/api/stream.js';
 import { buildRequest } from '../../src/api/request.js';
-import { createFakeFetch } from '../helpers/fake-fetch.js';
+import { createFakeFetch, STALL } from '../helpers/fake-fetch.js';
 
 const request = buildRequest(
   { model: 'claude-opus-5-5', system: 'sys', messages: [{ role: 'user', content: 'hi' }] },
@@ -235,4 +235,62 @@ test('the request is POSTed with its headers and JSON body', async () => {
   assert.equal(fetch.calls[0].url, 'https://api.anthropic.com/v1/messages');
   assert.deepEqual(fetch.calls[0].headers, request.headers);
   assert.deepEqual(fetch.calls[0].body, request.body);
+});
+
+test('onUsage reports message_start input fields with the last message_delta output, 0 before any delta', async () => {
+  const body = sse([
+    ['message_start', { type: 'message_start', message: { id: 'm', model: 'x', usage: { input_tokens: 10, cache_read_input_tokens: 2, cache_creation_input_tokens: 4, output_tokens: 1 } } }],
+    ['message_delta', { type: 'message_delta', delta: {}, usage: { output_tokens: 7, cache_read_input_tokens: 99 } }],
+    ['message_delta', { type: 'message_delta', delta: {}, usage: { output_tokens: 9 } }],
+    ['message_stop', { type: 'message_stop' }],
+  ]);
+  const reports = [];
+  await streamMessage(request, depsFor([{ body }]).deps, { onUsage: (usage) => reports.push(usage) });
+  const start = { input_tokens: 10, cache_read_input_tokens: 2, cache_creation_input_tokens: 4 };
+  assert.deepEqual(reports, [{ ...start, output_tokens: 0 }, { ...start, output_tokens: 7 }, { ...start, output_tokens: 9 }]);
+});
+
+async function settled(promise) {
+  const pending = Symbol('pending');
+  const outcome = promise.then((value) => ({ value }), (error) => ({ error }));
+  return Promise.race([outcome, new Promise((resolve) => setImmediate(() => resolve(pending)))]).then((value) => (value === pending ? 'pending' : value));
+}
+
+const startEvent = ['message_start', { type: 'message_start', message: { id: 'm', model: 'x', usage: { input_tokens: 5 } } }];
+
+test('a body that stalls after the first event fails as a network error once the injected idle limit passes', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { deps, fetch } = depsFor([{ body: [sse([startEvent]), STALL] }], { idleTimeoutMs: 50 });
+  const running = streamMessage(request, deps);
+  assert.equal(await settled(running), 'pending');
+  t.mock.timers.tick(49);
+  assert.equal(await settled(running), 'pending');
+  t.mock.timers.tick(1);
+  const { error } = await settled(running);
+  assert.equal(error.name, 'ApiError');
+  assert.deepEqual([error.type, error.message, error.status], ['network_error', 'stream idle for 0.05s', null]);
+  assert.equal(fetch.calls.length, 1);
+});
+
+test('a body that stalls before any event is retried, and the default idle limit is 300 s', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  assert.equal(IDLE_TIMEOUT_MS, 300_000);
+  const { deps, fetch, sleeps } = depsFor([{ body: [STALL] }, { body: [sse([startEvent]), STALL] }]);
+  const running = streamMessage(request, deps);
+  assert.equal(await settled(running), 'pending');
+  t.mock.timers.tick(299_999);
+  assert.equal(await settled(running), 'pending');
+  t.mock.timers.tick(1);
+  assert.equal(await settled(running), 'pending');
+  assert.deepEqual([fetch.calls.length, sleeps], [2, [1000]]);
+  t.mock.timers.tick(300_000);
+  const { error } = await settled(running);
+  assert.deepEqual([error.type, error.message], ['network_error', 'stream idle for 300s']);
+});
+
+test('an SSE event over the injected cap fails the attempt as a network error', async () => {
+  const big = ['content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: 'x'.repeat(200) } }];
+  const { deps, fetch } = depsFor([{ body: sse([startEvent, big]), chunkEvery: 16 }], { maxEventChars: 128 });
+  await assert.rejects(streamMessage(request, deps), { name: 'ApiError', type: 'network_error', message: 'SSE event over 128 chars', status: null });
+  assert.equal(fetch.calls.length, 1);
 });
