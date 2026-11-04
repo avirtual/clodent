@@ -118,7 +118,6 @@ test('cd and pushd change the directory later relative words resolve against, ke
   assert.equal(await ruling(guard, 'pushd ~; cat .ssh/id_rsa'), SSH);
   assert.equal(await ruling(guard, 'cd /nowhere; cat .ssh/id_rsa', HOME), SSH);
   assert.equal(await ruling(guard, 'cd $PWD/.. && cat h/.ssh/id_rsa'), SSH);
-  assert.equal(await ruling(guard, 'echo "$(cd ~; cat .ssh/id_rsa)"'), SSH);
   assert.equal(await ruling(guard, 'cd - && cat id_rsa'), 'ask Read(~/.ssh)');
   assert.equal(await ruling(guard, 'cd src && cat a.js'), null);
   assert.equal(await ruling(guard, 'cd .ssh && cat id_rsa', '/work'), null);
@@ -235,4 +234,8 @@ test('${NAME<op>…} takes its name from the leading identifier, and the word af
     assert.equal(await ruling(guard, command, '/work', 'yolo'), SSH, command);
   }
   assert.equal(await ruling(guard, 'cat ${HOME%/}/notes/a.txt', '/work', 'yolo'), 'ask Read(~/.ssh)');
+});
+
+test('a cd inside a $(…) within double quotes moves the words after it in that substitution', async () => {
+  assert.equal(await ruling(guardOf(), 'echo "$(cd ~; cat .ssh/id_rsa)"'), SSH);
 });
