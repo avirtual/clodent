@@ -5,6 +5,7 @@ clodent was named clay up to 0.2.0.
 ## Unreleased
 
 - Requests carry `metadata.user_id` = `{"session_id":"<id>"}` so a proxy such as wirescope can group requests by session.
+- Requests carry a fourth cache breakpoint on the settled user turn, so a long turn re-caches only its own messages when the tail misses.
 
 ## 0.3.0 — 2026-11-04
 
