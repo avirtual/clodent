@@ -752,7 +752,7 @@ When each event fires:
 The permission decision for a tool call goes in this order:
 
 1. A hook `deny` wins: the call does not run and the model gets the hook's reason as an error tool result.
-2. A settings deny rule refuses the call in every mode, `--yolo` included (see [Permission rules](#permission-rules)); a hook `allow` does not override it.
+2. A settings deny rule refuses the call in every mode, `--yolo` included, unless it matches only through an uncertain word, a recursive search or the conservative reading (see [Permission rules](#permission-rules)): then the call asks as in step 3, and under `--yolo` it is refused unless the match is only weakly uncertain. A hook `allow` does not override it.
 3. A settings ask rule or a hook `ask` asks in the REPL's default and `acceptEdits` modes, for read tools too; `-p` and `--read-only` refuse the call instead, and `--yolo` runs it. A hook `allow` does not skip the ask.
 4. `--read-only` refuses write tools and any Bash command that is not read-only; a hook `allow` does not override it.
 5. A hook `allow` runs the call without the default or `acceptEdits` mode's ask or refusal.

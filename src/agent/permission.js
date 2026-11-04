@@ -1,5 +1,5 @@
 import { resolve, sep } from 'node:path';
-import { shellWords } from '../permissions/guard.js';
+import { rawWords, shellWords } from '../permissions/guard.js';
 import { classifyBash } from '../tools/bash-readonly.js';
 import { toolEnv } from '../tools/env.js';
 
@@ -27,7 +27,7 @@ export function hookPaths(settings, { cwd, env = {}, home }) {
     const name = match[1] ?? match[2];
     return (name ? (vars[name] ?? '') : (vars.HOME ?? home)) + word.slice(match[0].length);
   };
-  const words = hookCommands(settings).flatMap((command) => shellWords(command).map(expand));
+  const words = hookCommands(settings).flatMap((command) => [...shellWords(command), ...rawWords(command)].map(expand));
   return [...new Set(words.map((word) => resolve(cwd, word)))];
 }
 

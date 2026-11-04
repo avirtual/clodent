@@ -121,6 +121,10 @@ test('accept-edits asks for a Write to any word of a hook command resolved again
   assert.deepEqual(decide(WRITE, { file_path: '/work/other.js' }, 'accept-edits', '/work', scope), { allow: true });
 });
 
+test('hookPaths also keeps the words of the conservative reading, so a hook word the shell lexer loses is still protected', () => {
+  assert.ok(hookPaths(stopHook("case x in a)#'\nbash pre.sh"), { cwd: '/work', env: {}, home: '/home/u' }).includes('/work/pre.sh'));
+});
+
 test('hookPaths expands $PWD and ${PWD} to the cwd', () => {
   const scope = { dirs: [], protect: hookPaths(stopHook('sh $PWD/s.sh ${PWD}/t.sh'), { cwd: '/work', env: { PWD: '/elsewhere' }, home: '/home/u' }) };
   for (const file_path of ['/work/s.sh', '/work/t.sh']) {
