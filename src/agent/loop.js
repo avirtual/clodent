@@ -298,9 +298,6 @@ export function createAgent(config, deps) {
     runTurn,
     compact,
     fireSessionStart,
-    fireNotification(fields, { signal } = {}) {
-      return fireHook('Notification', fields, signal);
-    },
     messages: () => structuredClone(history),
     setModel(nextModel, nextSystem) {
       model = nextModel;
