@@ -98,7 +98,7 @@ test('-p with a tool round writes prompt, assistant, tool results, assistant and
     assert.equal(r.sessionId, res.id);
     assert.equal(r.cwd, cwd);
     assert.equal(r.isSidechain, false);
-    assert.equal(r.version, '0.0.1');
+    assert.equal(r.version, '0.1.0');
     assert.equal(r.entrypoint, 'clay');
     assert.equal(r.timestamp, '2026-11-04T00:00:00.000Z');
   });
