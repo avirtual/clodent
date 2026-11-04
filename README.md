@@ -162,20 +162,30 @@ Slash commands: a submitted line is a command when it was typed, with no paste i
 | `/model` | prints `clay: model <id>` |
 | `/model <id>` | uses `<id>` for the next requests and rebuilds the system prompt, which names the model; the history is kept. If the rebuild fails, prints `clay: <message>` and keeps the model. Then prints `clay: model <id>` |
 | `/clear` | starts a new session with a minted id (never the `--session-id`) and an empty history: prints `[clay:session] <new id>`, records into a new transcript and leaves the old one as is, sends a statusLine update with zero usage and the new session id, and fires `SessionStart` with `source` `clear`, whose context goes into the next prompt. The cost, model and effort carry over |
-| `/compact` | prints `clay: /compact is not available yet` |
+| `/compact [<instructions>]` | summarises the conversation into one message, under the same session id (see below) |
 | `/quit`, `/exit` | exits, as Ctrl-D does |
 | any other `/<name>` | prints `clay: unknown command /<name> (try /help)`; no request is sent |
 
+`/compact`: everything after `/compact` on the line, trimmed, is the instructions. ^C interrupts it.
+
+1. With an empty history it prints `clay: nothing to compact` and does nothing else.
+2. It fires the `PreCompact` hook with `trigger: "manual"` and `custom_instructions` (see [Hooks](#hooks)).
+3. It sends one summary request: the model, system prompt and tools of a normal turn, `tool_choice: {type: "none"}`, and the history with one user text block appended that asks for a summary a fresh context can continue from, followed by `\n\nAdditional instructions: <instructions>` when there are any. The budget check applies as before any request. The summary does not stream to the screen.
+4. On a response with `stop_reason: "end_turn"` and non-empty text, the history becomes one user message: `This session continues an earlier conversation that was compacted. Summary of it:\n\n` followed by the summary. clay prints `clay: conversation compacted (<preTokens> → <postTokens> tokens)` and the request's `[clay:cost]` line, sends a statusLine update with `used_tokens` at `<postTokens>`, and fires `SessionStart` with `source` `compact`, whose context goes into the next prompt. `<preTokens>` is the request's input, cache-read and cache-write tokens; `<postTokens>` is its output tokens. The transcript gets the two compact records (see [Sessions](#sessions)).
+5. Otherwise the history and transcript are unchanged and clay prints `clay: compact failed: <reason>`: `budget` (after the `[clay:budget]` line), `interrupted`, `stop_reason <stop_reason>`, `empty summary`, or the API error message. A response's cost still counts in the session total.
+
+A compact is not a turn: it fires no `Stop` hook and writes no `turn_duration` record. Print mode has no compact.
+
 Permission ask: in the default mode, a write or exec tool call that no hook allowed or denied waits for an answer. `--yolo` and `--read-only` never ask, and print mode refuses the call instead.
 
-1. clay prints `[clay:permit <Tool> <tool_use id>] <summary>` on its own line, with the summary of the `● <Tool> <summary>` line.
+1. clay prints `[clay:permit <Tool> <tool_use id>] <summary>` on its own line, with the summary of the `● <Tool> <summary>` line; with an empty summary the line ends at `]`.
 2. It fires the `Notification` hook with `notification_type: "permission"`, `tool` (the tool name), `id` (the tool_use id) and `message: "clay needs permission to use <Tool>"`, and waits for it.
 3. It writes `Allow? [y/n] ` and reads one line. `y` or `yes`, trimmed and in any case, runs the call. `n` or `no` refuses it with the reason `denied by the user`. An empty line asks again. Any other line, and any line with a paste in it, is not an answer: it is queued as a prompt, and clay prints `clay: queued as a prompt; answer y or n` and asks again.
 4. Ctrl-C interrupts the turn, and the call does not run. stdin closing refuses the call with the reason `denied: input closed`.
 
-Exit, on every path: clay prints the session total line, waits for the statusLine command, writes `\x1b[?2004l`, turns raw mode off and stops reading stdin. Exit codes:
+Exit, on every path: clay prints the session total line, waits for the statusLine command, writes `\x1b[?2004l`, turns raw mode off and stops reading stdin. An unexpected error skips the session total and the wait, but still restores the terminal. Exit codes:
 
-- 0: Ctrl-D or a second Ctrl-C at an empty prompt, `/quit`, `/exit`, or stdin closing, once the running turn and the queue are done.
+- 0: Ctrl-D or a second Ctrl-C at an empty prompt, `/quit`, `/exit`, or stdin closing, once the running turn and the queue are done. A stdin read error counts as stdin closing; one other than `EIO` first prints `clay: <message>`.
 - 143 on SIGTERM, 129 on SIGHUP: clay interrupts the running turn, then exits. A second SIGTERM or SIGHUP kills a running `Stop` hook.
 - SIGINT acts as Ctrl-C.
 - 2: a startup error, as in print mode.
@@ -281,8 +291,8 @@ Internal; serialized by a later stream-json mode. The agent loop reports everyth
 |---|---|---|
 | `session_start` | `model`, `cwd`, `tools` (names), `permission` (`ask`, `yolo` or `read-only`) | once, when the agent is created |
 | `request_start` | `attempt` (1-based; a mid-stream re-send counts up) | before each request the loop sends; streamMessage's pre-stream retries are not announced |
-| `text_delta` | `text`, `index` (content block index) | as text streams in |
-| `thinking_delta` | `text`, `index` | as thinking streams in |
+| `text_delta` | `text`, `index` (content block index) | as text streams in; never for a compact's summary request |
+| `thinking_delta` | `text`, `index` | as thinking streams in; never for a compact's summary request |
 | `assistant_message` | `message` (the assembled API message), `requestId`, `durationMs`, `usd`, `priced` | when a response completes |
 | `message_append` | `role`, `content` (the blocks just added to the history), `kind` (`prompt`, `tool_results`, `assistant` or `partial`), `meta` (`message`, `requestId`, `durationMs`, `usd` for `assistant`; `{}` otherwise) | each time blocks join the history; for a response, just before `assistant_message`, even when its content is empty |
 | `tool_use` | `id`, `name`, `input`, `summary` | before each tool call, and before the result made up for a call that never ran |
@@ -294,6 +304,7 @@ Internal; serialized by a later stream-json mode. The agent loop reports everyth
 | `warning` | `message` | |
 | `error` | `message`, `errorType`, `status` (HTTP status, or null mid-stream) | when the turn ends on an error |
 | `interrupted` | none | when the turn's signal aborts |
+| `compacted` | `trigger`, `summary` (the summary text), `preTokens`, `postTokens`, `turn` (the summary request's cost aggregate) | when a compact replaced the history, before the `SessionStart` (`compact`) hook; a compact emits no `turn_end` |
 | `session_end` | `session` (the session's cost aggregate) | once, on exit |
 
 `stopReason` is the API's `stop_reason` (`end_turn`, `stop_sequence`, `max_tokens`, `refusal`, or another value), or one of `budget`, `interrupted`, `error` and `unknown` (the response carried no `stop_reason`).
@@ -319,9 +330,10 @@ Session id:
 
 Loading a transcript:
 
-- User and assistant records that carry neither `isMeta: true` nor `isVisibleInTranscriptOnly: true` are replayed in file order into the history, consecutive records of one role joining one message, exactly as the live history merged them. Other record types and records with either flag are skipped.
+- User and assistant records that carry neither `isMeta: true` nor `isVisibleInTranscriptOnly: true` are replayed in file order into the history, consecutive records of one role joining one message, exactly as the live history merged them. Other record types and records with either flag are skipped, apart from the compact records below.
 - A last line without its `\n` is a write cut short by a crash. clay prints `clay: <path>: ignoring a truncated last line` right after the `[clay:session]` line; when resuming in place, it cuts the file back to its last complete line before appending.
 - Any other line that is not a JSON object, or a user or assistant record without a `message.content` array, prints `clay: <path>: line <n> is not valid JSON`, `… is not a record` or `… has no message content` and exits 2.
+- A `system` record with `subtype: "compact_boundary"` empties the history built so far, and a user record with `isCompactSummary: true` is replayed even though it is `isVisibleInTranscriptOnly`. `--resume` and `--fork-session` of a compacted session therefore start from the summary; `--fork-session` still copies every record.
 - When the last user record is the interrupt record, the next prompt goes to the API prefixed with the text block `[clay: previous turn interrupted by the user]`, as it would have in the interrupted run.
 - When the history ends in an assistant record with `tool_use` blocks and no results (clay was killed while a tool ran), the next turn first writes a tool results record giving each of them the error result `interrupted by user`, then the prompt, prefixed with that same text block.
 
@@ -348,6 +360,8 @@ Record kinds, in the order a turn writes them:
 | tool results | `type: "user"`, `message: {role: "user", content: [tool_result blocks, then any PostToolUse and PostToolUseFailure context blocks]}`, `toolUseResult: {name, isError, input}` describing the first block; `input` is the input the tool ran with, after any hook `updatedInput` |
 | partial assistant | `type: "assistant"`, `message: {role: "assistant", content: [the completed text blocks], stop_reason: null}`; written on an interrupt that kept text |
 | interrupt | `type: "user"`, `message: {role: "user", content: [{type: "text", text: "[Request interrupted by user]"}]}`, `isVisibleInTranscriptOnly: true`; no `isMeta` |
+| compact boundary | `type: "system"`, `subtype: "compact_boundary"`, `content: "Conversation compacted"`, `level: "info"`, `parentUuid: null`, `logicalParentUuid` (the previous record's `uuid`), `compactMetadata: {trigger, preTokens, postTokens}`; written by `/compact` (see [REPL](#repl)), outside any turn |
+| compact summary | `type: "user"`, `message: {role: "user", content: [{type: "text", text: "This session continues an earlier conversation that was compacted. Summary of it:\n\n<summary>"}]}`, `isVisibleInTranscriptOnly: true`, `isCompactSummary: true`; right after the boundary. The summary request's own response is not recorded |
 | turn end | `type: "system"`, `subtype: "turn_duration"`, `durationMs` (the turn's duration in whole milliseconds), `messageCount` (the turn's user and assistant records, the interrupt record included); after the turn's last record |
 
 A turn the model ended has `stop_reason: "end_turn"` on its last assistant record.
@@ -392,14 +406,14 @@ When each event fires:
 
 | event | fires |
 |---|---|
-| `SessionStart` | once, after the `[clay:session]` line and before the prompt: `source` is `resume` with `--resume`, else `startup`; in the REPL, again after `/clear` with `source` `clear` |
+| `SessionStart` | once, after the `[clay:session]` line and before the prompt: `source` is `resume` with `--resume`, else `startup`; in the REPL, again after `/clear` with `source` `clear`, and after a successful `/compact` with `source` `compact` |
 | `UserPromptSubmit` | before the prompt joins the history |
 | `PreToolUse` | before each call of a known tool, before the permission decision; a call of an unknown tool fires no hook |
 | `PostToolUse` | after a tool that ran returns a result that is not an error |
 | `PostToolUseFailure` | instead of `PostToolUse`, when that result is an error; a refused call never ran, so neither fires |
 | `Stop` | once at the end of the turn, after the `turn_duration` record; its output is ignored apart from warnings |
 | `Notification` | in the REPL, when a tool call waits for a permission answer: after the `[clay:permit]` line and before `Allow? [y/n] ` (see [REPL](#repl)) |
-| `PreCompact` | never yet |
+| `PreCompact` | in the REPL, at `/compact` on a non-empty history, before the summary request; its output is ignored apart from warnings |
 
 `permission_mode` names the mode as Claude Code does: `default` (the default ask mode), `bypassPermissions` (`--yolo`) or `plan` (`--read-only`).
 
@@ -423,7 +437,7 @@ Context, from `additionalContext` or plain stdout (see Results below), reaches t
 - `SessionStart` context is held and goes into the next user message, before the prompt text and after the `[clay: previous turn interrupted by the user]` block when that is present.
 - `UserPromptSubmit` context goes right after the prompt text.
 - `PostToolUse` and `PostToolUseFailure` context goes after every `tool_result` block of that tool round's user message, one block per event in that order, since the API needs the `tool_result` blocks first.
-- `PreToolUse` and `Stop` context is dropped. No hook can block a prompt.
+- `PreToolUse`, `PreCompact` and `Stop` context is dropped. No hook can block a prompt or a compact.
 
 Hook warnings print as `clay: <warning>` lines. Hooks get the turn's interrupt: a signal kills running hooks, and a hook that would start after it does not run. `Stop` runs even after an interrupt, under its own abort: a second SIGTERM or SIGHUP kills it (in `-p`, any second signal).
 
@@ -431,7 +445,7 @@ Matchers:
 
 - A missing, `""` or `"*"` matcher matches every firing of the event.
 - For `PreToolUse`, `PostToolUse` and `PostToolUseFailure` the matcher is a JavaScript regular expression tested whole against `tool_name`, as `^(?:<matcher>)$`: `Bash` does not match `BashOutput`, and `Agent|Task` matches `Task`.
-- For `SessionStart` it is tested the same way against `source`.
+- For `SessionStart` it is tested the same way against `source`, and for `PreCompact` against `trigger`.
 - Every other event ignores the matcher.
 - An invalid regular expression never matches and adds the warning `hook <Event> matcher "<matcher>": invalid regex; never matches`.
 
@@ -445,7 +459,7 @@ stdin is one JSON object followed by a newline, then closed. Every event sends `
 | `PostToolUse` | `tool_name`, `tool_input` (the input that ran), `tool_use_id`, `tool_response`: `{content, isError}` |
 | `PostToolUseFailure` | the `PostToolUse` fields, and `error`: the result text |
 | `Notification` | `notification_type`, `message`; a permission prompt sends `notification_type: "permission"`, `tool` and `id` |
-| `PreCompact` | `trigger` |
+| `PreCompact` | `trigger`: `manual`; `custom_instructions`: the `/compact` instructions, or `""` |
 | `Stop` | `stop_hook_active`: `false` |
 
 `agent_id` is never sent.

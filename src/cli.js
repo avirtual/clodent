@@ -184,6 +184,7 @@ function createRuntime(prep, opts, deps, render) {
           record(event);
           render(event);
           if (event.type === 'assistant_message') statusLine.update(statusOf(session, event.message.usage));
+          if (event.type === 'compacted') statusLine.update({ ...statusOf(session, {}), usedTokens: event.postTokens });
         },
       },
     );

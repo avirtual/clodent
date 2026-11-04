@@ -174,3 +174,16 @@ test('unknown event types and message_append are ignored', () => {
   render({ type: 'message_append', role: 'assistant', content: [{ type: 'text', text: 'x' }], kind: 'assistant', meta: {} });
   assert.equal(out.text() + err.text(), '');
 });
+
+test('a permission_request with an empty summary has no trailing space, as the tool_use line', () => {
+  const { out, render } = setup('repl');
+  render({ type: 'permission_request', id: 'toolu_1', name: 'Bash', input: {}, summary: '' });
+  render({ type: 'permission_request', id: 'toolu_2', name: 'Bash', input: {}, summary: 'ls' });
+  assert.equal(out.text(), '[clay:permit Bash toolu_1]\n[clay:permit Bash toolu_2] ls\n');
+});
+
+test('compacted prints the compacted line, then the cost line of the summary request', () => {
+  const { out, render } = setup('repl');
+  render({ type: 'compacted', trigger: 'manual', summary: 'secret summary', preTokens: 1200, postTokens: 45, turn: agg() });
+  assert.equal(out.text(), `clay: conversation compacted (1200 → 45 tokens)\n${COST}\n`);
+});

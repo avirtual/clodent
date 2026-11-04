@@ -246,6 +246,16 @@ test('the SessionStart matcher tests against source, and other events ignore the
   assert.deepEqual((await runHooks('Notification', { notification_type: 'permission' }, ctxFor(dir, settings), deps)).additionalContext, ['compact']);
 });
 
+test('the PreCompact matcher tests against trigger: manual matches and auto does not', GUARD, async (t) => {
+  const dir = await useTempDir(t);
+  const manual = await script(dir, 'manual.sh', hookOutput({ additionalContext: 'manual' }));
+  const any = await script(dir, 'any.sh', hookOutput({ additionalContext: 'any' }));
+  const settings = settingsWith({ PreCompact: [group('manual', manual), group('', any)] });
+  const fire = (trigger) => runHooks('PreCompact', { trigger, custom_instructions: '' }, ctxFor(dir, settings), deps);
+  assert.deepEqual((await fire('manual')).additionalContext, ['manual', 'any']);
+  assert.deepEqual((await fire('auto')).additionalContext, ['any']);
+});
+
 test('the stdin JSON reaches the script intact, followed by a newline', GUARD, async (t) => {
   const dir = await useTempDir(t);
   const echo = join(dir, 'echo.mjs');

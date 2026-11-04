@@ -144,6 +144,11 @@ export async function runRepl(ctx, deps) {
     }
   }
 
+  function onError(err) {
+    onEnd();
+    if (err?.code !== 'EIO') print(`clay: ${err?.message ?? err}`);
+  }
+
   function onSignal(name) {
     if (name === 'SIGINT') {
       onToken({ type: 'ctrl', key: 'c' });
@@ -218,6 +223,9 @@ export async function runRepl(ctx, deps) {
       agent.setModel(id, runtime.setModel(id));
     },
     clear: clearSession,
+    compact(instructions) {
+      return guarded((signal) => agent.compact({ instructions, trigger: 'manual' }, { signal }));
+    },
   };
 
   async function handle(submission) {
@@ -232,30 +240,35 @@ export async function runRepl(ctx, deps) {
   stdin.setEncoding('utf8');
   stdin.on('data', onData);
   stdin.on('end', onEnd);
-  print(`[clay:session] ${session.sessionId}`);
-  for (const warning of ctx.warnings) print(`clay: ${warning}`);
-  agent = runtime.open(session, { ask });
-  await guarded((signal) => agent.fireSessionStart(ctx.resume ? 'resume' : 'startup', { signal }));
-  while (exitCode === null) {
-    let submission;
-    if (queue.length > 0) {
-      submission = queue.shift();
-      write(queuedEcho(submission));
-    } else if (ended) {
-      break;
-    } else {
-      submission = await nextSubmission();
-      if (submission === null) break;
+  stdin.on('error', onError);
+  try {
+    print(`[clay:session] ${session.sessionId}`);
+    for (const warning of ctx.warnings) print(`clay: ${warning}`);
+    agent = runtime.open(session, { ask });
+    await guarded((signal) => agent.fireSessionStart(ctx.resume ? 'resume' : 'startup', { signal }));
+    while (exitCode === null) {
+      let submission;
+      if (queue.length > 0) {
+        submission = queue.shift();
+        write(queuedEcho(submission));
+      } else if (ended) {
+        break;
+      } else {
+        submission = await nextSubmission();
+        if (submission === null) break;
+      }
+      if ((await handle(submission)) === 'exit') break;
     }
-    if ((await handle(submission)) === 'exit') break;
+    agent.endSession();
+    await runtime.statusLine.flush();
+  } finally {
+    write(PASTE_OFF);
+    if (raw) stdin.setRawMode(false);
+    stdin.off('data', onData);
+    stdin.off('end', onEnd);
+    stdin.off('error', onError);
+    stdin.pause();
+    for (const off of offs) off();
   }
-  agent.endSession();
-  await runtime.statusLine.flush();
-  write(PASTE_OFF);
-  if (raw) stdin.setRawMode(false);
-  stdin.off('data', onData);
-  stdin.off('end', onEnd);
-  stdin.pause();
-  for (const off of offs) off();
   return exitCode ?? 0;
 }
