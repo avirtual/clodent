@@ -154,6 +154,16 @@ test('--fork-session without --resume is an error', () => {
   assert.equal(err(['--fork-session']), '--fork-session requires --resume');
 });
 
+test('--session-id with --resume needs --fork-session', () => {
+  assert.equal(err(['--resume', 'x', '--session-id', UUID]), '--session-id with --resume requires --fork-session');
+  assert.equal(err(['--session-id', UUID, '--resume', 'x']), '--session-id with --resume requires --fork-session');
+  assert.deepEqual(ok(['--resume', 'x', '--session-id', UUID, '--fork-session']).sessionId, UUID);
+});
+
+test('the --read-only help says every Bash command is refused', () => {
+  assert.equal(FLAGS.find((f) => f.long === 'read-only').help, 'refuse write tools and every Bash command');
+});
+
 test('--system-prompt with --system-prompt-file is an error', () => {
   assert.equal(
     err(['--system-prompt-file', 'f', '--system-prompt', 't']),

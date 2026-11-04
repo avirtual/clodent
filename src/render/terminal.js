@@ -52,7 +52,7 @@ export function createRenderer({ out, err, mode }) {
       line('thinking…', 'dim');
     },
     assistant_message({ message }) {
-      finalText = messageText(message);
+      if (message.stop_reason !== 'tool_use') finalText = messageText(message);
       if (repl) endLine();
     },
     tool_use({ name, summary }) {

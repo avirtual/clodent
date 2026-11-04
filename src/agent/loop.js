@@ -1,6 +1,7 @@
 import { ApiError } from '../api/errors.js';
 import { buildRequest } from '../api/request.js';
 import { streamMessage } from '../api/stream.js';
+import { appendMessage } from './history.js';
 import { decide } from './permission.js';
 
 export const INTERRUPT_MARKER = '[clay: previous turn interrupted by the user]';
@@ -26,22 +27,21 @@ export function createAgent(config, deps) {
   const { emit, ledger, now } = deps;
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
   const definitions = tools.map(definition);
-  const history = [];
-  let interruptedBefore = false;
+  const history = structuredClone(config.history ?? []);
+  let interruptedBefore = config.interrupted ?? false;
 
   emit({ type: 'session_start', model, cwd: deps.cwd, tools: tools.map((tool) => tool.name), permission });
 
-  function append(role, blocks) {
-    const last = history.at(-1);
-    if (last?.role === role) last.content.push(...blocks);
-    else history.push({ role, content: [...blocks] });
+  function append(role, blocks, kind, meta = {}) {
+    appendMessage(history, role, blocks);
+    emit({ type: 'message_append', role, content: blocks, kind, meta });
   }
 
   function addUserText(text) {
     const blocks = interruptedBefore ? [{ type: 'text', text: INTERRUPT_MARKER }] : [];
     interruptedBefore = false;
     blocks.push({ type: 'text', text });
-    append('user', blocks);
+    append('user', blocks, 'prompt');
   }
 
   function finish(stopReason, ok) {
@@ -50,7 +50,7 @@ export function createAgent(config, deps) {
   }
 
   function interrupt(partial) {
-    if (partial.length > 0) append('assistant', partial.map((block) => ({ ...block })));
+    if (partial.length > 0) append('assistant', partial.map((block) => ({ ...block })), 'partial');
     interruptedBefore = true;
     emit({ type: 'interrupted' });
     return finish('interrupted', false);
@@ -98,9 +98,14 @@ export function createAgent(config, deps) {
     }
   }
 
-  async function runTool(use, signal) {
+  function announce(use) {
     const tool = byName.get(use.name);
     emit({ type: 'tool_use', id: use.id, name: use.name, input: use.input, summary: tool?.summary?.(use.input) ?? '' });
+    return tool;
+  }
+
+  async function runTool(use, signal) {
+    const tool = announce(use);
     const started = now();
     const outcome = tool
       ? await execute(tool, use, signal)
@@ -116,15 +121,29 @@ export function createAgent(config, deps) {
       if (signal?.aborted) break;
       results.push(await runTool(use, signal));
     }
-    for (const use of uses.slice(results.length)) {
+    results.push(...notRun(uses.slice(results.length)));
+    append('user', results.map(resultBlock), 'tool_results');
+  }
+
+  function notRun(uses) {
+    return uses.map((use) => {
+      announce(use);
       const result = { id: use.id, name: use.name, content: INTERRUPTED_RESULT, isError: true, durationMs: 0 };
       emit({ type: 'tool_result', ...result });
-      results.push(result);
-    }
-    append('user', results.map(resultBlock));
+      return result;
+    });
+  }
+
+  function closeDanglingUses() {
+    const last = history.at(-1);
+    const uses = last?.role === 'assistant' ? last.content.filter((block) => block.type === 'tool_use') : [];
+    if (uses.length === 0) return;
+    append('user', notRun(uses).map(resultBlock), 'tool_results');
+    interruptedBefore = true;
   }
 
   async function runTurn(userText, { signal } = {}) {
+    closeDanglingUses();
     addUserText(userText);
     const partial = [];
     try {
@@ -137,14 +156,17 @@ export function createAgent(config, deps) {
         }
         const { message, requestId, durationMs } = await request(signal, partial);
         partial.length = 0;
-        if (message.content.length > 0) append('assistant', message.content);
         const cost = ledger.record(model, message.usage);
+        append('assistant', message.content, 'assistant', { message, requestId, durationMs, usd: cost.usd });
         emit({ type: 'assistant_message', message, requestId, durationMs, usd: cost.usd, priced: cost.priced });
         const stop = message.stop_reason;
         const uses = message.content.filter((block) => block.type === 'tool_use');
         if (stop === 'tool_use' && uses.length > 0) {
           await runTools(uses, signal);
-        } else if (stop === 'pause_turn') {
+          continue;
+        }
+        if (uses.length > 0) append('user', notRun(uses).map(resultBlock), 'tool_results');
+        if (stop === 'pause_turn') {
           continue;
         } else if (stop === 'end_turn' || stop === 'stop_sequence') {
           return finish(stop, true);

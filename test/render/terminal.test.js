@@ -74,6 +74,20 @@ test('print mode: a turn with no assistant message writes nothing to stdout', ()
   assert.equal(err.text(), `[clay:budget] stopped: spent $0.5000, next request est. $0.2500, budget $0.6000\n${COST}\n`);
 });
 
+test('print mode: narration from a tool round never reaches stdout', () => {
+  const { out, err, render } = setup('print');
+  render({ type: 'assistant_message', message: { ...message('Let me look.'), stop_reason: 'tool_use' } });
+  render({ type: 'tool_use', id: 't', name: 'Read', input: {}, summary: 'a.md' });
+  render({ type: 'tool_result', id: 't', name: 'Read', content: 'ok', isError: false, durationMs: 0 });
+  render({ type: 'budget_stop', result: { ok: false, spentUsd: 0.5, nextEstimateUsd: 0.25, budgetUsd: 0.6 } });
+  render({ type: 'turn_end', stopReason: 'budget', turn: agg() });
+  render({ type: 'assistant_message', message: { ...message('Reading.'), stop_reason: 'tool_use' } });
+  render({ type: 'assistant_message', message: { role: 'assistant', content: [], stop_reason: 'end_turn' } });
+  render({ type: 'turn_end', stopReason: 'end_turn', turn: agg() });
+  assert.equal(out.text(), '');
+  assert.match(err.text(), /^● Read a\.md\n/);
+});
+
 test('print mode: each turn prints its own final text, then forgets it', () => {
   const { out, render } = setup('print');
   render({ type: 'assistant_message', message: message('one') });
@@ -154,8 +168,9 @@ test('no ANSI codes reach a stream that is not a TTY, in either mode', () => {
   assert.equal(tty.out.text(), 'Final answer.\n');
 });
 
-test('unknown event types are ignored', () => {
+test('unknown event types and message_append are ignored', () => {
   const { out, err, render } = setup('print');
   render({ type: 'something_new' });
+  render({ type: 'message_append', role: 'assistant', content: [{ type: 'text', text: 'x' }], kind: 'assistant', meta: {} });
   assert.equal(out.text() + err.text(), '');
 });

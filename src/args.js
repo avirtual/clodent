@@ -10,7 +10,7 @@ export const FLAGS = [
   { long: 'effort', key: 'effort', arg: 'level', check: checkEffort, help: 'reasoning effort: low, medium or high' },
   { long: 'budget', key: 'budgetUsd', arg: 'usd', check: checkBudget, help: 'stop before the session spends more than this many US dollars' },
   { long: 'yolo', key: 'permission', value: 'yolo', help: 'run every tool without asking' },
-  { long: 'read-only', key: 'permission', value: 'read-only', help: 'refuse write tools and any shell command that is not a read' },
+  { long: 'read-only', key: 'permission', value: 'read-only', help: 'refuse write tools and every Bash command' },
   { long: 'session-id', key: 'sessionId', arg: 'uuid', check: checkUuid, help: 'use this session id instead of minting one' },
   { long: 'resume', key: 'resume', arg: 'id', help: 'resume the session with this id' },
   { long: 'fork-session', key: 'forkSession', value: true, help: 'with --resume, continue under a new session id' },
@@ -99,6 +99,9 @@ export function parseArgs(argv) {
   }
   if (seen.has('yolo') && seen.has('read-only')) return fail('--yolo and --read-only cannot be combined');
   if (seen.has('fork-session') && !seen.has('resume')) return fail('--fork-session requires --resume');
+  if (seen.has('session-id') && seen.has('resume') && !seen.has('fork-session')) {
+    return fail('--session-id with --resume requires --fork-session');
+  }
   if (seen.has('system-prompt') && seen.has('system-prompt-file')) {
     return fail('--system-prompt and --system-prompt-file cannot be combined');
   }

@@ -26,5 +26,7 @@ test('ask allows read tools and denies write and exec with the rerun hint', () =
 
 test('an unknown mode or kind is treated as deny, never allow', () => {
   assert.equal(decide(WRITE, {}, undefined).allow, false);
+  assert.deepEqual(decide(READ, {}, undefined), { allow: false, reason: 'unknown permission mode undefined' });
+  assert.equal(decide(READ, {}, 'sometimes').allow, false);
   assert.equal(decide(tool('X', 'weird'), {}, 'read-only').allow, false);
 });

@@ -4,6 +4,7 @@ export const EVENT_TYPES = Object.freeze([
   'text_delta',
   'thinking_delta',
   'assistant_message',
+  'message_append',
   'tool_use',
   'permission',
   'tool_result',

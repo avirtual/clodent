@@ -1,8 +1,9 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn as nodeSpawn, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FLAGS } from '../src/args.js';
 import { main, NOT_YET } from '../src/cli.js';
@@ -12,6 +13,9 @@ import { cleanEnv, plant, useTempDir } from './tools/tmp-dir.js';
 
 const COST_LINE = /^\[clay:cost\] \$\d+\.\d{4} \(in \d+, cache-read \d+, cache-write \d+, out \d+\)$/m;
 const TOTAL_LINE = /^\[clay:cost\] session total \$\d+\.\d{4} /m;
+const SESSION_LINE = /^\[clay:session\] [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const HOME = mkdtempSync(join(tmpdir(), 'clay-cli-home-'));
+after(() => rmSync(HOME, { recursive: true, force: true }));
 
 function fakeDeps({ responses = [], env = {}, cwd = tmpdir(), ...extra } = {}) {
   const out = [];
@@ -24,6 +28,7 @@ function fakeDeps({ responses = [], env = {}, cwd = tmpdir(), ...extra } = {}) {
     stdin: null,
     env,
     cwd,
+    homedir: HOME,
     platform: 'darwin',
     fetch,
     sleep: async () => {},
@@ -107,12 +112,12 @@ test('a flag that is not implemented yet is refused with exit 2, even with -p', 
   assert.deepEqual([one.code, one.stdout, one.stderr], [2, '', 'clay: --settings is not implemented yet\n']);
   const two = await run(['--session-id', '01234567-89ab-cdef-0123-456789abcdef', '-p', 'go', '--settings', 's'], { env: KEY });
   assert.equal(two.code, 2);
-  assert.equal(two.stderr, 'clay: --session-id is not implemented yet\nclay: --settings is not implemented yet\n');
+  assert.equal(two.stderr, 'clay: --settings is not implemented yet\n');
   assert.equal(two.fetch.calls.length, 0);
 });
 
-test('NOT_YET holds only the session, resume and settings flags', () => {
-  assert.deepEqual([...NOT_YET].sort(), ['fork-session', 'resume', 'session-id', 'settings']);
+test('NOT_YET holds only the settings flag', () => {
+  assert.deepEqual([...NOT_YET].sort(), ['settings']);
 });
 
 test('valid arguments with nothing to run return 1 with a message on stderr', async () => {
@@ -149,9 +154,10 @@ test('-p prints only the answer on stdout, the cost and total on stderr, and exi
   assert.equal(res.code, 0, res.stderr);
   assert.equal(res.stdout, 'Hello, world!\n');
   const lines = res.stderr.split('\n');
-  assert.equal(lines[0], '[clay:cost] $0.0004 (in 25, cache-read 0, cache-write 0, out 15)');
-  assert.match(lines[1], TOTAL_LINE);
-  assert.equal(lines.length, 3);
+  assert.match(lines[0], SESSION_LINE);
+  assert.equal(lines[1], '[clay:cost] $0.0004 (in 25, cache-read 0, cache-write 0, out 15)');
+  assert.match(lines[2], TOTAL_LINE);
+  assert.equal(lines.length, 4);
 });
 
 test('-p sends the flags: model, effort, system prompt parts and add-dir', async (t) => {
@@ -190,7 +196,7 @@ test('-p exits 1 on an API error, with the message verbatim', async (t) => {
   });
   assert.equal(res.code, 1);
   assert.equal(res.stdout, '');
-  assert.match(res.stderr, /^clay: credit balance is too low\n/);
+  assert.match(res.stderr, /^clay: credit balance is too low\n/m);
   assert.match(res.stderr, COST_LINE);
 });
 
@@ -211,7 +217,7 @@ test('-p under the default ask mode denies Write and says why on stderr', async 
   });
   assert.equal(res.code, 0);
   assert.equal(res.stdout, 'could not\n');
-  assert.match(res.stderr, /^● Write x\.txt\n {2}✗ permission required: rerun with --yolo/);
+  assert.match(res.stderr, /^● Write x\.txt\n {2}✗ permission required: rerun with --yolo/m);
 });
 
 test('--budget below the first request cost stops before the second: exit 1 and the budget line', async (t) => {
@@ -245,7 +251,7 @@ test('SIGINT during -p kills the running Bash, awaits it, and exits 130', async 
     return child;
   };
   const fake = fakeDeps({
-    env: cleanEnv(KEY),
+    env: { ...cleanEnv(KEY), CLAY_HOME: join(HOME, 'sigint') },
     cwd,
     spawn,
     responses: [toolReply('Bash', { command: 'sleep 30 & echo $!; wait' })],
