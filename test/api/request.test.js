@@ -369,9 +369,11 @@ test('1h: no request in a scripted 3-turn session sends a 1h marker after a 5m o
     messages.push(userText(turn));
     for (let round = 0; round <= rounds; round++) {
       if (round > 0) messages.push(toolUse(`${turn}${round}`), toolResult(`${turn}${round}`));
-      const ttls = cacheMarks(buildRequest(base({ messages, cacheTtl: '1h' }), deps).body).map(([, mark]) => mark.ttl ?? '5m');
-      const firstShort = ttls.indexOf('5m');
-      assert.equal(firstShort, ttls.length - 1, `${ttls.join(' ')} at ${messages.length} messages`);
+      const { body } = buildRequest(base({ messages, cacheTtl: '1h' }), deps);
+      const ttls = ['tools', 'system', 'messages'].flatMap((key) => cacheMarks(body[key])).map(([, mark]) => mark.ttl ?? '5m');
+      const where = `${ttls.join(' ')} at ${messages.length} messages`;
+      assert.equal(ttls.slice(ttls.indexOf('5m') + 1).includes('1h'), false, where);
+      assert.deepEqual([ttls.filter((ttl) => ttl === '5m').length, ttls.at(-1)], [1, '5m'], where);
       requests++;
     }
     messages.push(answer(`done ${turn}`));
