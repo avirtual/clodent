@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createGuard, simpleCommands } from '../../src/permissions/guard.js';
-import { parseRules } from '../../src/permissions/rules.js';
+import { createGuard, denialReason, shellWords, simpleCommands } from '../../src/permissions/guard.js';
+import { builtinDenies, parseRules } from '../../src/permissions/rules.js';
 
 const HOME = '/Users/u';
 const WHERE = { file: '/etc/clodent/settings.json', cwd: '/work', home: HOME };
@@ -259,4 +259,72 @@ test('Bash: a mention matches in any letter case and after a /System/Volumes/Dat
     assert.match(await bash(guard, command), /^deny /, command);
   }
   for (const command of ['cat ~/.SSHX', 'cat /etc/hostsx']) assert.equal(await bash(guard, command), null, command);
+});
+
+test('Bash: each word is also matched dequoted, with ~ and $HOME expanded and resolved, so //, /./ and x/.. spellings are denied', async () => {
+  const guard = guardOf({ deny: ['Read(~/.ssh)', 'Edit(~/.bashrc)', 'Read(./secret)'] });
+  const denied = [
+    'cat ~//.ssh/id_rsa',
+    'cat ~/./.ssh/id_rsa',
+    `cat ${HOME}//.ssh/id_rsa`,
+    'cat /Users//u/.ssh/id_rsa',
+    'cat ~/x/../.ssh/id_rsa',
+    "cat ~/'.ssh'/id_rsa",
+    'cat ~/".s"sh/id_rsa',
+    'tail -n+1 ~//.ssh/*',
+    'head $HOME//.ssh/id_rsa',
+    'cat "${HOME}"/./.ssh/id_rsa',
+    'grep x ~//.ssh/config',
+    'sed -n 1p ~/./.ssh/id_rsa',
+    'cat ~//.SSH/id_rsa',
+    'ssh -i ~//.ssh/id_rsa host',
+    'dd if=~//.ssh/id_rsa',
+    'wc <~/./.ssh/id_rsa',
+    'echo "$(cat ~//.ssh/id_rsa)"',
+    'echo `cat ~//.ssh/id_rsa`',
+    'cat secret/a.txt',
+    'cat ./x/../secret',
+  ];
+  for (const command of denied) assert.match(await bash(guard, command), /^deny Read\(/, command);
+  assert.equal(await bash(guard, 'echo x >> ~/./.bashrc'), 'deny Edit(~/.bashrc)');
+  assert.equal(await bash(guard, 'echo x >~//.bashrc'), 'deny Edit(~/.bashrc)');
+  for (const command of ['cat ~/./.bashrc', 'cat ~//.sshx', 'cat ~/x/.ssh/id_rsa', 'echo HEAD~1', 'cat secrets', "echo '~x/.ssh'"]) {
+    assert.equal(await bash(guard, command), null, command);
+  }
+});
+
+test('shellWords dequotes words and splits at blanks, operators, redirections and substitutions', () => {
+  assert.deepEqual(shellWords(`a "b c" 'd e' f\\ g "x\\y\\$z" '' h;i&&j|k<l>>m`), ['a', 'b c', 'd e', 'f g', 'x\\y$z', 'h', 'i', 'j', 'k', 'l', 'm']);
+  assert.deepEqual(shellWords('echo "a $(cat "b c") d" `e f` (g) $((1+2))'), ['echo', 'a ', 'cat', 'b c', ' d', 'e', 'f', 'g', '1+2']);
+  assert.deepEqual(shellWords("echo '$(x)' \"it's\"\\\nz"), ['echo', '$(x)', "it'sz"]);
+});
+
+test('built-in denies cover Read and Edit of each settings file and Read of /proc/*/environ, and the reason names the built-in rule', async () => {
+  const files = [`${HOME}/.clodent/settings.json`, '/etc/seat/s.json', `${HOME}/.clodent/./settings.json`];
+  const deny = builtinDenies(files, HOME);
+  const [read, edit] = [`Read(/${HOME}/.clodent/settings.json)`, `Edit(/${HOME}/.clodent/settings.json)`];
+  assert.deepEqual(
+    deny.map((rule) => [rule.text, rule.builtin]),
+    [read, edit, 'Read(//etc/seat/s.json)', 'Edit(//etc/seat/s.json)', 'Read(//proc/*/environ)', 'Read(//proc/*/task/*/environ)'].map((text) => [text, true]),
+  );
+  const guard = createGuard({ deny }, { realpath: noRealpath, lstat: noRealpath, platform: 'linux' });
+  const rule = async (tool, input) => (await guard.check(tool, input, '/work'))?.rule.text ?? null;
+  const file_path = `${HOME}/.clodent/settings.json`;
+  assert.deepEqual(
+    [await rule('Read', { file_path }), await rule('Edit', { file_path }), await rule('Write', { file_path }), await rule('Grep', { path: file_path })],
+    [read, read, edit, read],
+  );
+  for (const command of ['cat ~//.clodent/settings.json', 'sed -n 1p ~/.clodent/./settings.json', 'grep KEY $HOME/.clodent/settings.json']) {
+    assert.equal(await rule('Bash', { command }), read, command);
+  }
+  assert.equal(await rule('Bash', { command: 'jq . /etc//seat/s.json' }), 'Read(//etc/seat/s.json)');
+  assert.equal(await rule('Bash', { command: 'cat /proc/$PPID/environ' }), 'Read(//proc/*/environ)');
+  assert.equal(await rule('Read', { file_path: '/proc/self/environ' }), 'Read(//proc/*/environ)');
+  assert.equal(await rule('Bash', { command: 'cat /proc/1/task/1/environ' }), 'Read(//proc/*/environ)');
+  assert.equal(await rule('Read', { file_path: '/proc/1/task/1/environ' }), 'Read(//proc/*/task/*/environ)');
+  for (const [tool, input] of [['Read', { file_path: `${HOME}/.clodent/other.json` }], ['Bash', { command: 'cat /proc/1/status' }], ['Write', { file_path: '/work/settings.json' }]]) {
+    assert.equal(await rule(tool, input), null, JSON.stringify(input));
+  }
+  assert.equal(denialReason(deny[0]), `denied by built-in rule ${read}`);
+  assert.equal(denialReason(parseRules(['Read(x)'], 'permissions.deny', WHERE)[0]), 'denied by settings rule Read(x)');
 });

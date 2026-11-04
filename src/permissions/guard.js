@@ -21,7 +21,7 @@ export function sentTools({ deny = [] } = {}) {
 }
 
 export function denialReason(rule) {
-  return `denied by settings rule ${rule.text}`;
+  return `denied by ${rule.builtin ? 'built-in' : 'settings'} rule ${rule.text}`;
 }
 
 async function realpathDeep(path, realpath) {
@@ -69,24 +69,102 @@ export function simpleCommands(text) {
   return out;
 }
 
+const WORD_BREAK = ' \t\n;&|()<>';
+const DOUBLE_ESCAPES = '$`"\\\n';
+
+export function shellWords(text) {
+  const words = [];
+  const frames = [];
+  let word = null;
+  let quote = null;
+  const end = () => {
+    if (word) words.push(word);
+    word = null;
+  };
+  const add = (chars) => {
+    word = (word ?? '') + chars;
+  };
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i];
+    if (quote === "'") {
+      if (c === "'") quote = null;
+      else add(c);
+    } else if (c === '\\' && i + 1 < text.length) {
+      const next = text[++i];
+      if (quote === '"' && !DOUBLE_ESCAPES.includes(next)) add(c + next);
+      else if (next !== '\n') add(next);
+    } else if (c === '`' && frames.at(-1)?.close === '`') {
+      end();
+      quote = frames.pop().quote;
+    } else if (c === '`' || (c === '$' && text[i + 1] === '(')) {
+      end();
+      frames.push({ close: c === '`' ? '`' : ')', quote });
+      quote = null;
+      if (c === '$') i += 1;
+    } else if (quote === '"') {
+      if (c === '"') quote = null;
+      else add(c);
+    } else if (c === "'" || c === '"') {
+      quote = c;
+    } else if (c === ')' && frames.at(-1)?.close === ')') {
+      end();
+      quote = frames.pop().quote;
+    } else if (WORD_BREAK.includes(c)) {
+      end();
+    } else {
+      add(c);
+    }
+  }
+  end();
+  return words;
+}
+
+const HOME_PREFIX = /^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/;
+const DATA_PREFIX = /^\/System\/Volumes\/Data(?=\/)/i;
+
+function expandHome(word, home) {
+  const prefix = home ? HOME_PREFIX.exec(word) : null;
+  return prefix ? home + word.slice(prefix[0].length) : word;
+}
+
+function wordPaths(command, cwd) {
+  const words = shellWords(command).flatMap((word) => {
+    const at = word.indexOf('=');
+    return at === -1 ? [word] : [word, word.slice(at + 1)];
+  });
+  const byHome = new Map();
+  return (home) => {
+    if (!byHome.has(home)) {
+      const paths = words.filter((word) => word !== '').map((word) => resolve(cwd, expandHome(word, home)));
+      byHome.set(home, paths.flatMap((path) => (DATA_PREFIX.test(path) ? [path, path.replace(DATA_PREFIX, '')] : [path])));
+    }
+    return byHome.get(home);
+  };
+}
+
+const mentions = (rule, text, words, forms) =>
+  forms.get(rule).some((form) => form.mention.test(text) || words(rule.home).some((path) => form.word.test(path)));
+
 const matchesPaths = (rule, paths, forms) => forms.get(rule).some((form) => paths.some((path) => form.regex.test(path)));
 
 function pathMatch(rules, tool, paths, forms) {
   return rules.find((rule) => rule.kind === 'path' && rule.tools.includes(tool) && matchesPaths(rule, paths, forms));
 }
 
-function bashMatch(rules, command, readOnly, forms) {
+function bashMatch(rules, command, cwd, readOnly, forms) {
   const trimmed = command.trim();
   const commands = [trimmed, ...simpleCommands(command)];
   const text = command.replaceAll('\\ ', ' ');
+  const words = wordPaths(command, cwd);
   return rules.find((rule) => {
     if (rule.kind === 'bash') return commands.some((one) => rule.test(one));
-    if (rule.kind !== 'path' || rule.bash === null || !forms.get(rule).some((form) => form.mention.test(text))) return false;
+    if (rule.kind !== 'path' || rule.bash === null || !mentions(rule, text, words, forms)) return false;
     return rule.bash === 'read' || !readOnly();
   });
 }
 
-const formOf = (pattern, home) => ({ regex: pathRegExp(pattern), mention: mentionRegExp(pattern, home) });
+const formOf = (regex, mention) => ({ regex, mention, word: new RegExp(regex.source, 'i') });
+const patternForm = (pattern, home) => formOf(pathRegExp(pattern), mentionRegExp(pattern, home));
 
 async function resolveForms(rules, realpath, platform) {
   const reals = new Map();
@@ -98,10 +176,10 @@ async function resolveForms(rules, realpath, platform) {
         const { prefix, rest } = splitPattern(rule.pattern);
         if (!reals.has(prefix)) reals.set(prefix, realpathDeep(prefix, realpath));
         const real = await reals.get(prefix);
-        const list = [{ regex: rule.regex, mention: rule.mention }];
-        if (real !== prefix) list.push(formOf(rest === '' ? real : join(real, rest), rule.home));
+        const list = [formOf(rule.regex, rule.mention)];
+        if (real !== prefix) list.push(patternForm(rest === '' ? real : join(real, rest), rule.home));
         if (platform === 'darwin' && rule.pattern.startsWith(`${DATA_VOLUME}/`)) {
-          list.push(formOf(rule.pattern.slice(DATA_VOLUME.length), rule.home));
+          list.push(patternForm(rule.pattern.slice(DATA_VOLUME.length), rule.home));
         }
         forms.set(rule, list);
       }),
@@ -131,14 +209,14 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
 
   const rootPaths = (root) => (root ? [...spellings(root.lexical), ...spellings(root.real)] : []);
 
-  function verdict(tool, input, paths, ruleForms) {
+  function verdict(tool, input, cwd, paths, ruleForms) {
     const bare = (rules) => rules.find((rule) => rule.kind === 'tool' && rule.tool === tool);
     let match;
     if (tool === 'Bash') {
       const command = input?.command;
       let classified;
       const readOnly = () => (classified ??= classifyBash(command)).readOnly;
-      match = (rules) => bare(rules) ?? (typeof command === 'string' ? bashMatch(rules, command, readOnly, ruleForms) : undefined);
+      match = (rules) => bare(rules) ?? (typeof command === 'string' ? bashMatch(rules, command, cwd, readOnly, ruleForms) : undefined);
     } else if (Object.hasOwn(PATH_FIELDS, tool)) {
       match = (rules) => bare(rules) ?? pathMatch(rules, tool, paths, ruleForms);
     } else {
@@ -172,7 +250,7 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
     const ruleForms = await formsOf();
     const root = await rootOf(tool, input, cwd);
     const paths = rootPaths(root);
-    const ruled = verdict(tool, input, paths, ruleForms);
+    const ruled = verdict(tool, input, cwd, paths, ruleForms);
     if (!LISTING_TOOLS.has(tool)) return { ruled, hidden: null, approved: null };
     const rules = (mode === 'yolo' ? deny : [...deny, ...ask]).filter((rule) => rule.kind === 'path' && rule.tools.includes(tool));
     const hidden = listingFilter(root, rules, ruleForms);

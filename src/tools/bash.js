@@ -5,6 +5,7 @@ import { checkInput, fail, oneLine } from './util.js';
 
 export const DEFAULT_TIMEOUT_MS = 120000;
 export const MAX_TIMEOUT_MS = 600000;
+const HIDDEN_ENV = Object.freeze(['ANTHROPIC_API_KEY']);
 export { KILL_GRACE_MS };
 
 export function clampTimeout(value) {
@@ -14,7 +15,6 @@ export function clampTimeout(value) {
 }
 
 function withoutNames(env, names) {
-  if (names.length === 0) return env;
   const kept = { ...(env ?? process.env) };
   for (const name of names) delete kept[name];
   return kept;
@@ -57,7 +57,7 @@ async function execute(command, timeoutMs, ctx, deps) {
 
 export function createBash(deps = {}) {
   const options = { spawn: deps.spawn, kill: deps.kill, killGraceMs: deps.killGraceMs };
-  const envDeny = deps.envDeny ?? [];
+  const envDeny = [...HIDDEN_ENV, ...(deps.envDeny ?? [])];
   return {
     name: 'Bash',
     kind: 'exec',

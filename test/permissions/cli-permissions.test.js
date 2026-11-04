@@ -4,6 +4,7 @@ import { existsSync, readFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { ASK_DENIAL } from '../../src/agent/permission.js';
 import { ASK_LINE, PASTE_ON } from '../../src/repl/repl.js';
+import { transcriptPath } from '../../src/session/paths.js';
 import { SANDBOX_NOTICE } from '../../src/settings/sandbox.js';
 import { hookGroup, runMain, strip, textReply, toolsReply, writeSettings } from '../helpers/run-main.js';
 import { hookOutput, script } from '../hooks/scripts.js';
@@ -378,4 +379,56 @@ test('--disallowedTools Bash leaves Bash out of the request tools and every syst
   const guarded = await runMain(['-p', 'go', '--settings', settings], { home, cwd, env: { HOME: user }, responses: [textReply('ok')] });
   assert.equal(guarded.code, 0, guarded.stderr);
   assert.deepEqual(named(guarded), [['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'Write'], true]);
+});
+
+test('built-in denies refuse Read, Write, Edit and Bash reads of every loaded settings file and of /proc/*/environ under --yolo, and remove no tool', GUARD, async (t) => {
+  const { cwd, dir, user } = await setup(t);
+  const home = join(user, '.clodent');
+  await plant(home, { 'settings.json': '{}' });
+  const homeFile = join(home, 'settings.json');
+  const settings = writeSettings(dir, {});
+  const uses = [
+    ['Read', { file_path: homeFile }],
+    ['Write', { file_path: homeFile, content: '{"hooks":{}}' }],
+    ['Edit', { file_path: homeFile, old_string: '{', new_string: '[' }],
+    ['Bash', { command: 'cat ~//.clodent/settings.json' }],
+    ['Bash', { command: `sed -n 1p ${home}/./settings.json` }],
+    ['Bash', { command: `grep -c . ${homeFile}` }],
+    ['Read', { file_path: settings }],
+    ['Bash', { command: `cat ${dir}//settings.json` }],
+    ['Bash', { command: 'cat /proc/$PPID/environ' }],
+    ['Bash', { command: 'echo ok' }],
+  ];
+  const res = await runMain(['-p', 'go', '--yolo', '--settings', settings], { home, cwd, env: { HOME: user }, responses: [toolsReply(uses), textReply('done')] });
+  assert.equal(res.code, 0, res.stderr);
+  const builtin = (rule) => `denied by built-in rule ${rule}`;
+  const [read, edit] = [builtin(`Read(/${homeFile})`), builtin(`Edit(/${homeFile})`)];
+  assert.deepEqual(results(res), [read, edit, read, read, read, read, builtin(`Read(/${settings})`), builtin(`Read(/${settings})`), builtin('Read(//proc/*/environ)'), 'ok\n[exit 0]']);
+  assert.deepEqual(res.calls[0].body.tools.map((tool) => tool.name), ['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'Write']);
+  assert.equal(readFileSync(homeFile, 'utf8'), '{}');
+  const fresh = join(user, 'fresh');
+  const write = [['Write', { file_path: join(fresh, 'settings.json'), content: '{}' }]];
+  const absent = await runMain(['-p', 'go', '--yolo'], { home: fresh, cwd, env: { HOME: user }, responses: [toolsReply(write), textReply('done')] });
+  assert.equal(absent.code, 0, absent.stderr);
+  assert.deepEqual(results(absent), [builtin(`Edit(/${join(fresh, 'settings.json')})`)]);
+  assert.equal(existsSync(join(fresh, 'settings.json')), false);
+});
+
+test('the Bash tool never gets ANTHROPIC_API_KEY, from the environment or settings env; requests still send it and hooks keep it', GUARD, async (t) => {
+  const { home, cwd, dir } = await setup(t);
+  const key = 'sk-test-fake';
+  const seen = join(dir, 'hook-key.txt');
+  const hook = await script(dir, 'pre.sh', `cat > /dev/null\nprintf '%s' "$ANTHROPIC_API_KEY" > ${JSON.stringify(seen)}`);
+  const uses = [['Bash', { command: 'echo "k=$ANTHROPIC_API_KEY"' }]];
+  const viaEnv = await runMain(['-p', 'go', '--yolo'], { home, cwd, key, responses: [toolsReply(uses), textReply('done')] });
+  const settings = writeSettings(dir, { env: { ANTHROPIC_API_KEY: key }, hooks: { PreToolUse: [hookGroup('Bash', hook)] } });
+  const viaSettings = await runMain(['-p', 'go', '--yolo', '--settings', settings], { home, cwd, key: '', responses: [toolsReply(uses), textReply('done')] });
+  for (const res of [viaEnv, viaSettings]) {
+    assert.equal(res.code, 0, res.stderr);
+    assert.deepEqual(results(res), ['k=\n[exit 0]']);
+    assert.deepEqual(res.calls.map((call) => call.headers['x-api-key']), [key, key]);
+    assert.equal(JSON.stringify(res.calls[1].body).includes(key), false);
+    assert.equal(readFileSync(transcriptPath(home, cwd, res.id), 'utf8').includes(key), false);
+  }
+  assert.equal(readFileSync(seen, 'utf8'), key);
 });

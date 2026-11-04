@@ -52,6 +52,15 @@ test('cwd and env come from ctx', GUARD, async (t) => {
   assert.equal((await bash.run({ command: 'pwd; echo "$CLODENT_PROBE"' }, ctx)).content, `${dir}\nprobe-value\n[exit 0]`);
 });
 
+test('ANTHROPIC_API_KEY is removed from the env, with or without other names to remove', GUARD, async (t) => {
+  const dir = await useTempDir(t);
+  const ctx = { cwd: dir, env: cleanEnv({ ANTHROPIC_API_KEY: 'sk-test-fake', CLODENT_PROBE: 'kept' }) };
+  const command = 'echo "k=$ANTHROPIC_API_KEY p=$CLODENT_PROBE"';
+  assert.equal((await bash.run({ command }, ctx)).content, 'k= p=kept\n[exit 0]');
+  assert.equal((await createBash({ envDeny: ['CLODENT_PROBE'] }).run({ command }, ctx)).content, 'k= p=\n[exit 0]');
+  assert.equal(ctx.env.ANTHROPIC_API_KEY, 'sk-test-fake');
+});
+
 test('stdin is closed', GUARD, async (t) => {
   const dir = await useTempDir(t);
   assert.equal((await bash.run({ command: 'cat; echo done' }, ctxFor(dir))).content, 'done\n[exit 0]');
