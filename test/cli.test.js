@@ -11,6 +11,8 @@ import { createFakeFetch } from './helpers/fake-fetch.js';
 import { sse } from './helpers/sse-builder.js';
 import { cleanEnv, plant, useTempDir } from './tools/tmp-dir.js';
 
+const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+
 const COST_LINE = /^\[clodent:cost\] \$\d+\.\d{4} \(in \d+, cache-read \d+, cache-write \d+, out \d+\)$/m;
 const TOTAL_LINE = /^\[clodent:cost\] session total \$\d+\.\d{4} /m;
 const SESSION_LINE = /^\[clodent:session\] [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -57,8 +59,8 @@ const toolReply = (name, input) => ({
 });
 
 test('--version prints the package version and returns 0', async () => {
-  assert.deepEqual(await run(['--version']), { code: 0, stdout: 'clodent 0.2.0\n', stderr: '' });
-  assert.deepEqual(await run(['-v']), { code: 0, stdout: 'clodent 0.2.0\n', stderr: '' });
+  assert.deepEqual(await run(['--version']), { code: 0, stdout: `clodent ${VERSION}\n`, stderr: '' });
+  assert.deepEqual(await run(['-v']), { code: 0, stdout: `clodent ${VERSION}\n`, stderr: '' });
 });
 
 test('--help prints usage and returns 0', async () => {
@@ -83,7 +85,7 @@ test('--help lists every flag with a description and marks the unimplemented one
 
 test('--help and --version win over flags that are not implemented yet', async () => {
   assert.equal((await run(['--yolo', '--help'])).code, 0);
-  assert.equal((await run(['--model', 'x', '--version'])).stdout, 'clodent 0.2.0\n');
+  assert.equal((await run(['--model', 'x', '--version'])).stdout, `clodent ${VERSION}\n`);
 });
 
 test('a parse error prints the error and a pointer to --help, and returns 2', async () => {
@@ -277,7 +279,7 @@ test('bin/clodent.js --version runs from any cwd', () => {
   const bin = fileURLToPath(new URL('../bin/clodent.js', import.meta.url));
   const res = spawnSync(process.execPath, [bin, '--version'], { cwd: tmpdir(), encoding: 'utf8' });
   assert.equal(res.status, 0, res.stderr);
-  assert.equal(res.stdout, 'clodent 0.2.0\n');
+  assert.equal(res.stdout, `clodent ${VERSION}\n`);
 });
 
 test('bin/clodent.js exits 2 on a parse error', () => {
