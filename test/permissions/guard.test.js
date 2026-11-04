@@ -355,6 +355,43 @@ test('shellWords dequotes words and splits at blanks, operators, redirections an
   assert.deepEqual(shellWords("a $$'b\\' c"), ['a', '$$b\\', 'c']);
 });
 
+test('Bash: an unquoted # that starts a word comments out the rest of the line, so a quote in the comment hides no command from a Bash or Read rule', async () => {
+  const guard = guardOf({ deny: ['Read(~/.ssh)', 'Bash(rm:*)'] });
+  assert.equal(await bash(guard, "ls # '\ncat ~//.ssh/id_rsa # '"), 'deny Read(~/.ssh)');
+  assert.equal(await bash(guard, "ls #'\ncat ~/.ssh/id_rsa #'"), 'deny Read(~/.ssh)');
+  assert.equal(await bash(guard, "echo x # '\nrm -rf y"), 'deny Bash(rm:*)');
+  assert.deepEqual([simpleCommands('echo a#b'), shellWords('echo a#b')], [['echo a#b'], ['echo', 'a#b']]);
+  assert.deepEqual(simpleCommands("echo '#'; ls"), ["echo '#'", 'ls']);
+  assert.deepEqual([simpleCommands('echo "# not a comment"'), shellWords('echo "# not a comment"')], [['echo "# not a comment"'], ['echo', '# not a comment']]);
+});
+
+test('Bash: $(…) and a backtick inside double quotes open a nested command context that splits like the top level, so its commands meet a Bash rule and its words a Read rule', async () => {
+  const guard = guardOf({ deny: ['Read(~/.ssh)', 'Bash(rm:*)'] });
+  for (const command of ['echo "$(rm x)"', 'echo "`rm x`"', 'echo "$(echo "$(rm x)")"', 'echo "$(true)"; rm x']) {
+    assert.equal(await bash(guard, command), 'deny Bash(rm:*)', command);
+  }
+  assert.equal(await bash(guard, 'echo "$(cat ~//.ssh/id_rsa)"'), 'deny Read(~/.ssh)');
+  assert.deepEqual(simpleCommands('echo "$(echo "$(rm x)")"'), ['echo "$', 'echo "$', 'rm x', '"', '"']);
+  assert.deepEqual(shellWords('echo "$(echo "$(rm x)")"'), ['echo', 'echo', 'rm', 'x']);
+  assert.deepEqual(simpleCommands('echo "a;b"'), ['echo "a;b"']);
+});
+
+function countedReads(text, limit) {
+  let reads = 0;
+  return new Proxy(new String(text), {
+    get(target, key) {
+      if (key !== 'length' && ++reads > limit) throw new Error(`read more than ${limit} characters`);
+      return Reflect.get(target, key);
+    },
+  });
+}
+
+test('simpleCommands and shellWords read a run of line continuations inside single quotes a bounded number of times per character', () => {
+  const text = `'${'\\\n'.repeat(20000)}`;
+  assert.deepEqual(simpleCommands(countedReads(text, 4 * text.length)), [text.trim()]);
+  assert.deepEqual(shellWords(countedReads(text, 4 * text.length)), [text.slice(1)]);
+});
+
 test('built-in denies cover Read and Edit of each settings file and Read of /proc/*/environ, and the reason names the built-in rule', async () => {
   const files = [`${HOME}/.clodent/settings.json`, '/etc/seat/s.json', `${HOME}/.clodent/./settings.json`];
   const deny = builtinDenies(files, HOME);

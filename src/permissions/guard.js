@@ -44,35 +44,86 @@ function pastContinuations(text, at) {
   return at;
 }
 
+const tokenOf = (c) => (' \t\n;&|()'.includes(c) ? 'none' : '<>'.includes(c) ? 'redirect' : '$=?*+@!'.includes(c) ? 'glue' : 'word');
+const startsComment = (token) => token === 'none' || token === 'redirect';
+const gluesParen = (token) => token === 'glue' || token === 'redirect';
+
+function frameOf(frames, close, quote, word) {
+  frames.push({ close, quote, word, ticked: close === '`' || frames.at(-1)?.ticked === true });
+}
+
+function pastComment(text, at, frames) {
+  const ticked = frames.at(-1)?.ticked === true;
+  let k = at;
+  while (k < text.length && text[k] !== '\n' && !(ticked && text[k] === '`')) k += ticked && text[k] === '\\' && text[k + 1] !== '\n' ? 2 : 1;
+  if (text[k] === '`') while (frames.at(-1).close !== '`') frames.pop();
+  return k - 1;
+}
+
 export function simpleCommands(text) {
   const out = [];
+  const frames = [];
   let current = '';
   let quote = null;
+  let token = 'none';
   const push = () => {
     if (current.trim() !== '') out.push(current.trim());
     current = '';
   };
+  const enter = (close, word) => {
+    push();
+    frameOf(frames, close, quote, word);
+    quote = null;
+    token = 'none';
+  };
+  const leave = () => {
+    push();
+    const frame = frames.pop();
+    quote = frame.quote;
+    token = frame.word ? 'word' : 'none';
+  };
   for (let i = 0; i < text.length; i += 1) {
     const c = text[i];
-    const j = pastContinuations(text, i + 1);
-    if (quote) {
+    const j = c === '$' ? pastContinuations(text, i + 1) : i + 1;
+    if (quote === "'" || quote === "$'") {
       current += c;
-      if (c === '\\' && quote !== "'" && i + 1 < text.length) current += text[++i];
-      else if (c === quote.at(-1)) quote = null;
+      if (c === '\\' && quote === "$'" && i + 1 < text.length) current += text[++i];
+      else if (c === "'") quote = null;
     } else if (c === '\\' && i + 1 < text.length) {
       current += c + text[++i];
+      if (text[i] !== '\n') token = 'word';
+    } else if (c === '`') {
+      if (frames.at(-1)?.close === '`') leave();
+      else enter('`', true);
+    } else if (quote === '"' && c === '$' && text[j] === '(') {
+      current += text.slice(i, j);
+      i = j;
+      enter(')', true);
+    } else if (quote === '"') {
+      current += c;
+      if (c === '"') quote = null;
+    } else if (c === '#' && startsComment(token)) {
+      i = pastComment(text, i, frames);
     } else if (c === '$' && (text[j] === '$' || text[j] === "'")) {
       if (text[j] === "'") quote = "$'";
       current += text.slice(i, j + 1);
       i = j;
+      token = 'word';
     } else if (c === "'" || c === '"') {
       quote = c;
       current += c;
-    } else if (';&|\n()`'.includes(c)) {
+      token = 'word';
+    } else if (c === '(') {
+      enter(')', gluesParen(token));
+    } else if (c === ')' && frames.at(-1)?.close === ')') {
+      leave();
+    } else if (';&|\n)'.includes(c)) {
       push();
+      token = 'none';
       if ((c === '&' || c === '|') && text[i + 1] === c) i += 1;
     } else {
       current += c;
+      token = tokenOf(c);
     }
   }
   push();
@@ -102,16 +153,30 @@ export function shellWords(text) {
   const frames = [];
   let word = null;
   let quote = null;
+  let token = 'none';
   const end = () => {
     if (word) words.push(word);
     word = null;
   };
   const add = (chars) => {
     word = (word ?? '') + chars;
+    token = 'word';
+  };
+  const enter = (close, continues) => {
+    end();
+    frameOf(frames, close, quote, continues);
+    quote = null;
+    token = 'none';
+  };
+  const leave = () => {
+    end();
+    const frame = frames.pop();
+    quote = frame.quote;
+    token = frame.word ? 'word' : 'none';
   };
   for (let i = 0; i < text.length; i += 1) {
     const c = text[i];
-    const j = pastContinuations(text, i + 1);
+    const j = c === '$' ? pastContinuations(text, i + 1) : i + 1;
     if (quote === "'") {
       if (c === "'") quote = null;
       else add(c);
@@ -120,16 +185,15 @@ export function shellWords(text) {
       if (quote === '"' && !DOUBLE_ESCAPES.includes(next)) add(c + next);
       else if (next !== '\n') add(next);
     } else if (c === '`' && frames.at(-1)?.close === '`') {
-      end();
-      quote = frames.pop().quote;
+      leave();
     } else if (c === '`' || (c === '$' && text[j] === '(')) {
-      end();
-      frames.push({ close: c === '`' ? '`' : ')', quote });
-      quote = null;
       if (c === '$') i = j;
+      enter(c === '`' ? '`' : ')', true);
     } else if (quote === '"') {
       if (c === '"') quote = null;
       else add(c);
+    } else if (c === '#' && startsComment(token)) {
+      i = pastComment(text, i, frames);
     } else if (c === '$' && text[j] === '$') {
       add('$$');
       i = j;
@@ -139,16 +203,21 @@ export function shellWords(text) {
       i = close;
     } else if (c === '$' && text[j] === '"') {
       quote = '"';
+      token = 'word';
       i = j;
     } else if (c === "'" || c === '"') {
       quote = c;
+      token = 'word';
+    } else if (c === '(') {
+      enter(')', gluesParen(token));
     } else if (c === ')' && frames.at(-1)?.close === ')') {
-      end();
-      quote = frames.pop().quote;
+      leave();
     } else if (WORD_BREAK.includes(c)) {
       end();
+      token = tokenOf(c);
     } else {
       add(c);
+      token = tokenOf(c);
     }
   }
   end();
