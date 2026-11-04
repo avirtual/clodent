@@ -52,7 +52,7 @@ test('an unknown mode or kind is treated as deny, never allow', () => {
 
 test('accept-edits allows read and write tools and a read-only Bash command, and asks for any other Bash command', () => {
   const EDIT = tool('Edit', 'write');
-  for (const t of [READ, WRITE, EDIT]) assert.deepEqual(decide(t, { file_path: 'x' }, 'accept-edits'), { allow: true }, t.name);
+  for (const t of [READ, WRITE, EDIT]) assert.deepEqual(decide(t, { file_path: 'x' }, 'accept-edits', '/work'), { allow: true }, t.name);
   assert.deepEqual(decide(BASH, { command: 'ls' }, 'accept-edits'), { allow: true });
   assert.deepEqual(decide(BASH, { command: 'rm x' }, 'accept-edits'), { allow: false, ask: true, reason: ASK_DENIAL });
   assert.deepEqual(decide(tool('Other', 'exec'), { command: 'ls' }, 'accept-edits'), { allow: false, ask: true, reason: ASK_DENIAL });
@@ -120,9 +120,14 @@ test('accept-edits asks for a Write or Edit to a file a hook or statusLine comma
     assert.deepEqual(decide(WRITE, { file_path }, 'accept-edits', '/work', SCOPE), ASKED, file_path);
   }
   assert.deepEqual(decide(tool('Edit', 'write'), { file_path: 'scripts/pre.sh' }, 'accept-edits', '/work', SCOPE), ASKED);
+  assert.deepEqual(decide(WRITE, { file_path: '/home/u/bin/status.sh' }, 'accept-edits', '/work', { ...SCOPE, dirs: ['/home/u'] }), ASKED);
 });
 
 test('accept-edits with no scope allows a Write inside the cwd only', () => {
   assert.deepEqual(decide(WRITE, { file_path: '/work/a.js' }, 'accept-edits', '/work'), { allow: true });
   assert.deepEqual(decide(WRITE, { file_path: '/extra/c.txt' }, 'accept-edits', '/work'), ASKED);
+});
+
+test('accept-edits with no cwd asks for every Write', () => {
+  assert.deepEqual(decide(WRITE, { file_path: '/work/a.js' }, 'accept-edits', undefined, SCOPE), ASKED);
 });

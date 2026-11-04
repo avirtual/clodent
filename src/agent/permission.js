@@ -33,12 +33,11 @@ const within = (path, dir) => path === dir || path.startsWith(dir.endsWith(sep) 
 
 function editsFreely(input, cwd, scope) {
   const file = input?.file_path;
-  if (typeof file !== 'string') return false;
-  const base = cwd ?? sep;
-  const path = resolve(base, file);
+  if (typeof file !== 'string' || typeof cwd !== 'string') return false;
+  const path = resolve(cwd, file);
   if (path.split(sep).some((part) => PROTECTED_PARTS.has(part.toLowerCase()))) return false;
   if ((scope?.protect ?? []).some((hook) => hook.toLowerCase() === path.toLowerCase())) return false;
-  return [base, ...(scope?.dirs ?? [])].some((dir) => within(path, resolve(base, dir)));
+  return [cwd, ...(scope?.dirs ?? [])].some((dir) => within(path, resolve(cwd, dir)));
 }
 
 export function decide(tool, input, mode, cwd, scope) {
