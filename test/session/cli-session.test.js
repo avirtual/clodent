@@ -108,7 +108,7 @@ test('-p with a tool round writes prompt, assistant, tool results, assistant and
   assert.equal(recs[1].requestId, null);
   assert.equal(typeof recs[1].costUsd, 'number');
   assert.equal(recs[1].durationMs, 0);
-  assert.deepEqual(recs[2].toolUseResult, { name: 'Read', isError: false });
+  assert.deepEqual(recs[2].toolUseResult, { name: 'Read', isError: false, input: { file_path: 'notes.md' } });
   assert.equal(recs[2].message.content[0].type, 'tool_result');
   assert.deepEqual(recs[4], { ...recs[4], durationMs: 0, messageCount: 4 });
 });
@@ -196,7 +196,7 @@ test('a resume of a session killed during a tool run closes the dangling tool_us
   const recs = records(path);
   assert.equal(recs[2].parentUuid, 'r2');
   assert.deepEqual(recs[2].message.content, [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'interrupted by user', is_error: true }]);
-  assert.deepEqual(recs[2].toolUseResult, { name: 'Read', isError: true });
+  assert.deepEqual(recs[2].toolUseResult, { name: 'Read', isError: true, input: { file_path: 'notes.md' } });
   const again = await run(['-p', 'more', '--resume', ID], { home, cwd, responses: [textReply('fine')] });
   assert.equal(again.code, 0, again.stderr);
   assertValidHistory(strip(again.calls[0].body.messages));
@@ -253,13 +253,37 @@ test('session errors exit 2 before any request', async (t) => {
   for (const res of [exists, forkOnto, missing, both, forkAcross]) assert.equal(res.calls.length, 0);
 });
 
+test('a --session-id whose transcript exists under another project dir is refused, fresh or forked', async (t) => {
+  const { home, cwd } = await setup(t);
+  const elsewhere = await useTempDir(t);
+  await run(['-p', 'hi', '--session-id', ID], { home, cwd: elsewhere, responses: [textReply('one')] });
+  await run(['-p', 'hi', '--session-id', OTHER], { home, cwd, responses: [textReply('two')] });
+  const fresh = await run(['-p', 'hi', '--session-id', ID], { home, cwd });
+  assert.deepEqual([fresh.code, fresh.stderr], [2, `clay: session ${ID} already exists; use --resume\n`]);
+  const fork = await run(['-p', 'hi', '--resume', OTHER, '--fork-session', '--session-id', ID], { home, cwd });
+  assert.deepEqual([fork.code, fork.stderr], [2, `clay: session ${ID} already exists; use --resume\n`]);
+  assert.equal(existsSync(transcriptPath(home, cwd, ID)), false);
+  for (const res of [fresh, fork]) assert.equal(res.calls.length, 0);
+});
+
+test('an uppercase --session-id is stored lowercased, and the same id in either case is then refused', async (t) => {
+  const { home, cwd } = await setup(t);
+  const upper = ID.toUpperCase();
+  const res = await run(['-p', 'hi', '--session-id', upper], { home, cwd, responses: [textReply('one')] });
+  assert.equal(res.code, 0, res.stderr);
+  assert.equal(res.id, ID);
+  assert.equal(records(transcriptPath(home, cwd, ID))[0].sessionId, ID);
+  const again = await run(['-p', 'hi', '--session-id', upper], { home, cwd });
+  assert.deepEqual([again.code, again.stderr], [2, `clay: session ${ID} already exists; use --resume\n`]);
+});
+
 test('a CLAY_HOME that cannot hold a transcript exits 2 with the error, before any request', async (t) => {
   const { home, cwd } = await setup(t);
   const file = join(home, 'not-a-dir');
   writeFileSync(file, '');
   const res = await run(['-p', 'hi'], { home: file, cwd, responses: [textReply('one')] });
   assert.equal(res.code, 2);
-  assert.match(res.stderr, /^clay: ENOTDIR[^\n]*\n$/);
+  assert.match(res.stderr, /^clay: [^\n]*ENOTDIR[^\n]*\n$/);
   assert.equal(res.calls.length, 0);
 });
 

@@ -70,14 +70,20 @@ function readJsonOutput(event, parsed) {
 
 function interpret(event, entry, res) {
   const label = `hook ${event} "${commandLabel(entry.command)}"`;
+  const result = interpretOutput(event, entry, res, label);
+  if (!res.truncated) return result;
+  return { ...result, warnings: [`${label}: stdout over 1 MiB truncated`, ...(result.warnings ?? [])] };
+}
+
+function interpretOutput(event, entry, res, label) {
   const failure = failureOf(res);
   if (failure === 'exit 2' && res.code === 2) {
     if (event === 'PreToolUse') return { decision: 'deny', reason: res.stderr.trim() || BLOCKED };
-    return { warning: `${label}: exit 2` };
+    return { warnings: [`${label}: exit 2`] };
   }
   if (failure) {
     if (event === 'PreToolUse' && entry.onFailure === 'block') return { decision: 'deny', reason: `hook failed: ${failure}` };
-    return { warning: `${label}: ${failure}` };
+    return { warnings: [`${label}: ${failure}`] };
   }
   const text = res.stdout.trim();
   if (text === '') return {};
@@ -87,7 +93,7 @@ function interpret(event, entry, res) {
   } catch {}
   if (isObject(parsed)) return readJsonOutput(event, parsed);
   if (PLAIN_TEXT_EVENTS.has(event)) return { context: res.stdout.trimEnd() };
-  return { warning: `${label}: invalid JSON ignored` };
+  return { warnings: [`${label}: invalid JSON ignored`] };
 }
 
 function timeoutMsFor(entry) {
@@ -99,17 +105,17 @@ export async function runHooks(event, input, ctx, deps = {}) {
   if (!HOOK_EVENTS.includes(event)) throw new Error(`unknown hook event: ${event}`);
   const settings = ctx.settings ?? {};
   const warnings = [];
-  const entries = [];
+  const entries = new Map();
   for (const group of settings.hooks?.[event] ?? []) {
     if (!groupMatches(event, group.matcher, input, warnings)) continue;
     for (const entry of group.hooks ?? []) {
-      if (entry?.type === 'command' && typeof entry.command === 'string') entries.push(entry);
+      if (entry?.type === 'command' && typeof entry.command === 'string' && !entries.has(entry.command)) entries.set(entry.command, entry);
     }
   }
   const env = { ...ctx.env, ...settings.env, CLAY_PROJECT_DIR: ctx.cwd };
   const stdin = `${JSON.stringify(input)}\n`;
   const results = await Promise.all(
-    entries.map(async (entry) => {
+    [...entries.values()].map(async (entry) => {
       const res = await runCommand(entry.command, { cwd: ctx.cwd, env, stdin, timeoutMs: timeoutMsFor(entry), signal: ctx.signal }, deps);
       return interpret(event, entry, res);
     }),
@@ -120,7 +126,7 @@ export async function runHooks(event, input, ctx, deps = {}) {
     if (result.context) outcome.additionalContext.push(result.context);
     if (result.decision && !firstReason.has(result.decision)) firstReason.set(result.decision, result.reason ?? null);
     if (result.updatedInput) outcome.updatedInput = result.updatedInput;
-    if (result.warning) warnings.push(result.warning);
+    if (result.warnings) warnings.push(...result.warnings);
   }
   for (const decision of ['deny', 'ask', 'allow']) {
     if (firstReason.has(decision)) {

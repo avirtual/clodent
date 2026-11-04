@@ -1,8 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { runCommand } from '../../src/hooks/command.js';
 import { buildHookInput, runHooks, HOOK_EVENTS } from '../../src/hooks/run.js';
 import { cleanEnv, useTempDir } from '../tools/tmp-dir.js';
 import { entry, group, hookOutput, isGone, script, settingsWith } from './scripts.js';
@@ -75,11 +77,53 @@ test('plain stdout counts as context on UserPromptSubmit and SessionStart, and i
   assert.deepEqual(post.warnings, [`hook PostToolUse "${label(plain)}": invalid JSON ignored`]);
 });
 
-test('stdout is capped at 64 KiB', GUARD, async (t) => {
+test('stdout is capped at 1 MiB with a truncation warning, and stderr at 64 KiB', GUARD, async (t) => {
   const dir = await useTempDir(t);
-  const big = await script(dir, 'big.sh', "head -c 100000 /dev/zero | tr '\\0' a");
+  const big = await script(dir, 'big.sh', "head -c 1100000 /dev/zero | tr '\\0' a; head -c 100000 /dev/zero | tr '\\0' b >&2");
   const outcome = await runHooks('UserPromptSubmit', {}, ctxFor(dir, settingsWith({ UserPromptSubmit: [group('', big)] })), deps);
-  assert.equal(outcome.additionalContext[0], 'a'.repeat(65536));
+  assert.equal(outcome.additionalContext[0], 'a'.repeat(1048576));
+  assert.deepEqual(outcome.warnings, [`hook UserPromptSubmit "${label(big)}": stdout over 1 MiB truncated`]);
+  const res = await runCommand(big, { cwd: dir, env: cleanEnv(), stdin: '', timeoutMs: 5000 }, deps);
+  assert.deepEqual([res.stdout.length, res.stderr, res.truncated], [1048576, 'b'.repeat(65536), true]);
+});
+
+test('stdout at exactly 1 MiB is not truncated', GUARD, async (t) => {
+  const dir = await useTempDir(t);
+  const exact = await script(dir, 'exact.sh', "head -c 1048576 /dev/zero | tr '\\0' a");
+  const outcome = await runHooks('UserPromptSubmit', {}, ctxFor(dir, settingsWith({ UserPromptSubmit: [group('', exact)] })), deps);
+  assert.equal(outcome.additionalContext[0].length, 1048576);
+  assert.deepEqual(outcome.warnings, []);
+});
+
+test('identical commands in one firing run once, their result at the first config position', GUARD, async (t) => {
+  const dir = await useTempDir(t);
+  const log = join(dir, 'runs.log');
+  const counted = await script(dir, 'counted.sh', `echo run >> ${JSON.stringify(log)}\n${hookOutput({ hookEventName: 'PostToolUse', additionalContext: 'counted' })}`);
+  const other = await script(dir, 'other.sh', hookOutput({ hookEventName: 'PostToolUse', additionalContext: 'other' }));
+  const settings = settingsWith({ PostToolUse: [group('', counted, other), group('Bash', counted)] });
+  const outcome = await runHooks('PostToolUse', { tool_name: 'Bash' }, ctxFor(dir, settings), deps);
+  assert.deepEqual(outcome.additionalContext, ['counted', 'other']);
+  assert.equal(readFileSync(log, 'utf8'), 'run\n');
+});
+
+test('a hook that ignores SIGTERM is SIGKILLed after the grace period, with its children', GUARD, async (t) => {
+  const dir = await useTempDir(t);
+  let sleepPid = null;
+  const tap = (...args) => {
+    const child = spawn(...args);
+    child.stdout.once('data', (chunk) => {
+      sleepPid = Number(String(chunk).trim());
+    });
+    return child;
+  };
+  const command = "trap '' TERM; sleep 5 & echo $!; wait";
+  const settings = settingsWith({ Stop: [group('', entry(command, { timeout: 1 }))] });
+  const started = Date.now();
+  const outcome = await runHooks('Stop', {}, ctxFor(dir, settings), { spawn: tap, killGraceMs: 200 });
+  assert.ok(Date.now() - started < 2000, `took ${Date.now() - started} ms`);
+  assert.ok(sleepPid > 0, String(sleepPid));
+  assert.equal(isGone(sleepPid), true);
+  assert.deepEqual(outcome.warnings, [`hook Stop "${label(command)}": timeout`]);
 });
 
 test('permissionDecision deny carries its reason', GUARD, async (t) => {
@@ -144,7 +188,8 @@ test('a spawn error is a failure that onFailure block turns into a deny', GUARD,
 test('a timeout kills the hook within the timeout plus grace', GUARD, async (t) => {
   const dir = await useTempDir(t);
   const slow = await script(dir, 'slow.sh', 'sleep 5');
-  const settings = settingsWith({ PreToolUse: [group('', entry(slow, { timeout: 1 }), entry(slow, { timeout: 1, onFailure: 'block' }))] });
+  const blocking = await script(dir, 'blocking.sh', 'sleep 5');
+  const settings = settingsWith({ PreToolUse: [group('', entry(slow, { timeout: 1 }), entry(blocking, { timeout: 1, onFailure: 'block' }))] });
   const started = Date.now();
   const outcome = await runHooks('PreToolUse', { tool_name: 'Bash' }, ctxFor(dir, settings), deps);
   assert.ok(Date.now() - started < 4000, `took ${Date.now() - started} ms`);

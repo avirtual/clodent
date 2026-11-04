@@ -15,7 +15,7 @@ export function openSession({ sessionId, resume, forkSession, home, cwd, version
   const where = { home, cwd, version };
   if (resume === undefined) {
     const id = sessionId ?? deps.uuid();
-    if (sessionId !== undefined && deps.existsSync(transcriptPath(home, cwd, id))) {
+    if (sessionId !== undefined && findTranscript(home, cwd, id, deps) !== null) {
       return fail(`session ${id} already exists; use --resume`);
     }
     const { path, transcript } = fresh(id, where, deps);
@@ -32,7 +32,7 @@ export function openSession({ sessionId, resume, forkSession, home, cwd, version
   const base = { ok: true, history: loaded.history, interrupted: loaded.interruptedLast, warnings: loaded.warnings };
   if (forkSession) {
     const id = sessionId ?? deps.uuid();
-    if (sessionId !== undefined && (id === resume || deps.existsSync(transcriptPath(home, cwd, id)))) {
+    if (sessionId !== undefined && (id === resume || findTranscript(home, cwd, id, deps) !== null)) {
       return fail(`session ${id} already exists; use --resume`);
     }
     const { path, transcript } = fresh(id, where, deps);

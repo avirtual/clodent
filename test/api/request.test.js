@@ -44,6 +44,16 @@ test('url is the Messages API endpoint', () => {
   assert.equal(API_URL, 'https://api.anthropic.com/v1/messages');
 });
 
+test('baseUrl replaces the origin, trailing slashes dropped, and leaves the headers alone', () => {
+  const plain = buildRequest(base(), deps);
+  for (const [baseUrl, url] of [['http://127.0.0.1:8787', 'http://127.0.0.1:8787/v1/messages'], ['https://proxy.example/seat/x//', 'https://proxy.example/seat/x/v1/messages']]) {
+    const req = buildRequest({ ...base(), baseUrl }, deps);
+    assert.equal(req.url, url);
+    assert.deepEqual(req.headers, plain.headers);
+    assert.deepEqual(req.body, plain.body);
+  }
+});
+
 test('headers are exactly key, version, content type and clay user agent', () => {
   const { headers } = buildRequest(base(), deps);
   assert.deepEqual(headers, {

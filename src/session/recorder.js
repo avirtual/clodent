@@ -10,6 +10,7 @@ function messageRecord({ role, content, kind, meta }) {
 
 export function createRecorder(transcript, { now }) {
   const toolNames = new Map();
+  const toolInputs = new Map();
   let turnStart = null;
   let messageCount = 0;
 
@@ -21,16 +22,23 @@ export function createRecorder(transcript, { now }) {
   const handlers = {
     tool_use(event) {
       toolNames.set(event.id, event.name);
+      toolInputs.set(event.id, event.input);
     },
     message_append(event) {
       if (event.kind === 'prompt' && turnStart === null) turnStart = now();
       const record = messageRecord(event);
       for (const block of event.content) {
-        if (block.type === 'tool_use') toolNames.set(block.id, block.name);
+        if (block.type !== 'tool_use') continue;
+        toolNames.set(block.id, block.name);
+        toolInputs.set(block.id, block.input);
       }
       if (event.kind === 'tool_results') {
         const [first] = event.content;
-        record.toolUseResult = { name: toolNames.get(first.tool_use_id) ?? null, isError: first.is_error === true };
+        record.toolUseResult = {
+          name: toolNames.get(first.tool_use_id) ?? null,
+          isError: first.is_error === true,
+          input: toolInputs.get(first.tool_use_id) ?? null,
+        };
       }
       append(record);
     },

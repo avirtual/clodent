@@ -1,6 +1,7 @@
 import { ApiError } from '../api/errors.js';
 import { buildRequest } from '../api/request.js';
 import { streamMessage } from '../api/stream.js';
+import { emptyOutcome, hookContextBlock, NO_HOOKS } from '../hooks/fire.js';
 import { appendMessage } from './history.js';
 import { decide } from './permission.js';
 
@@ -8,6 +9,7 @@ export const INTERRUPT_MARKER = '[clay: previous turn interrupted by the user]';
 export const INTERRUPTED_RESULT = 'interrupted by user';
 export const MID_STREAM_DELAYS_MS = Object.freeze([2000, 4000]);
 const MID_STREAM_RETRYABLE = new Set(['overloaded_error', 'api_error']);
+const ALLOWED = Object.freeze({ allow: true });
 
 function isMidStreamRetryable(err) {
   return err instanceof ApiError && err.status === null && MID_STREAM_RETRYABLE.has(err.type);
@@ -22,13 +24,15 @@ function resultBlock({ id, content, isError }) {
 }
 
 export function createAgent(config, deps) {
-  const { model, effort, system, permission } = config;
+  const { model, effort, system, permission, baseUrl } = config;
   const tools = config.tools ?? [];
   const { emit, ledger, now } = deps;
+  const hooks = deps.hooks ?? NO_HOOKS;
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
   const definitions = tools.map(definition);
   const history = structuredClone(config.history ?? []);
   let interruptedBefore = config.interrupted ?? false;
+  let heldContext = [];
 
   emit({ type: 'session_start', model, cwd: deps.cwd, tools: tools.map((tool) => tool.name), permission });
 
@@ -37,19 +41,32 @@ export function createAgent(config, deps) {
     emit({ type: 'message_append', role, content: blocks, kind, meta });
   }
 
-  function addUserText(text) {
+  async function fireHook(event, extra, signal) {
+    if (signal?.aborted) return emptyOutcome();
+    const outcome = await hooks.fire(event, extra, signal);
+    for (const message of outcome.warnings) emit({ type: 'warning', message });
+    return outcome;
+  }
+
+  function addUserText(text, submitContext) {
     const blocks = interruptedBefore ? [{ type: 'text', text: INTERRUPT_MARKER }] : [];
     interruptedBefore = false;
+    const held = hookContextBlock('SessionStart', heldContext);
+    heldContext = [];
+    if (held) blocks.push(held);
     blocks.push({ type: 'text', text });
+    const submitted = hookContextBlock('UserPromptSubmit', submitContext);
+    if (submitted) blocks.push(submitted);
     append('user', blocks, 'prompt');
   }
 
-  function finish(stopReason, ok) {
+  async function finish(stopReason, ok) {
     emit({ type: 'turn_end', stopReason, turn: ledger.endTurn() });
+    await fireHook('Stop', { stop_hook_active: false });
     return { stopReason, ok };
   }
 
-  function interrupt(partial) {
+  async function interrupt(partial) {
     if (partial.length > 0) append('assistant', partial.map((block) => ({ ...block })), 'partial');
     interruptedBefore = true;
     emit({ type: 'interrupted' });
@@ -57,7 +74,7 @@ export function createAgent(config, deps) {
   }
 
   async function request(signal, partial) {
-    const req = buildRequest({ model, system, tools: definitions, messages: history, effort }, { env: deps.env });
+    const req = buildRequest({ model, system, tools: definitions, messages: history, effort, baseUrl }, { env: deps.env });
     const streamDeps = { fetch: deps.fetch, sleep: deps.sleep, random: deps.random, now, signal };
     const handlers = {
       onText: (text, index) => emit({ type: 'text_delta', text, index }),
@@ -81,8 +98,14 @@ export function createAgent(config, deps) {
     }
   }
 
-  async function execute(tool, use, signal) {
-    const verdict = decide(tool, use.input, permission);
+  function verdictFor(tool, input, pre) {
+    if (pre.decision === 'deny') return { allow: false, reason: pre.reason };
+    if (pre.decision === 'allow' && permission === 'ask') return ALLOWED;
+    return decide(tool, input, permission);
+  }
+
+  async function execute(tool, use, input, pre, signal) {
+    const verdict = verdictFor(tool, input, pre);
     emit({
       type: 'permission',
       id: use.id,
@@ -90,47 +113,70 @@ export function createAgent(config, deps) {
       decision: verdict.allow ? 'allow' : 'deny',
       ...(verdict.allow ? {} : { reason: verdict.reason }),
     });
-    if (!verdict.allow) return { content: verdict.reason, isError: true };
+    if (!verdict.allow) return { content: verdict.reason, isError: true, ran: false };
     try {
-      return await tool.run(use.input, { cwd: deps.cwd, env: deps.env, signal });
+      const outcome = await tool.run(input, { cwd: deps.cwd, env: deps.env, signal });
+      return { content: outcome.content, isError: outcome.isError, ran: true };
     } catch (err) {
-      return { content: `${use.name} failed: ${err?.message ?? err}`, isError: true };
+      return { content: `${use.name} failed: ${err?.message ?? err}`, isError: true, ran: true };
     }
   }
 
-  function announce(use) {
+  function announce(use, input = use.input) {
     const tool = byName.get(use.name);
-    emit({ type: 'tool_use', id: use.id, name: use.name, input: use.input, summary: tool?.summary?.(use.input) ?? '' });
-    return tool;
+    emit({ type: 'tool_use', id: use.id, name: use.name, input, summary: tool?.summary?.(input) ?? '' });
   }
 
-  async function runTool(use, signal) {
-    const tool = announce(use);
-    const started = now();
-    const outcome = tool
-      ? await execute(tool, use, signal)
-      : { content: `unknown tool ${use.name}`, isError: true };
-    const result = { id: use.id, name: use.name, content: outcome.content, isError: outcome.isError, durationMs: now() - started };
+  function toolResult(use, outcome, durationMs) {
+    const result = { id: use.id, name: use.name, content: outcome.content, isError: outcome.isError, durationMs };
     emit({ type: 'tool_result', ...result });
+    return result;
+  }
+
+  async function runTool(use, signal, post) {
+    const tool = byName.get(use.name);
+    if (!tool) {
+      announce(use);
+      return toolResult(use, { content: `unknown tool ${use.name}`, isError: true }, 0);
+    }
+    const fields = { tool_name: use.name, tool_input: use.input, tool_use_id: use.id };
+    const pre = await fireHook('PreToolUse', fields, signal);
+    const input = pre.updatedInput ?? use.input;
+    announce(use, input);
+    if (signal?.aborted) return toolResult(use, { content: INTERRUPTED_RESULT, isError: true }, 0);
+    const started = now();
+    const outcome = await execute(tool, use, input, pre, signal);
+    const result = toolResult(use, outcome, now() - started);
+    if (outcome.ran) {
+      const event = outcome.isError ? 'PostToolUseFailure' : 'PostToolUse';
+      const tool_response = { content: outcome.content, isError: outcome.isError };
+      const extra = outcome.isError ? { error: outcome.content } : {};
+      const after = await fireHook(event, { ...fields, tool_input: input, tool_response, ...extra }, signal);
+      post[event].push(...after.additionalContext);
+    }
     return result;
   }
 
   async function runTools(uses, signal) {
     const results = [];
+    const post = { PostToolUse: [], PostToolUseFailure: [] };
     for (const use of uses) {
       if (signal?.aborted) break;
-      results.push(await runTool(use, signal));
+      results.push(await runTool(use, signal, post));
     }
     results.push(...notRun(uses.slice(results.length)));
-    append('user', results.map(resultBlock), 'tool_results');
+    const blocks = results.map(resultBlock);
+    for (const [event, texts] of Object.entries(post)) {
+      const block = hookContextBlock(event, texts);
+      if (block) blocks.push(block);
+    }
+    append('user', blocks, 'tool_results');
   }
 
   function notRun(uses) {
     return uses.map((use) => {
       announce(use);
-      const result = { id: use.id, name: use.name, content: INTERRUPTED_RESULT, isError: true, durationMs: 0 };
-      emit({ type: 'tool_result', ...result });
-      return result;
+      return toolResult(use, { content: INTERRUPTED_RESULT, isError: true }, 0);
     });
   }
 
@@ -144,7 +190,8 @@ export function createAgent(config, deps) {
 
   async function runTurn(userText, { signal } = {}) {
     closeDanglingUses();
-    addUserText(userText);
+    const submit = await fireHook('UserPromptSubmit', { prompt: userText }, signal);
+    addUserText(userText, submit.additionalContext);
     const partial = [];
     try {
       for (;;) {
@@ -194,6 +241,14 @@ export function createAgent(config, deps) {
 
   return {
     runTurn,
+    async fireSessionStart(source, { signal } = {}) {
+      const outcome = await fireHook('SessionStart', { source }, signal);
+      heldContext.push(...outcome.additionalContext);
+      return outcome;
+    },
+    fireNotification(fields, { signal } = {}) {
+      return fireHook('Notification', fields, signal);
+    },
     messages: () => structuredClone(history),
     endSession() {
       const session = ledger.session();

@@ -39,7 +39,7 @@ function checkBudget(raw) {
 }
 
 function checkUuid(raw) {
-  if (UUID.test(raw)) return { value: raw };
+  if (UUID.test(raw)) return { value: raw.toLowerCase() };
   return { error: `--session-id must be a UUID (8-4-4-4-12 hex digits), got "${raw}"` };
 }
 

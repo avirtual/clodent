@@ -10,6 +10,11 @@ const PACKAGE_VERSION = JSON.parse(
 ).version;
 const SKIP_FOR_CACHE = new Set(['thinking', 'redacted_thinking']);
 
+export function apiUrl(baseUrl) {
+  if (baseUrl === undefined || baseUrl === null) return API_URL;
+  return `${baseUrl.replace(/\/+$/, '')}/v1/messages`;
+}
+
 export function userAgent() {
   return `clay/${PACKAGE_VERSION}`;
 }
@@ -50,7 +55,7 @@ function copyTools(tools) {
 }
 
 export function buildRequest(
-  { model, system, tools = [], messages, effort, maxTokens = DEFAULT_MAX_TOKENS },
+  { model, system, tools = [], messages, effort, maxTokens = DEFAULT_MAX_TOKENS, baseUrl },
   deps,
 ) {
   if (effort !== undefined && effort !== null && !EFFORTS.includes(effort)) {
@@ -74,7 +79,7 @@ export function buildRequest(
   if (effort !== undefined && effort !== null) body.output_config = { effort };
 
   return {
-    url: API_URL,
+    url: apiUrl(baseUrl),
     headers: {
       'x-api-key': apiKey,
       'anthropic-version': API_VERSION,

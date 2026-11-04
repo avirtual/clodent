@@ -1,11 +1,11 @@
-import { spawn as nodeSpawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
+import { KILL_GRACE_MS, runProcess } from '../proc/run.js';
 import { createCapSink } from './cap.js';
 import { checkInput, fail, oneLine } from './util.js';
 
 export const DEFAULT_TIMEOUT_MS = 120000;
 export const MAX_TIMEOUT_MS = 600000;
-export const KILL_GRACE_MS = 2000;
+export { KILL_GRACE_MS };
 
 export function clampTimeout(value) {
   const n = Number(value);
@@ -19,90 +19,37 @@ function trailerFor({ timedOut, timeoutMs, code, signal }) {
   return `[exit ${code}]`;
 }
 
-function execute(command, timeoutMs, ctx, { spawn, killGraceMs, kill }) {
-  return new Promise((done) => {
-    const sink = createCapSink();
-    let lastChar = '\n';
-    const append = (text) => {
-      if (!text) return;
-      sink.push(Buffer.from(text, 'utf8'));
-      lastChar = text.at(-1);
-    };
-    let child;
-    try {
-      child = spawn('bash', ['-c', command], {
-        cwd: ctx.cwd,
-        env: ctx.env,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        detached: true,
-      });
-    } catch (err) {
-      done(fail(`Cannot run bash in ${ctx.cwd}: ${err.message}`));
-      return;
-    }
-    let timedOut = false;
-    let killTimer = null;
-    let settled = false;
-    const killGroup = (signal) => {
-      if (child.pid === undefined) return;
-      try {
-        kill(-child.pid, signal);
-      } catch {}
-    };
-    let exited = false;
-    let graceOver = false;
-    const releasePipes = () => {
-      child.stdout?.destroy();
-      child.stderr?.destroy();
-    };
-    child.on('exit', () => {
-      exited = true;
-      if (graceOver) setImmediate(releasePipes);
-    });
-    const terminate = () => {
-      if (killTimer) return;
-      killGroup('SIGTERM');
-      killTimer = setTimeout(() => {
-        killGroup('SIGKILL');
-        graceOver = true;
-        if (exited) setImmediate(releasePipes);
-      }, killGraceMs);
-      killTimer.unref();
-    };
-    const timer = setTimeout(() => {
-      timedOut = true;
-      terminate();
-    }, timeoutMs);
-    ctx.signal?.addEventListener('abort', terminate, { once: true });
-    const finish = (result) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      ctx.signal?.removeEventListener('abort', terminate);
-      done(result);
-    };
-    for (const stream of [child.stdout, child.stderr]) {
-      const decoder = new StringDecoder('utf8');
-      stream.on('data', (chunk) => append(decoder.write(chunk)));
-      stream.on('end', () => append(decoder.end()));
-    }
-    child.on('error', (err) => {
-      finish(fail(`Cannot run bash in ${ctx.cwd}: ${err.message}`));
-    });
-    child.on('close', (code, signal) => {
-      const status = { timedOut, timeoutMs, code, signal };
-      sink.push(Buffer.from(`${lastChar === '\n' ? '' : '\n'}${trailerFor(status)}`, 'utf8'));
-      finish({ content: sink.text(), isError: timedOut || signal !== null || code !== 0 });
-    });
-  });
+async function execute(command, timeoutMs, ctx, deps) {
+  const sink = createCapSink();
+  let lastChar = '\n';
+  const append = (text) => {
+    if (!text) return;
+    sink.push(Buffer.from(text, 'utf8'));
+    lastChar = text.at(-1);
+  };
+  const decoders = { stdout: new StringDecoder('utf8'), stderr: new StringDecoder('utf8') };
+  const res = await runProcess(
+    command,
+    {
+      cwd: ctx.cwd,
+      env: ctx.env,
+      timeoutMs,
+      signal: ctx.signal,
+      onStdout: (chunk) => append(decoders.stdout.write(chunk)),
+      onStderr: (chunk) => append(decoders.stderr.write(chunk)),
+    },
+    deps,
+  );
+  if (res.error) return fail(`Cannot run bash in ${ctx.cwd}: ${res.error.message}`);
+  append(decoders.stdout.end());
+  append(decoders.stderr.end());
+  const status = { timedOut: res.timedOut, timeoutMs, code: res.code, signal: res.signal };
+  sink.push(Buffer.from(`${lastChar === '\n' ? '' : '\n'}${trailerFor(status)}`, 'utf8'));
+  return { content: sink.text(), isError: res.timedOut || res.signal !== null || res.code !== 0 };
 }
 
 export function createBash(deps = {}) {
-  const options = {
-    spawn: deps.spawn ?? nodeSpawn,
-    kill: deps.kill ?? process.kill.bind(process),
-    killGraceMs: deps.killGraceMs ?? KILL_GRACE_MS,
-  };
+  const options = { spawn: deps.spawn, kill: deps.kill, killGraceMs: deps.killGraceMs };
   return {
     name: 'Bash',
     kind: 'exec',
