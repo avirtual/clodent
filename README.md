@@ -38,6 +38,15 @@ TOTALS: <pass> pass, <fail> fail, <tests> tests
 
 Tests use `node:test` and never call the API; they use `test/helpers/fake-fetch.js`, which serves the SSE fixtures under `test/fixtures/sse/` as real `Response` objects.
 
+### Cloud review
+
+```sh
+scripts/cloud-review.sh v0.4.0 v0.5.0      # review a tag range
+scripts/pre-release-review.sh              # review origin/master's Unreleased section before tagging
+```
+
+Both launch a detached `claude --cloud` session (opus, `scripts/cloud-review-brief.md` is its brief) on the account `claude` is logged into, and a poller (`scripts/cloud-review-post.sh`) that turns its report into one GitHub issue: `Release review <tag>: CLEAN` (opened and closed) or `: <finding>` (left open); `NO REPORT` when nothing lands within two hours. The session pushes its report to `claude/review-<tag>`; logs go to `~/.clodent/logs/`. Needs `gh` authenticated and `script(1)`; set `CLODENT_RELEASE_NO_REVIEW=1` to skip.
+
 ### Live smoke
 
 ```sh
