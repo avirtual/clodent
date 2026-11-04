@@ -7,6 +7,7 @@ import { DEFAULT_MODEL, FLAGS, givenFlags, parseArgs } from './args.js';
 import { createLedger } from './cost/ledger.js';
 import { createHookFirer } from './hooks/fire.js';
 import { createStatusLine } from './hooks/status-line.js';
+import { killPendingGroups } from './proc/run.js';
 import { buildSystemPrompt } from './prompt/system.js';
 import { createRenderer } from './render/terminal.js';
 import { runRepl } from './repl/repl.js';
@@ -287,6 +288,9 @@ export async function main(argv, deps) {
     for (const name of pending) deps.stderr.write(`clay: --${name} is not implemented yet\n`);
     return 2;
   }
-  if (opts.print !== undefined) return runPrint(opts, deps);
-  return runInteractive(opts, deps);
+  try {
+    return await (opts.print !== undefined ? runPrint(opts, deps) : runInteractive(opts, deps));
+  } finally {
+    killPendingGroups();
+  }
 }

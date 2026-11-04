@@ -307,13 +307,13 @@ test('permission ask: [clay:permit] line and Notification hook; y allows, n deni
   repl.stdin.type('write a\r');
   await repl.until(ASK_LINE, 1);
   assert.match(repl.out.text, /\n\[clay:permit Write toolu_1\] a\.txt\nAllow\? \[y\/n\] $/);
+  repl.stdin.type('Y\r');
+  await repl.prompts(2);
   const [notice] = readJsonl(log);
   assert.deepEqual(
     [notice.hook_event_name, notice.notification_type, notice.tool, notice.id, notice.message],
     ['Notification', 'permission', 'Write', 'toolu_1', 'clay needs permission to use Write'],
   );
-  repl.stdin.type('Y\r');
-  await repl.prompts(2);
   assert.equal(readFileSync(join(cwd, 'a.txt'), 'utf8'), 'a.txt');
 
   repl.stdin.type('write b\r');
@@ -339,6 +339,7 @@ test('permission ask: [clay:permit] line and Notification hook; y allows, n deni
   assert.equal(readFileSync(join(cwd, 'c.txt'), 'utf8'), 'c.txt');
   assert.deepEqual(repl.fetch.calls.slice(6, 8).map((call) => userTexts(call.body).at(-1)), ['pasted\nprompt', 'yes please']);
   assert.ok(repl.out.text.includes(`${PASTE_ON}> pasted [+1 lines]\n`));
+  assert.equal(readJsonl(log).length, 3);
 
   repl.stdin.type('write d\r');
   await repl.until(ASK_LINE, 7);
@@ -347,8 +348,27 @@ test('permission ask: [clay:permit] line and Notification hook; y allows, n deni
   assert.equal(existsSync(join(cwd, 'd.txt')), false);
   assert.match(repl.out.text, /^clay: interrupted$/m);
   assert.equal(repl.fetch.calls.length, 9);
-  assert.equal(readJsonl(log).length, 4);
   assertCleanExit(repl, await exitWith(repl, '\x04'));
+});
+
+test('permission ask: a y typed while the Notification hook still runs answers the ask and never reaches the model', GUARD, async (t) => {
+  const { home, cwd, dir } = await dirs(t);
+  const release = join(dir, 'release');
+  const hook = await script(dir, 'notify.sh', `cat > /dev/null; for i in $(seq 500); do [ -e ${JSON.stringify(release)} ] && exit 0; sleep 0.01; done`);
+  const settings = writeSettings(dir, { hooks: { Notification: [hookGroup('', hook)] } });
+  const replies = [toolsReply([['Write', { file_path: 'a.txt', content: 'a' }]]), textReply('done')];
+  const repl = startRepl(['--settings', settings], { home, cwd, replies });
+  await repl.prompts(1);
+
+  repl.stdin.type('write a\r');
+  await repl.until('[clay:permit Write toolu_1]');
+  assert.match(repl.out.text, /\n\[clay:permit Write toolu_1\] a\.txt\nAllow\? \[y\/n\] $/);
+  repl.stdin.type('y\r');
+  writeFileSync(release, '');
+  await repl.prompts(2);
+  assert.equal(readFileSync(join(cwd, 'a.txt'), 'utf8'), 'a');
+  assertCleanExit(repl, await exitWith(repl, '\x04'));
+  assert.equal(repl.fetch.calls.length, 2);
 });
 
 test('--yolo and --read-only never ask; stdin end during an ask denies with "denied: input closed"', GUARD, async (t) => {

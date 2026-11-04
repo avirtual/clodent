@@ -63,12 +63,13 @@ test('-p fires SessionStart, UserPromptSubmit, PreToolUse, PostToolUse and Stop 
   assert.equal(records.at(-1).subtype, 'turn_duration');
 });
 
-test('permission_mode maps ask to default and --read-only to plan', GUARD, async (t) => {
+test('permission_mode maps ask to default, --read-only to plan and --yolo to bypassPermissions', GUARD, async (t) => {
   const { home, cwd, dir, log, logger } = await setup(t);
   const settings = writeSettings(dir, { hooks: { SessionStart: [hookGroup('', logger)] } });
   await runMain(['-p', 'a', '--settings', settings], { home, cwd, responses: [textReply('one')] });
   await runMain(['-p', 'b', '--read-only', '--settings', settings], { home, cwd, responses: [textReply('two')] });
-  assert.deepEqual(readJsonl(log).map((input) => input.permission_mode), ['default', 'plan']);
+  await runMain(['-p', 'c', '--yolo', '--settings', settings], { home, cwd, responses: [textReply('three')] });
+  assert.deepEqual(readJsonl(log).map((input) => input.permission_mode), ['default', 'plan', 'bypassPermissions']);
 });
 
 test('SessionStart context goes before the prompt in the first request and the transcript; UserPromptSubmit context goes after it', GUARD, async (t) => {
@@ -229,4 +230,16 @@ test('statusLine gets the request usage, window, cost and ids after each request
   assert.ok(costs[0] > 0);
   assert.ok(Math.abs(lines[0].cost.total_cost_usd - costs[0]) < 1e-9);
   assert.ok(Math.abs(lines[1].cost.total_cost_usd - (costs[0] + costs[1])) < 1e-9);
+});
+
+test('PreToolUse and Stop context never reaches the model, in this turn or the next', GUARD, async (t) => {
+  const { home, cwd, dir } = await setup(t);
+  const pre = await contextHook(dir, 'pre.sh', 'PreToolUse', 'pre context');
+  const stop = await contextHook(dir, 'stop.sh', 'Stop', 'stop context');
+  const settings = writeSettings(dir, { hooks: { PreToolUse: [hookGroup('', pre)], Stop: [hookGroup('', stop)] } });
+  const first = await runMain(['-p', 'read it', '--settings', settings], { home, cwd, responses: [toolsReply([['Read', { file_path: 'notes.md' }]]), textReply('done')] });
+  assert.equal(first.code, 0, first.stderr);
+  const next = await runMain(['-p', 'next', '--resume', first.id, '--settings', settings], { home, cwd, responses: [textReply('ok')] });
+  assert.equal(next.code, 0, next.stderr);
+  assert.equal(JSON.stringify([first.calls[1].body.messages, next.calls[0].body.messages]).includes('hook-context'), false);
 });

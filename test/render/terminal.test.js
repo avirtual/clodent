@@ -187,3 +187,39 @@ test('compacted prints the compacted line, then the cost line of the summary req
   render({ type: 'compacted', trigger: 'manual', summary: 'secret summary', preTokens: 1200, postTokens: 45, turn: agg() });
   assert.equal(out.text(), `clay: conversation compacted (1200 → 45 tokens)\n${COST}\n`);
 });
+
+test('a compact on an unpriced model prints the unpriced warning once, before its cost line', () => {
+  const { out, render } = setup('repl');
+  const WARN = '[clay:cost] warning: no price for model x-model; cost not counted';
+  render({ type: 'compacted', trigger: 'manual', summary: 's', preTokens: 1200, postTokens: 45, turn: agg(['x-model']) });
+  render({ type: 'turn_end', stopReason: 'end_turn', turn: agg(['x-model']) });
+  render({ type: 'compacted', trigger: 'manual', summary: 's', preTokens: 50, postTokens: 5, turn: agg(['x-model']) });
+  const lines = out.text().split('\n');
+  assert.deepEqual(lines.slice(0, 3), ['clay: conversation compacted (1200 → 45 tokens)', WARN, COST]);
+  assert.equal(lines.filter((l) => l === WARN).length, 1);
+});
+
+test('repl mode on a TTY colours warnings yellow, errors red and cost lines dim, and leaves the rest plain', () => {
+  const { out, render } = setup('repl', true);
+  render({ type: 'tool_use', id: 't1', name: 'Bash', input: {}, summary: 'ls' });
+  render({ type: 'permission_request', id: 't1', name: 'Bash', input: {}, summary: 'ls' });
+  render({ type: 'warning', message: 'w' });
+  render({ type: 'interrupted' });
+  render({ type: 'budget_stop', result: { ok: false, reason: 'unpriced', model: 'x' } });
+  render({ type: 'error', message: 'e' });
+  render({ type: 'tool_result', id: 't2', name: 'Read', content: 'bad', isError: true });
+  render({ type: 'turn_end', stopReason: 'end_turn', turn: agg(['x-model']) });
+  render({ type: 'session_end', session: agg() });
+  assert.deepEqual(out.text().split('\n').slice(0, -1), [
+    '● Bash ls',
+    '[clay:permit Bash t1] ls',
+    '\x1b[33mclay: w\x1b[0m',
+    '\x1b[33mclay: interrupted\x1b[0m',
+    '\x1b[33m[clay:budget] stopped: model x has no price; --budget needs a priced model\x1b[0m',
+    '\x1b[31mclay: e\x1b[0m',
+    '\x1b[31m  ✗ bad\x1b[0m',
+    '\x1b[33m[clay:cost] warning: no price for model x-model; cost not counted\x1b[0m',
+    `\x1b[2m${COST}\x1b[0m`,
+    `\x1b[2m${TOTAL}\x1b[0m`,
+  ]);
+});

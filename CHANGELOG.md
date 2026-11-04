@@ -2,15 +2,16 @@
 
 ## Unreleased
 
-- `clay --version` and `clay --help`.
-- Cost ledger: per-model price table and the `[clay:cost]` / `[clay:budget]` line formats.
+## 0.1.0 — 2026-11-04
+
+- `clay -p "<prompt>"` runs one turn of the agent loop and prints the final answer; exit 0 when the model ends its turn, 1 on an API error, budget stop or other stop reason, 2 on a startup error, and 130/143/129 on SIGINT/SIGTERM/SIGHUP.
+- Interactive REPL for a PTY host: bracketed paste as one prompt, prompt queueing during a turn, Ctrl-C/Ctrl-D, `/help`, `/cost`, `/model`, `/clear`, `/compact [instructions]` and `/quit`/`/exit`.
+- Flags: `--model`, `--effort`, `--budget`, `--yolo`, `--read-only`, `--session-id`, `--resume`, `--fork-session`, `--settings`, `--add-dir`, `--system-prompt`/`--system-prompt-file`, `--append-system-prompt`/`--append-system-prompt-file`, `--version` and `--help`.
+- Messages API client: streamed SSE with no beta header, `clay/<version>` user agent, adaptive thinking, three cache breakpoints, retries before the first event for 429, 500, 502, 503, 504, 529 and network errors, and up to two re-sends after a mid-stream `overloaded_error` or `api_error`; `ANTHROPIC_BASE_URL` replaces the origin.
+- clay's own system prompt with an environment section, `--add-dir` and settings directories, and AGENTS.md files from the git root down to the working directory.
+- Built-in tools Read, Write, Edit, Bash, Grep and Glob, each result capped at 32 KiB; Grep and Glob respect `.gitignore` and search inside a git-ignored directory when pointed at one.
+- Permissions: the default mode asks before write and exec tools in the REPL (`[clay:permit]` line, `Notification` hook, y/n) and refuses them in `-p`; read-only Bash commands run without asking; `--yolo` asks nothing; `--read-only` refuses write tools and Bash commands that are not read-only.
+- Cost: an exact-id price table, a `[clay:cost]` line per turn, a session total on exit, and `--budget <usd>` with `[clay:budget]` stop lines.
+- Sessions: JSONL transcripts under `$CLAY_HOME/projects/<slug>/`, with `--session-id`, `--resume` and `--fork-session`; a compacted session resumes from its summary.
+- Settings and hooks: `$CLAY_HOME/settings.json` and `--settings` files; `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Notification`, `PreCompact` and `Stop` hooks with context injection and PreToolUse decisions; a `statusLine` command fed the context window and cost.
 - `scripts/live-smoke.js`: opt-in check against the real Messages API (needs `ANTHROPIC_API_KEY`).
-- Command-line parser for the v0.1 flag set; clay's own system prompt with AGENTS.md discovery.
-- Built-in tools Read, Write, Edit, Bash, Grep and Glob; tool results are capped at 32 KiB.
-- Grep and Glob search inside git-ignored directories when pointed at one.
-- `clay -p "<prompt>"` runs the agent loop with tools and prints the final answer; `--model`, `--effort`, `--budget`, `--yolo`, `--read-only`, system-prompt and `--add-dir` flags work.
-- Sessions: JSONL transcripts under `$CLAY_HOME`, `--session-id`, `--resume` and `--fork-session`.
-- Settings files and hooks: `--settings`, `$CLAY_HOME/settings.json`, SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/PostToolUseFailure/Stop hooks with context injection, statusLine, and `ANTHROPIC_BASE_URL`.
-- Interactive REPL: bracketed paste, Ctrl-C/Ctrl-D, /help /cost /model /clear /quit, and a y/n permission ask with a Notification hook.
-- `/compact [instructions]` summarises the conversation into one message; the session stays resumable, and PreCompact and SessionStart (source compact) hooks fire.
-- Read-only Bash commands (an allowlist such as ls, cat, grep, git log/diff/status) run without asking; --read-only refuses only the rest.

@@ -112,9 +112,7 @@ export function createAgent(config, deps) {
     const request = { id: use.id, name: use.name, input, summary: tool.summary?.(input) ?? '' };
     emit({ type: 'permission_request', ...request });
     const notice = { notification_type: 'permission', tool: use.name, id: use.id, message: `clay needs permission to use ${use.name}` };
-    await fireHook('Notification', notice, signal);
-    if (signal?.aborted) return { allow: false, reason: INTERRUPTED_RESULT };
-    const answer = await config.ask(request, signal);
+    const [answer] = await Promise.all([config.ask(request, signal), fireHook('Notification', notice, signal)]);
     if (signal?.aborted) return { allow: false, reason: INTERRUPTED_RESULT };
     return answer?.allow ? ALLOWED : { allow: false, reason: answer?.reason ?? USER_DENIAL };
   }

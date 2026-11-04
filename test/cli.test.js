@@ -57,8 +57,8 @@ const toolReply = (name, input) => ({
 });
 
 test('--version prints the package version and returns 0', async () => {
-  assert.deepEqual(await run(['--version']), { code: 0, stdout: 'clay 0.0.1\n', stderr: '' });
-  assert.deepEqual(await run(['-v']), { code: 0, stdout: 'clay 0.0.1\n', stderr: '' });
+  assert.deepEqual(await run(['--version']), { code: 0, stdout: 'clay 0.1.0\n', stderr: '' });
+  assert.deepEqual(await run(['-v']), { code: 0, stdout: 'clay 0.1.0\n', stderr: '' });
 });
 
 test('--help prints usage and returns 0', async () => {
@@ -83,7 +83,7 @@ test('--help lists every flag with a description and marks the unimplemented one
 
 test('--help and --version win over flags that are not implemented yet', async () => {
   assert.equal((await run(['--yolo', '--help'])).code, 0);
-  assert.equal((await run(['--model', 'x', '--version'])).stdout, 'clay 0.0.1\n');
+  assert.equal((await run(['--model', 'x', '--version'])).stdout, 'clay 0.1.0\n');
 });
 
 test('a parse error prints the error and a pointer to --help, and returns 2', async () => {
@@ -272,7 +272,7 @@ test('bin/clay.js --version runs from any cwd', () => {
   const bin = fileURLToPath(new URL('../bin/clay.js', import.meta.url));
   const res = spawnSync(process.execPath, [bin, '--version'], { cwd: tmpdir(), encoding: 'utf8' });
   assert.equal(res.status, 0, res.stderr);
-  assert.equal(res.stdout, 'clay 0.0.1\n');
+  assert.equal(res.stdout, 'clay 0.1.0\n');
 });
 
 test('bin/clay.js exits 2 on a parse error', () => {
