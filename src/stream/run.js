@@ -3,7 +3,7 @@ import { INTERRUPTED_RESULT, USER_DENIAL } from '../agent/loop.js';
 import { stripModelSuffix } from '../args.js';
 import { CLOSED_DENIAL } from '../repl/repl.js';
 import { parseCommand, runCommand } from '../repl/slash.js';
-import { parseLine } from './input.js';
+import { lineSplitter, parseLine } from './input.js';
 
 const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
@@ -19,7 +19,7 @@ export async function runStream(ctx, deps) {
   let wake = null;
   let ended = false;
   let caught = null;
-  let buffer = '';
+  const lines = lineSplitter({ onLine, warn });
   let turnId = 0;
   let inTurn = false;
   let pendingInterrupt = false;
@@ -38,14 +38,18 @@ export async function runStream(ctx, deps) {
     if (ended) return Promise.resolve({ allow: false, reason: CLOSED_DENIAL });
     const requestId = uuid();
     return new Promise((resolve) => {
-      const onAbort = () => done({ allow: false, reason: INTERRUPTED_RESULT });
+      const onAbort = () => cancel(INTERRUPTED_RESULT);
       const done = (verdict) => {
         signal?.removeEventListener('abort', onAbort);
         asks.delete(requestId);
         resolve(verdict);
       };
+      const cancel = (reason) => {
+        output.controlCancelRequest(requestId);
+        done({ allow: false, reason });
+      };
       signal?.addEventListener('abort', onAbort, { once: true });
-      asks.set(requestId, { request, done });
+      asks.set(requestId, { request, done, cancel });
       output.controlRequest(requestId, {
         subtype: 'can_use_tool',
         tool_name: request.name,
@@ -60,11 +64,7 @@ export async function runStream(ctx, deps) {
 
   function drain() {
     const texts = [];
-    for (let i = 0; i < queue.length; ) {
-      if (queue[i].command) break;
-      if (queue[i].empty || queue[i].turn !== turnId) i++;
-      else texts.push(queue.splice(i, 1)[0].text);
-    }
+    while (queue.length > 0 && !queue[0].command && !queue[0].empty && queue[0].turn === turnId) texts.push(queue.shift().text);
     return texts;
   }
 
@@ -103,7 +103,7 @@ export async function runStream(ctx, deps) {
     const subtype = request?.subtype;
     if (subtype === 'interrupt') {
       output.controlResponse({ subtype: 'success', request_id: requestId });
-      if (running) running.abort();
+      if (running && (!inTurn || output.turnOpen())) running.abort();
       else if (queue.some((entry) => !entry.empty)) pendingInterrupt = true;
     } else if (subtype === 'set_model') {
       setModel(requestId, request.model);
@@ -134,23 +134,14 @@ export async function runStream(ctx, deps) {
   }
 
   function onData(chunk) {
-    buffer += chunk;
-    for (let at = buffer.indexOf('\n'); at !== -1; at = buffer.indexOf('\n')) {
-      const raw = buffer.slice(0, at).replace(/\r$/, '');
-      buffer = buffer.slice(at + 1);
-      onLine(raw);
-    }
+    lines.push(chunk);
   }
 
   function onEnd() {
     if (ended) return;
-    if (buffer !== '') {
-      const rest = buffer;
-      buffer = '';
-      onLine(rest);
-    }
+    lines.end();
     ended = true;
-    for (const pending of [...asks.values()]) pending.done({ allow: false, reason: CLOSED_DENIAL });
+    for (const pending of [...asks.values()]) pending.cancel(CLOSED_DENIAL);
     poke();
   }
 

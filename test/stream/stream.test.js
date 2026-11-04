@@ -1,11 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { closeSync, constants, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ASK_DENIAL } from '../../src/agent/permission.js';
 import { CLOSED_DENIAL } from '../../src/repl/repl.js';
 import { EMPTY_PROMPT } from '../../src/stream/output.js';
 import { hookGroup, runMain, textReply, toolsReply, writeSettings } from '../helpers/run-main.js';
+import { script } from '../hooks/scripts.js';
 import { useTempDir } from '../tools/tmp-dir.js';
 import { kinds, parseRecords, STDIO, startStream, STREAM_ARGV, userLine, UUID } from './harness.js';
 
@@ -136,6 +139,28 @@ test('a user message sent after the last tool result runs as its own turn, in ar
   assert.deepEqual(lastUserTexts(s.fetch.calls[4]), ['C']);
 });
 
+test('a prompt that arrives during a turn waits behind an older waiting prompt instead of joining that turn', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID], { home, cwd });
+  await s.until('system/init');
+  s.stdin.type(`${JSON.stringify(userLine('A'))}\n${JSON.stringify(userLine('B'))}\n`);
+  await s.fetch.called(1);
+  s.send(userLine('C'));
+  s.fetch.push(toolsReply([['Bash', { command: 'echo a' }]]));
+  await s.fetch.called(2);
+  assert.deepEqual(lastUserTexts(s.fetch.calls[1]), []);
+  s.fetch.push(textReply('A done'));
+  await s.fetch.called(3);
+  s.fetch.push(textReply('B done'));
+  await s.fetch.called(4);
+  s.fetch.push(textReply('C done'));
+  await s.until('result', 3);
+  s.close();
+  assert.equal(await s.done, 0);
+  assert.deepEqual(results(s).map((record) => record.result), ['A done', 'B done', 'C done']);
+  assert.deepEqual([lastUserTexts(s.fetch.calls[2]), lastUserTexts(s.fetch.calls[3])], [['B'], ['C']]);
+});
+
 test('two prompts in one stdin chunk while idle run as two turns; the second never joins the first tool result', GUARD, async (t) => {
   const { home, cwd } = await dirs(t);
   const s = startStream([...STREAM_ARGV, '--session-id', UUID], {
@@ -186,6 +211,55 @@ test('a line that is not JSON and a message of unknown type warn on stderr and c
   assert.equal(s.fetch.calls.length, 0);
 });
 
+async function typeByBytes(s, text) {
+  for (let i = 0; i < text.length; i++) {
+    s.stdin.type(text[i]);
+    if (i % 4096 === 4095) await new Promise(setImmediate);
+  }
+}
+
+test('a 1 MiB prompt line typed one byte per chunk parses as one prompt', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID], { home, cwd, replies: [textReply('ok')] });
+  await s.until('system/init');
+  const text = 'y'.repeat(2 ** 20);
+  await typeByBytes(s, `${JSON.stringify(userLine(text))}\n`);
+  await s.until('result');
+  s.close();
+  assert.equal(await s.done, 0);
+  assert.equal(lastUserTexts(s.fetch.calls[0])[0] === text, true);
+});
+
+test('a stdin line over 64 MiB warns and is dropped up to its newline; the next line runs', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID], { home, cwd, replies: [textReply('ok')] });
+  await s.until('system/init');
+  const mib = 'x'.repeat(2 ** 20);
+  for (let i = 0; i < 64; i++) s.stdin.type(mib);
+  s.stdin.type(`x${mib}\n${JSON.stringify(userLine('after'))}\n`);
+  await s.until('result');
+  s.close();
+  assert.equal(await s.done, 0);
+  assert.equal(s.err.text.split('clodent: stdin: ignoring a line over 67108864 bytes\n').length - 1, 1);
+  assert.doesNotMatch(s.err.text, /not JSON/);
+  assert.equal(s.fetch.calls.length, 1);
+  assert.deepEqual(lastUserTexts(s.fetch.calls[0]), ['after']);
+});
+
+test('a control_request or control_response without a string request_id warns and gets no reply', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID, ...STDIO], { home, cwd });
+  s.send({ type: 'control_request', request: { subtype: 'interrupt' } });
+  s.send({ type: 'control_request', request_id: 7, request: { subtype: 'initialize' } });
+  s.send({ type: 'control_response', response: { subtype: 'success', response: { behavior: 'allow' } } });
+  s.close();
+  assert.equal(await s.done, 0);
+  assert.deepEqual(kinds(parseRecords(s.out.text)), ['system/init']);
+  assert.equal(s.err.text.split('clodent: stdin: ignoring a control_request without a string request_id\n').length - 1, 2);
+  assert.match(s.err.text, /^clodent: stdin: ignoring a control_response without a string request_id$/m);
+  assert.doesNotMatch(s.err.text, /no permission request/);
+});
+
 test('stdin EOF during a turn finishes it, then exits 0 with the session total', GUARD, async (t) => {
   const { home, cwd } = await dirs(t);
   const s = startStream([...STREAM_ARGV, '--session-id', UUID], { home, cwd });
@@ -227,6 +301,34 @@ test('an interrupt in the same stdin chunk as an idle prompt interrupts that tur
   const [first, second] = results(s);
   assert.deepEqual([first.is_error, first.stop_reason, first.result], [false, null, '']);
   assert.equal(second.result, 'again done');
+});
+
+test('an interrupt while a finished turn runs its Stop hook interrupts the waiting prompt before its first request', GUARD, async (t) => {
+  const { home, cwd, dir } = await dirs(t);
+  const gate = join(dir, 'gate');
+  execFileSync('mkfifo', [gate]);
+  t.after(() => {
+    try {
+      closeSync(openSync(gate, constants.O_WRONLY | constants.O_NONBLOCK));
+    } catch {}
+  });
+  const once = join(dir, 'stopped');
+  const stop = await script(dir, 'stop.sh', `cat > /dev/null\n[ -e ${JSON.stringify(once)} ] && exit 0\ntouch ${JSON.stringify(once)}\ncat ${JSON.stringify(gate)} > /dev/null`);
+  const settings = writeSettings(dir, { hooks: { Stop: [hookGroup('', stop)] } });
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID, '--settings', settings], { home, cwd, replies: [textReply('first'), textReply('ran')] });
+  s.send(userLine('go'));
+  await s.until('result');
+  s.send(userLine('queued'));
+  s.send({ type: 'control_request', request_id: 'clodex-interrupt-1', request: { subtype: 'interrupt' } });
+  await writeFile(gate, 'open\n');
+  await s.until('result', 2);
+  s.close();
+  assert.equal(await s.done, 0);
+  assert.equal(s.fetch.calls.length, 1);
+  assert.deepEqual(kinds(parseRecords(s.out.text)), ['system/init', 'assistant', 'result', 'control_response', 'user', 'result']);
+  const [first, second] = results(s);
+  assert.equal(first.result, 'first');
+  assert.deepEqual([second.is_error, second.stop_reason, second.result], [false, null, '']);
 });
 
 test('set_model acks and the next request uses the stripped model', GUARD, async (t) => {
@@ -342,7 +444,7 @@ test('without --permission-prompt-tool an ask refuses the call with ASK_DENIAL',
   assert.deepEqual(records[2].message.content[0].content, ASK_DENIAL);
 });
 
-test('an interrupt while a stdio ask waits abandons it: no call, a success result', GUARD, async (t) => {
+test('an interrupt while a stdio ask waits abandons it: a control_cancel_request naming it before the result, no call, a success result', GUARD, async (t) => {
   const { home, cwd } = await dirs(t);
   const s = startStream([...STREAM_ARGV, '--session-id', UUID, ...STDIO], { home, cwd, replies: [toolsReply([['Write', { file_path: 'w.txt', content: 'w' }]])] });
   s.send(userLine('go'));
@@ -353,12 +455,13 @@ test('an interrupt while a stdio ask waits abandons it: no call, a success resul
   s.close();
   assert.equal(await s.done, 0);
   const records = parseRecords(s.out.text);
-  assert.deepEqual(kinds(records), ['system/init', 'assistant', 'control_request', 'control_response', 'user', 'user', 'result']);
+  assert.deepEqual(kinds(records), ['system/init', 'assistant', 'control_request', 'control_response', 'control_cancel_request', 'user', 'user', 'result']);
+  assert.deepEqual(records[4], { type: 'control_cancel_request', request_id: ask.request_id });
   assert.deepEqual([records.at(-1).is_error, records.at(-1).stop_reason, records.at(-1).result], [false, null, '']);
   assert.match(s.err.text, /no permission request "[0-9a-f-]{36}" is waiting; reply ignored/);
 });
 
-test('stdin EOF while a stdio ask waits refuses the call with CLOSED_DENIAL and no permission_denied line', GUARD, async (t) => {
+test('stdin EOF while a stdio ask waits cancels it and refuses the call with CLOSED_DENIAL and no permission_denied line', GUARD, async (t) => {
   const { home, cwd } = await dirs(t);
   const s = startStream([...STREAM_ARGV, '--session-id', UUID, ...STDIO], { home, cwd, replies: [toolsReply([['Write', { file_path: 'w.txt', content: 'w' }]]), textReply('ok')] });
   s.send(userLine('go'));
@@ -366,8 +469,9 @@ test('stdin EOF while a stdio ask waits refuses the call with CLOSED_DENIAL and 
   s.close();
   assert.equal(await s.done, 0);
   const records = parseRecords(s.out.text);
-  assert.deepEqual(kinds(records), ['system/init', 'assistant', 'control_request', 'user', 'assistant', 'result']);
-  const [refused] = records[3].message.content;
+  assert.deepEqual(kinds(records), ['system/init', 'assistant', 'control_request', 'control_cancel_request', 'user', 'assistant', 'result']);
+  assert.deepEqual(records[3], { type: 'control_cancel_request', request_id: records[2].request_id });
+  const [refused] = records[4].message.content;
   assert.deepEqual([refused.content, refused.is_error], [CLOSED_DENIAL, true]);
   assert.equal(results(s)[0].result, 'ok');
 });
