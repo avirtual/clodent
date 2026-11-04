@@ -63,12 +63,13 @@ test('-p fires SessionStart, UserPromptSubmit, PreToolUse, PostToolUse and Stop 
   assert.equal(records.at(-1).subtype, 'turn_duration');
 });
 
-test('permission_mode maps ask to default and --read-only to plan', GUARD, async (t) => {
+test('permission_mode maps ask to default, --read-only to plan and --yolo to bypassPermissions', GUARD, async (t) => {
   const { home, cwd, dir, log, logger } = await setup(t);
   const settings = writeSettings(dir, { hooks: { SessionStart: [hookGroup('', logger)] } });
   await runMain(['-p', 'a', '--settings', settings], { home, cwd, responses: [textReply('one')] });
   await runMain(['-p', 'b', '--read-only', '--settings', settings], { home, cwd, responses: [textReply('two')] });
-  assert.deepEqual(readJsonl(log).map((input) => input.permission_mode), ['default', 'plan']);
+  await runMain(['-p', 'c', '--yolo', '--settings', settings], { home, cwd, responses: [textReply('three')] });
+  assert.deepEqual(readJsonl(log).map((input) => input.permission_mode), ['default', 'plan', 'bypassPermissions']);
 });
 
 test('SessionStart context goes before the prompt in the first request and the transcript; UserPromptSubmit context goes after it', GUARD, async (t) => {
