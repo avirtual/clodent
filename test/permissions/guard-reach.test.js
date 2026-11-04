@@ -81,7 +81,7 @@ test('globs match on disk segment by segment through readdir; a leading dot must
 test('a glob that visits over 10000 entries is uncertain and asks where it could match a rule; readdir is memoised per screen', async () => {
   const names = Array.from({ length: 10_001 }, (_, i) => `d${i}`);
   const big = guardOf({ tree: { ...TREE, '/h': [...TREE['/h'], ...names] } });
-  assert.equal(await ruling(big, 'cat ~/*/id_rsa'), 'ask Read(~/.ssh)');
+  assert.equal(await ruling(big, 'cat ~/.s*/id_rsa'), 'ask Read(~/.ssh)');
   assert.equal(await ruling(big, 'cat ~/notes/*'), null);
   const calls = [];
   const guard = guardOf({ calls });
@@ -212,7 +212,7 @@ test('any other variable, and a relative word after cd $X, is weakly uncertain: 
   assert.equal(await ruling(guard, 'cat "$OLDPWD$X"/id_rsa', '/work', 'yolo'), SSH);
 });
 
-test('an uncertain directory from cd - holds only for the commands after it, or for every word of a loop; a certain one holds for every word', async () => {
+test('an uncertain directory from cd - holds only for the commands after it, or for every word when the command loops or sets a trap; a certain one holds for every word', async () => {
   const guard = guardOf();
   for (const command of ['cd src && make; cd -', 'cd -', 'cat id_rsa; cd -', 'grep -r foo src; cd -']) {
     assert.equal(await ruling(guard, command, '/work', 'yolo'), null, command);
@@ -223,7 +223,16 @@ test('an uncertain directory from cd - holds only for the commands after it, or 
   for (const command of ['for i in 1 2; do cat id_rsa; cd -; done', 'while true; do cat id_rsa; cd -; done', 'until false; do cat id_rsa; cd -; done']) {
     assert.equal(await ruling(guard, command, '/work', 'yolo'), SSH, command);
   }
+  assert.equal(await ruling(guard, "trap 'cat id_rsa' EXIT; cd -", '/work', 'yolo'), SSH);
   assert.equal(await ruling(guard, 'cat .ssh/id_rsa; cd ~'), SSH);
+});
+
+test('after cd -, a command name without a / and an option word are not resolved against the unknown directory; an operand still is', async () => {
+  const guard = guardOf();
+  for (const command of ['cd - && make', 'cd - && ls -la', 'cd - && if true; then make; fi']) {
+    assert.equal(await ruling(guard, command, '/work', 'yolo'), null, command);
+  }
+  for (const command of ['cd - && cat id_rsa', 'cd - && git status', 'cd - && ./run']) assert.equal(await ruling(guard, command, '/work', 'yolo'), SSH, command);
 });
 
 test('${NAME<op>…} takes its name from the leading identifier, and the word after :-, := or :+ is also a candidate', async () => {
@@ -238,4 +247,85 @@ test('${NAME<op>…} takes its name from the leading identifier, and the word af
 
 test('a cd inside a $(…) within double quotes moves the words after it in that substitution', async () => {
   assert.equal(await ruling(guardOf(), 'echo "$(cd ~; cat .ssh/id_rsa)"'), SSH);
+});
+
+test('the reach pass reads ${…} as the precise pass does, so a # inside one comments nothing out', async () => {
+  const guard = guardOf();
+  assert.equal(await ruling(guard, 'echo ${x:- #}; cat ~/.ss?/id_rsa'), SSH);
+  assert.equal(await ruling(guard, 'echo ${x:- #}; grep -r KEY ~', '/work', 'yolo'), SSH);
+  assert.equal(await ruling(guard, 'echo $\\\n{x:- #}; cat ~/.ss?/id_rsa'), SSH);
+});
+
+test('a recursive search behind env, nice, nohup, timeout, stdbuf or xargs and their options asks, and is denied under --yolo', async () => {
+  const guard = guardOf();
+  const wrapped = [
+    'timeout 10 grep -r KEY ~',
+    'nice rg KEY ~',
+    'env grep -r KEY ~',
+    'xargs grep -r KEY ~',
+    'nice -n 10 timeout -s KILL 5 grep -r KEY ~',
+    'env -u X A=1 /usr/bin/grep -r KEY ~',
+    'stdbuf -oL nohup grep -r KEY ~',
+    'xargs -0 -n 1 grep -r KEY ~',
+    'timeout --kill-after 5 10 rg KEY ~',
+  ];
+  for (const command of wrapped) {
+    assert.equal(await ruling(guard, command), 'ask Read(~/.ssh)', command);
+    assert.equal(await ruling(guard, command, '/work', 'yolo'), SSH, command);
+  }
+  for (const command of ['timeout 10 grep -r foo src', 'env grep KEY ~/notes/a.txt']) assert.equal(await ruling(guard, command, '/work', 'yolo'), null, command);
+});
+
+test('cd targets resolve again against every directory a cd in a loop adds, and an in-command CDPATH makes a later cd target weakly uncertain', async () => {
+  const guard = guardOf({ deny: ['Read(~/.ssh/id_rsa)'] });
+  for (const cwd of [HOME, '/work']) {
+    assert.equal(await ruling(guard, 'for i in 1 2; do cd .ssh; cat id_rsa; cd ~; done', cwd), 'deny Read(~/.ssh/id_rsa)', cwd);
+  }
+  const plain = guardOf();
+  for (const command of ['cd src && cat a.js', 'for d in a b; do cd src; cat a.js; cd ..; done']) assert.equal(await ruling(plain, command, '/work', 'yolo'), null, command);
+  for (const command of ['CDPATH=/x cd y && cat id_rsa', 'export CDPATH=/x; cd y; cat id_rsa']) {
+    assert.equal(await ruling(plain, command), 'ask Read(~/.ssh)', command);
+    assert.equal(await ruling(plain, command, '/work', 'yolo'), 'ask Read(~/.ssh)', command);
+  }
+  for (const command of ['CDPATH=/x cd ./y && cat id_rsa', 'cd y && cat id_rsa; CDPATH=/x']) assert.equal(await ruling(plain, command), null, command);
+});
+
+test('only a cd inside a loop resolves out of order, against the directories added before its done, and a repeat adds only a directory that exists', async () => {
+  const plain = guardOf();
+  const ordered = ["trap 'rm -f x' EXIT; cd src; make; cd ../docs; make", 'cd backend && npm test; cd ../frontend && npm test; for f in dist/*; do make; done'];
+  for (const command of [...ordered, 'for i in 1 2 3; do cd server; npm test; cd ../client; npm test; cd ..; done']) {
+    assert.equal(await ruling(plain, command, '/work', 'yolo'), null, command);
+  }
+  assert.equal(await ruling(plain, 'cd backend && npm test; cd ../frontend && npm test; for f in dist/*; do echo $f; done', '/work', 'yolo'), 'ask Read(~/.ssh)');
+  const key = guardOf({ deny: ['Read(~/.ssh/id_rsa)'] });
+  for (const command of ['for i in 1 2; do cat id_rsa; cd .ssh; done; cd ~', 'for i in 1 2; do cat id_rsa; cd .ssh; done; while true; do cd ~; break; done']) {
+    assert.equal(await ruling(key, command, '/work', 'yolo'), null, command);
+  }
+  for (const command of ['while cd .ssh; do cat id_rsa; cd ~; done', 'for a in 1; do for b in 1; do cd .ssh; done; cat id_rsa; cd ~; done']) {
+    assert.equal(await ruling(key, command, '/work', 'yolo'), 'deny Read(~/.ssh/id_rsa)', command);
+  }
+});
+
+test('a glob part not starting with . matches no dot-name, on disk or past the visit cap, unless the command sets dotglob or GLOBIGNORE', async () => {
+  const guard = guardOf();
+  assert.equal(await ruling(guard, 'cat ~/*/id_rsa'), null);
+  for (const command of ['shopt -s dotglob; cat ~/*/id_rsa', 'GLOBIGNORE=x; cat ~/*/id_rsa', 'cat ~/?ss?/id_rsa; shopt -s nullglob dotglob']) {
+    assert.equal(await ruling(guard, command), SSH, command);
+  }
+  const names = Array.from({ length: 10_001 }, (_, i) => `d${i}`);
+  const big = guardOf({ tree: { ...TREE, '/h': [...TREE['/h'], ...names] } });
+  for (const command of ['cat ~/*/id_rsa', 'cat ~/[.]ssh/id_rsa', 'grep -r x ~/*']) assert.equal(await ruling(big, command, '/work', 'yolo'), null, command);
+  assert.equal(await ruling(big, 'shopt -s dotglob; cat ~/*/id_rsa'), 'ask Read(~/.ssh)');
+  assert.equal(await ruling(big, 'shopt -s dotglob; cat ~/*/id_rsa', '/work', 'yolo'), SSH);
+});
+
+test('a raw \\0 or \\x01 in a word is text, never the guard\'s own uncertain marker', async () => {
+  const guard = guardOf();
+  assert.equal(await ruling(guard, "cat ~/.ss[[:alpha:]$'\\x01']/id_rsa", '/work', 'yolo'), SSH);
+  assert.equal(await ruling(guard, "cat ~/.ss$'\\x01'*/id_rsa"), null);
+  assert.equal(await ruling(guard, 'cat ~/.s\u0000', '/work', 'yolo'), null);
+  const names = Array.from({ length: 10_001 }, (_, i) => `d${i}`);
+  const big = guardOf({ tree: { ...TREE, '/h': [...TREE['/h'], ...names] } });
+  assert.equal(await ruling(big, "cat ~/.s*/id_rsa$'\\x01'", '/work', 'yolo'), SSH);
+  assert.equal(await ruling(big, 'cat ~/.s*/id_rsa\u0001', '/work', 'yolo'), SSH);
 });
