@@ -63,6 +63,7 @@ function baseUrlFrom(env) {
     return { ok: false };
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return { ok: false };
+  if (url.username !== '' || url.password !== '') return { ok: false, error: 'ANTHROPIC_BASE_URL: credentials in the URL are not supported' };
   return { ok: true, baseUrl: raw };
 }
 
@@ -150,7 +151,7 @@ async function prepare(opts, deps) {
   if (opts.print === '' && opts.inputFormat !== 'stream-json') return fail('-p needs a non-empty prompt');
   if (!env.ANTHROPIC_API_KEY) return fail('ANTHROPIC_API_KEY is not set');
   const base = baseUrlFrom(env);
-  if (!base.ok) return fail('invalid ANTHROPIC_BASE_URL');
+  if (!base.ok) return fail(base.error ?? 'invalid ANTHROPIC_BASE_URL');
   const model = opts.model ?? settings.model ?? DEFAULT_MODEL;
   const addDirs = extraDirs(opts, settings, cwd);
   const scope = { dirs: addDirs, protect: hookPaths(settings, { cwd, env, home: rulesHome }) };

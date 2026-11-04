@@ -152,6 +152,16 @@ test('four network errors give up as ApiError network_error with the cause', asy
   assert.equal(fetch.calls.length, 4);
 });
 
+test('a network error message shows a URL without its user name and password', async () => {
+  const cause = new TypeError('Request cannot be constructed from a URL that includes credentials: https://u:FAKEPW@h/v1/messages');
+  const { deps } = setup([{ error: cause }, { error: cause }, { error: cause }, { error: cause }]);
+  await assert.rejects(streamMessage(request, deps), (err) => {
+    assert.equal(err.message, 'Request cannot be constructed from a URL that includes credentials: https://h/v1/messages');
+    assert.doesNotMatch(err.message, /FAKEPW/);
+    return true;
+  });
+});
+
 test('a body read error before the first event is retried; after it, it is not', async () => {
   const early = setup([{ body: [new TypeError('terminated')] }, { body: 'text-only.sse' }]);
   await streamMessage(request, early.deps);

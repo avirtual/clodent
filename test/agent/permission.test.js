@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { ASK_DENIAL, decide, hookPaths } from '../../src/agent/permission.js';
+import { runHooks } from '../../src/hooks/run.js';
+import { cleanEnv, useTempDir } from '../tools/tmp-dir.js';
 
 const tool = (name, kind) => ({ name, kind });
 const READ = tool('Read', 'read');
@@ -85,15 +88,53 @@ const HOOKED = {
 const SCOPE = { dirs: ['/extra'], protect: hookPaths(HOOKED, { cwd: '/work', env: {}, home: '/home/u' }) };
 const ASKED = { allow: false, ask: true, reason: ASK_DENIAL };
 
-test('hookPaths keeps the path words of every hook and statusLine command, expanded as the hook runner expands them', () => {
-  assert.deepEqual(hookPaths(HOOKED, { cwd: '/work', env: {}, home: '/home/u' }), ['/work/scripts/pre.sh', '/home/u/bin/status.sh']);
+test('hookPaths keeps every word of every hook and statusLine command, expanded as the hook runner expands them', () => {
+  assert.deepEqual(hookPaths(HOOKED, { cwd: '/work', env: {}, home: '/home/u' }), ['/work/bash', '/work/scripts/pre.sh', '/home/u/bin/status.sh']);
   const forms = { hooks: { Stop: [{ matcher: '', hooks: [{ type: 'command', command: 'sh ${HOME}/a.sh $CLAUDE_PROJECT_DIR/b.sh ${CLODENT_PROJECT_DIR}/c.sh $HOMER/d.sh' }] }] } };
   assert.deepEqual(hookPaths(forms, { cwd: '/work', env: { HOME: '/home/v', CLAUDE_PROJECT_DIR: '/proj' }, home: '/home/u' }), [
+    '/work/sh',
     '/home/v/a.sh',
     '/proj/b.sh',
     '/work/c.sh',
     '/work/$HOMER/d.sh',
   ]);
+});
+
+const stopHook = (command, extra = {}) => ({ hooks: { Stop: [{ matcher: '', hooks: [{ type: 'command', command }] }] }, ...extra });
+
+test('hookPaths expands $HOME from the env the hook runs with: settings env on top, and unset when envDeny names it', async (t) => {
+  const env = cleanEnv({ HOME: '/home/u-FAKE' });
+  assert.deepEqual(hookPaths(stopHook('$HOME/x.sh ~/y.sh', { envDeny: ['HOME'] }), { cwd: '/work', env, home: '/home/u-FAKE' }), ['/x.sh', '/home/u-FAKE/y.sh']);
+  assert.deepEqual(hookPaths(stopHook('$HOME/x.sh ~/y.sh', { env: { HOME: '/home/s' } }), { cwd: '/work', env, home: '/home/u-FAKE' }), ['/home/s/x.sh', '/home/s/y.sh']);
+  const cwd = await useTempDir(t);
+  const settings = { hooks: { UserPromptSubmit: [{ matcher: '', hooks: [{ type: 'command', command: 'printf %s "$HOME/x.sh"' }] }] }, env: {}, envDeny: ['HOME'] };
+  const ran = await runHooks('UserPromptSubmit', {}, { settings, cwd, env }, { spawn });
+  assert.deepEqual(ran.additionalContext, ['/x.sh']);
+  assert.ok(hookPaths(settings, { cwd, env, home: '/home/u-FAKE' }).includes('/x.sh'));
+});
+
+test('accept-edits asks for a Write to any word of a hook command resolved against the cwd', () => {
+  const scope = { dirs: [], protect: hookPaths(stopHook('bash pre.sh'), { cwd: '/work', env: {}, home: '/home/u' }) };
+  for (const file_path of ['/work/pre.sh', 'pre.sh']) {
+    assert.deepEqual(decide(WRITE, { file_path }, 'accept-edits', '/work', scope), ASKED, file_path);
+  }
+  assert.deepEqual(decide(WRITE, { file_path: '/work/other.js' }, 'accept-edits', '/work', scope), { allow: true });
+});
+
+test('hookPaths expands $PWD and ${PWD} to the cwd', () => {
+  const scope = { dirs: [], protect: hookPaths(stopHook('sh $PWD/s.sh ${PWD}/t.sh'), { cwd: '/work', env: { PWD: '/elsewhere' }, home: '/home/u' }) };
+  for (const file_path of ['/work/s.sh', '/work/t.sh']) {
+    assert.deepEqual(decide(WRITE, { file_path }, 'accept-edits', '/work', scope), ASKED, file_path);
+  }
+});
+
+test('accept-edits asks for a Write to a hook path spelt in the other Unicode normal form', () => {
+  const nfc = '/work/caf\u00e9.sh';
+  const nfd = '/work/cafe\u0301.sh';
+  for (const [hook, file_path] of [[nfc, nfd], [nfd, nfc]]) {
+    const scope = { dirs: [], protect: hookPaths(stopHook(hook), { cwd: '/work', env: {}, home: '/home/u' }) };
+    assert.deepEqual(decide(WRITE, { file_path }, 'accept-edits', '/work', scope), ASKED, file_path);
+  }
 });
 
 test('accept-edits allows a Write inside the cwd or an extra dir', () => {
