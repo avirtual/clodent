@@ -232,6 +232,17 @@ test('an interrupt that lands during PreToolUse stops the call before it runs', 
   assert.deepEqual(h.of('tool_result').map((e) => [e.id, e.content, e.isError]), [['toolu_1', INTERRUPTED_RESULT, true]]);
 });
 
+test('Stop context is dropped: the next turn of the same agent does not carry it', async () => {
+  const context = { Stop: ['stop context'], UserPromptSubmit: ['submit context'] };
+  const hooks = { fire: async (event) => ({ ...emptyOutcome(), additionalContext: context[event] ?? [] }) };
+  const h = harness([textReply('one'), textReply('two')], { hooks });
+  await h.agent.runTurn('first');
+  await h.agent.runTurn('second');
+  const sent = JSON.stringify(h.fetch.calls[1].body.messages);
+  assert.equal(sent.includes('submit context'), true);
+  assert.equal(sent.includes('stop context'), false);
+});
+
 test('a budget below the first request cost stops before the second request', async () => {
   const log = [];
   const h = harness([toolReply([{ name: 'A', input: {} }]), textReply('never')], {
