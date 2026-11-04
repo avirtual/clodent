@@ -100,7 +100,7 @@ test('two 200 KiB contexts under a 1 MiB perHook are cut at perEvent as one join
 
 test('a cut through a run of é keeps whole characters and stays within the cap', () => {
   for (const lead of ['', 'x']) {
-    for (const limit of [1024, 1025, 1500, 1501]) {
+    for (const limit of [1024, 1025, 1026, 1027, 1500, 1501]) {
       const text = `${lead}${'é'.repeat(4000)}`;
       const cut = capContext(text, limit);
       assert.equal(cut.bytes, bytes(text));
