@@ -389,12 +389,20 @@ test('Bash: ${…} is a brace frame where #, ( and ) are literal, so neither hid
   assert.equal(await bash(guard, 'echo "`echo ${x/(/y}`"; rm z'), 'deny Bash(rm:*)');
 });
 
+test("Bash: a ' inside a double-quoted ${…} pairs as a quote, as bash -c reads it outside POSIX mode", async () => {
+  const guard = guardOf({ deny: ['Read(~/.ssh)', 'Bash(rm:*)'] });
+  assert.equal(await bash(guard, `echo "\${x:-'}"'}"; rm x`), 'deny Bash(rm:*)');
+  assert.equal(await bash(guard, `echo "\${x:-'}"'}"; cat ~//.ssh/id_rsa`), 'deny Read(~/.ssh)');
+});
+
 test('Bash: a backtick closes through every frame opened inside it, as bash finds the closing backtick first', async () => {
   assert.equal(await bash(guardOf({ deny: ['Bash(rm:*)'] }), 'echo "`echo (`"; rm z'), 'deny Bash(rm:*)');
+  assert.equal(await bash(guardOf({ deny: ['Read(~/.ssh)'] }), 'echo "`echo (`"; cat ~//.ssh/id_rsa'), 'deny Read(~/.ssh)');
 });
 
 test('Bash: a ) that matches no frame keeps the word open, so a case pattern ) that closed $(…) early does not turn the next # into a comment', async () => {
   assert.equal(await bash(guardOf({ deny: ['Bash(rm:*)'] }), 'echo $(case x in a) echo;; esac)#; rm z'), 'deny Bash(rm:*)');
+  assert.equal(await bash(guardOf({ deny: ['Read(~/.ssh)'] }), 'echo $(case x in a) echo;; esac)#; cat ~//.ssh/id_rsa'), 'deny Read(~/.ssh)');
 });
 
 test('Bash: a ( inside $(…) opens its own frame, the word stays open after $(…), and a comment inside backticks ends at the closing backtick', async () => {
@@ -418,7 +426,7 @@ test('Bash: a rule only the conservative pass matches is uncertain: a deny rule 
   assert.deepEqual(rawCommands('git commit -m "x; rm y"'), ['git commit -m x', 'rm y']);
   assert.deepEqual(rawWords('echo ${x:- #}; cat ~//.ssh/id_rsa'), ['echo', '${x:-', '$x:-', '}', 'cat', '~//.ssh/id_rsa']);
   assert.deepEqual(
-    [uncertainDecision('deny', 'yolo'), uncertainDecision('deny', 'default'), uncertainDecision('ask', 'yolo'), uncertainDecision('ask', 'acceptEdits')],
+    [uncertainDecision('deny', 'yolo'), uncertainDecision('deny', 'ask'), uncertainDecision('ask', 'yolo'), uncertainDecision('ask', 'accept-edits')],
     ['deny', 'ask', 'ask', 'ask'],
   );
   const { ruled } = await deny.screen('Bash', { command: 'git commit -m "x; rm y"' }, '/work', 'yolo');
