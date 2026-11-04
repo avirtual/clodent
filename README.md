@@ -184,22 +184,25 @@ Flags:
 
 stdout holds JSON lines only. stderr gets the [Print mode](#print-mode) lines, never coloured: `[clodent:session] <id>` first, the ignored-flag and settings warnings, `● <Tool> <summary>`, `[clodent:permit <Tool> <tool_use id>] <summary>` and `  ✗ <reason>` lines, `clodent: <message>` warnings and errors (the stdin warnings below included), `clodent: interrupted`, the `[clodent:budget]` line, each turn's `[clodent:cost]` line, and the session total on exit.
 
-Output lines. Every `session_id` is the session's id, as on the `[clodent:session]` line, and every `uuid` is a fresh v4 UUID.
+Output lines. Every `session_id` is the session's id, as on the `[clodent:session]` line, or after a `/clear` the new id (see Slash commands below), and every `uuid` is a fresh v4 UUID.
 
 | line | fields | when |
 |---|---|---|
-| `{"type":"system","subtype":"init",…}` | `cwd`, `session_id`, `model` (the id with any `[…]` suffix dropped), `tools` (the names of the tools sent to the API), `permissionMode` (`default`, `acceptEdits`, `plan` or `bypassPermissions`), `slash_commands` (`[]`), `apiKeySource` (`"ANTHROPIC_API_KEY"`), `clodent_version`, `uuid` | once, after the `SessionStart` hooks and before stdin is read |
+| `{"type":"system","subtype":"init",…}` | `cwd`, `session_id`, `model` (the id with any `[…]` suffix dropped), `tools` (the names of the tools sent to the API), `permissionMode` (`default`, `acceptEdits`, `plan` or `bypassPermissions`), `slash_commands` (`["compact","clear","cost","model","help","quit","exit"]`), `apiKeySource` (`"ANTHROPIC_API_KEY"`), `clodent_version`, `uuid` | once, after the `SessionStart` hooks and before stdin is read; again after each `/clear`, with the new `session_id` |
 | `{"type":"assistant",…}` | `message` (`id`, `type: "message"`, `role: "assistant"`, `model`, `content` with its text, thinking (signature kept) and tool_use blocks, `stop_reason`, `stop_sequence` and `usage`, as the API sent them), `parent_tool_use_id: null`, `session_id`, `uuid` | once per API response. An interrupt during a response writes one for the text blocks it completed, if any, with `message` `{"role":"assistant","content":[…],"stop_reason":null}` |
 | `{"type":"user",…}` | `message` (`role: "user"`, `content`: the `tool_result` blocks `{type, tool_use_id, content, is_error}`, then any hook context block and folded prompt text blocks), `parent_tool_use_id: null`, `session_id`, `uuid` | once per tool-results message. An interrupt writes one with `content` `[{"type":"text","text":"[Request interrupted by user]"}]` |
 | `{"type":"control_request",…}` | `request_id` (a v4 UUID), `request`: `subtype: "can_use_tool"`, `tool_name`, `display_name` (the tool name), `input` (the tool input), `description` (the summary of the `● <Tool>` line), `permission_suggestions: []`, `tool_use_id` | a permission ask, with `--permission-prompt-tool stdio` |
 | `{"type":"system","subtype":"permission_denied",…}` | `tool_name`, `tool_use_id`, `message` (the refusal reason), `session_id`, `uuid` | when a reply denies an ask |
 | `{"type":"control_response",…}` | `response`: `subtype` (`success` or `error`), `request_id` (the request's, echoed), `error` (with `error` only) | in reply to each stdin `control_request` |
-| `{"type":"result",…}` | below | once per turn, as its last line; once per empty prompt |
+| `{"type":"system","subtype":"status",…}` | `status` (`"compacting"`, or `null` with `compact_result` `"success"` or `"failed"`), `session_id`, `uuid` | at the start and the end of a `/compact` |
+| `{"type":"system","subtype":"compact_boundary",…}` | `session_id`, `uuid`, `compact_metadata`: `trigger` (`"manual"`), `pre_tokens`, `post_tokens` (the numbers of the `clodent: conversation compacted (<pre> → <post> tokens)` line) | when a `/compact` succeeds |
+| `{"type":"conversation_reset",…}` | `new_conversation_id` (the new session id), `trigger` (`"clear"`), `session_id` (the old id), `uuid` | at a `/clear`, before its `init` |
+| `{"type":"result",…}` | below | once per turn, as its last line; once per empty prompt; once per slash command other than `/quit` and `/exit`, as its last line |
 
 Result fields, in this order:
 
-- `subtype`: `error_during_execution` when `is_error`, else `success`.
-- `is_error`: true for an API error after retries, a budget stop, or an empty prompt.
+- `subtype`: `error_during_execution` when `is_error`, else `success`; always `success` for a slash command.
+- `is_error`: true for an API error after retries, a budget stop, an empty prompt, a failed `/compact` or `/clear`, or an unknown slash command.
 - `duration_ms`: the turn's wall time in ms, from the prompt to the end of the turn, before the `Stop` hook.
 - `duration_api_ms`: the summed durations of the turn's API responses.
 - `num_turns`: the number of API responses in the turn.
@@ -232,9 +235,21 @@ Turns:
 
 - A prompt that arrives while no turn runs starts its own turn, after any prompt waiting ahead of it, and never joins that prompt's tool results: `UserPromptSubmit` fires, then the turn runs as in [Print mode](#print-mode).
 - A prompt that arrives during a turn joins the turn's next tool-results message as one more `text` block, after any hook context: no new turn and no extra result, and `UserPromptSubmit` does not fire for it. If the turn ends first, or is interrupted, the prompt runs as its own turn after the result, and never joins a later turn's tool results. Waiting prompts run one at a time in arrival order; an empty one gets its `is_error` result in its place.
-- A line that starts with `/` is a prompt; stdin has no slash commands.
-- stdin closing (EOF) refuses a waiting ask, and any later one, with `denied: input closed`, lets the running turn and the waiting prompts finish, and exits 0 as the REPL's Ctrl-D does: the session total on stderr, then the wait for the statusLine command. A stdin read error counts as stdin closing; one other than `EIO` first prints `clodent: stdin: <message>`.
-- SIGINT exits 130, SIGTERM 143, SIGHUP 129: the running turn is interrupted and its result written, waiting prompts are dropped, and clodent exits as print mode does on a signal. A second signal kills a running `Stop` hook.
+- A slash command (below) never joins a turn: one that arrives during a turn waits and runs after that turn's result, and a prompt that arrives after it waits for it instead of joining the turn. Waiting prompts and commands run one at a time in arrival order.
+- stdin closing (EOF) refuses a waiting ask, and any later one, with `denied: input closed`, lets the running turn and the waiting prompts and commands finish, and exits 0 as the REPL's Ctrl-D does: the session total on stderr, then the wait for the statusLine command. A stdin read error counts as stdin closing; one other than `EIO` first prints `clodent: stdin: <message>`.
+- SIGINT exits 130, SIGTERM 143, SIGHUP 129: the running turn is interrupted and its result written, waiting prompts and commands are dropped, and clodent exits as print mode does on a signal. A second signal kills a running `Stop` hook.
+
+Slash commands: a user message whose text, trimmed, is one line whose first word is `/` followed by lowercase letters is a command, parsed as the REPL parses a typed line (see [REPL](#repl)); anything else, such as `/Users/me/x fix it` or a multi-line text, is a prompt. A command runs the REPL's command instead of a turn: no `UserPromptSubmit`, no `Stop`, no `turn_duration` record. Its reply lines, listed below, go into its result's `result`, never onto stdout; a `/compact`'s `clodent: conversation compacted (<pre> → <post> tokens)` and `[clodent:cost]` lines, the `[clodent:budget]` line and warnings go to stderr. Each command but `/quit` and `/exit` ends with one result: `duration_ms` the command's wall time, `duration_api_ms` 0, `num_turns` 0, `usage` all zeros, `stop_reason` null, `total_cost_usd` the session total so far, unless said otherwise below.
+
+| command | lines on stdout |
+|---|---|
+| `/compact [<instructions>]` | the REPL's `/compact` (`PreCompact`, the summary request, the transcript records, `SessionStart` with `source` `compact`, the statusLine update), under the same session id: `status` `"compacting"`; on success the `compact_boundary` line; `status` `null` with `compact_result`; then the result, with `num_turns` 1, `usage` the summary request's on success, and `total_cost_usd` including it. On success `is_error` is false and `result` is `""`; on failure no `compact_boundary` is written, `is_error` is true and `result` is the REPL's line: `clodent: nothing to compact` or `clodent: compact failed: <reason>` |
+| `/clear` | the REPL's `/clear` (a new minted session id and transcript, the statusLine update with zero usage, `SessionStart` with `source` `clear`): `conversation_reset`, then a full `init` with the new `session_id` after the `SessionStart` hooks, then the result with `result` `""` and the new `session_id`; `total_cost_usd` is not reset. Later requests carry the new id in `metadata.user_id`. If a new session cannot start, only an `is_error` result with `clodent: <message>` |
+| `/cost` | the result, with `result` the REPL's `[clodent:cost] session total …` line |
+| `/model [<id>]` | as the REPL: with an id, the same as a `set_model` request; the result, with `result` the REPL's lines, such as `clodent: model <id>` |
+| `/help` | the result, with `result` the help lines joined with `\n` |
+| `/quit`, `/exit` | no result: clodent stops reading stdin, drops any input waiting behind the command, and exits 0 as on stdin EOF |
+| any other `/<name>` | an `is_error` result with `result` `clodent: unknown command /<name> (try /help)` |
 
 Permissions go as in print mode (see [Print mode](#print-mode) and [Permission rules](#permission-rules)), except that with `--permission-prompt-tool stdio` a call the REPL would ask about writes a `control_request` and waits for its reply. The `PreToolUse` hooks, the settings deny rules and the mode decide first, in the REPL's order, and `--yolo`'s mode never asks. The `Notification` hook fires at the ask exactly as in the REPL. An interrupt abandons a waiting ask, and the call is refused with `interrupted by user`. Without `--permission-prompt-tool stdio`, such a call is refused with the print mode reason.
 
