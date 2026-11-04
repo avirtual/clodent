@@ -50,20 +50,46 @@ export function reloadBlock(path, output) {
   return { type: 'text', text: `Contents of ${path} at compact time (Read tool output):\n\n${output}` };
 }
 
+function isMark(char) {
+  return char === '`' || char === '*';
+}
+
+function leadingMarks(text) {
+  let end = 0;
+  while (end < text.length && isMark(text[end])) end++;
+  return end;
+}
+
+function trailingMarks(text) {
+  let start = text.length;
+  while (start > 0 && isMark(text[start - 1])) start--;
+  return text.length - start;
+}
+
+function unwrapBackticks(text) {
+  let start = 0;
+  while (text[start] === '`') start++;
+  if (start === text.length) return text.length > 1 ? '' : text;
+  let end = text.length;
+  while (text[end - 1] === '`') end--;
+  const inner = text.slice(start, end);
+  return start > 0 && end < text.length && !inner.includes('`') ? inner : text;
+}
+
 function listedPath(line) {
   let path = line.trim();
   if (path.startsWith('- ') || path.startsWith('* ')) path = path.slice(2).trim();
-  return path.replace(/^`+([^`]*)`+$/, '$1').trim();
+  return unwrapBackticks(path).trim();
 }
 
 function headingRest(line) {
   const text = line.trim();
   const open = text.match(/^[`*#\s]*/)[0];
   if (!text.startsWith(RELOAD_HEADING, open.length)) return null;
-  let rest = text.slice(open.length + RELOAD_HEADING.length).trim();
-  if (open.includes('`')) rest = rest.replace(/^`+|`+$/g, '').trim();
-  if (open.includes('*')) rest = rest.replace(/^\*+|\*+$/g, '').trim();
-  return rest;
+  const rest = text.slice(open.length + RELOAD_HEADING.length).trim();
+  if (!open.includes('`') && !open.includes('*')) return rest;
+  const closing = leadingMarks(rest);
+  return (closing > 0 ? rest.slice(closing) : rest.slice(0, rest.length - trailingMarks(rest))).trim();
 }
 
 function listedFiles(summary) {
@@ -73,20 +99,34 @@ function listedFiles(summary) {
   const first = listedPath(headingRest(lines[at]));
   if (first.toLowerCase() === 'none') return [];
   const paths = first === '' ? [] : [first];
-  for (const line of lines.slice(at + 1)) {
+  let next = at + 1;
+  if (first === '') while (next < lines.length && lines[next].trim() === '') next++;
+  for (const line of lines.slice(next)) {
     if (line.trim() === '') break;
     const path = listedPath(line);
     if (path !== '') paths.push(path);
   }
-  return paths;
+  return paths.length > 0 ? paths : null;
+}
+
+function failedUseIds(history) {
+  const ids = new Set();
+  for (const message of history) {
+    if (message.role !== 'user' || !Array.isArray(message.content)) continue;
+    for (const block of message.content) {
+      if (block.type === 'tool_result' && block.is_error) ids.add(block.tool_use_id);
+    }
+  }
+  return ids;
 }
 
 function touchedFiles(history) {
+  const failed = failedUseIds(history);
   const paths = [];
   for (const message of history.toReversed()) {
     if (message.role !== 'assistant') continue;
     for (const block of (message.content ?? []).toReversed()) {
-      if (block.type === 'tool_use' && TOUCHING_TOOLS.has(block.name) && typeof block.input?.file_path === 'string') paths.push(block.input.file_path);
+      if (block.type === 'tool_use' && !failed.has(block.id) && TOUCHING_TOOLS.has(block.name) && typeof block.input?.file_path === 'string') paths.push(block.input.file_path);
     }
   }
   return paths;

@@ -118,8 +118,23 @@ export function parseRule(text, where) {
   if (name === 'Bash') return { text, kind: 'bash', test: bashTest(specifier) };
   const pattern = expandPath(specifier, where);
   if (pattern === '') throw new RuleError('the path expands to nothing (HOME is not set)');
-  const { tools, bash } = PATH_RULES[name];
-  return { text, kind: 'path', tool: name, tools, bash, pattern, home: where.home, regex: pathRegExp(pattern), mention: mentionRegExp(pattern, where.home) };
+  return pathRule(text, name, pattern, where.home);
+}
+
+function pathRule(text, tool, pattern, home) {
+  const { tools, bash } = PATH_RULES[tool];
+  return { text, kind: 'path', tool, tools, bash, pattern, home, regex: pathRegExp(pattern), mention: mentionRegExp(pattern, home) };
+}
+
+const PROC_ENVIRON = ['/proc/*/environ', '/proc/*/task/*/environ'];
+
+export function builtinDenies(settingsFiles, home) {
+  const files = [...new Set(settingsFiles.map((file) => resolve(file)))];
+  const rules = [
+    ...files.flatMap((file) => ['Read', 'Edit'].map((tool) => pathRule(`${tool}(/${file})`, tool, file, home))),
+    ...PROC_ENVIRON.map((pattern) => pathRule(`Read(/${pattern})`, 'Read', pattern, home)),
+  ];
+  return rules.map((rule) => ({ ...rule, builtin: true }));
 }
 
 export function parseRules(list, key, where) {

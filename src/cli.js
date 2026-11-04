@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, truncateSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { DEFAULT_RELOAD_FILES } from './agent/compact.js';
 import { createAgent } from './agent/loop.js';
 import { DEFAULT_MODEL, FLAGS, givenFlags, parseArgs } from './args.js';
@@ -10,7 +10,7 @@ import { createHookFirer } from './hooks/fire.js';
 import { createStatusLine } from './hooks/status-line.js';
 import { flagRules } from './permissions/flag-rules.js';
 import { createGuard, sentTools } from './permissions/guard.js';
-import { RuleError, ruleHome } from './permissions/rules.js';
+import { builtinDenies, RuleError, ruleHome } from './permissions/rules.js';
 import { killPendingGroups } from './proc/run.js';
 import { buildSystemPrompt } from './prompt/system.js';
 import { createRenderer } from './render/terminal.js';
@@ -117,11 +117,12 @@ function startSession(opts, deps) {
 async function prepare(opts, deps) {
   const { stderr, cwd } = deps;
   const rulesHome = ruleHome(deps.env, () => deps.homedir ?? homedir());
+  const files = opts.settings.map((file) => resolve(cwd, file));
   let loaded;
   try {
     loaded = await loadSettings({
       clodentHome: home(deps),
-      files: opts.settings.map((file) => resolve(cwd, file)),
+      files,
       cwd,
       home: rulesHome,
     });
@@ -142,7 +143,8 @@ async function prepare(opts, deps) {
     if (!(err instanceof RuleError)) throw err;
     return fail(`--disallowedTools: ${err.message}`);
   }
-  const permissions = { deny: [...(settings.permissions?.deny ?? []), ...disallowed], ask: settings.permissions?.ask ?? [] };
+  const builtins = builtinDenies([join(home(deps), 'settings.json'), ...files], rulesHome);
+  const permissions = { deny: [...(settings.permissions?.deny ?? []), ...disallowed, ...builtins], ask: settings.permissions?.ask ?? [] };
   const env = { ...deps.env, ...settings.env };
   if (opts.print === '' && opts.inputFormat !== 'stream-json') return fail('-p needs a non-empty prompt');
   if (!env.ANTHROPIC_API_KEY) return fail('ANTHROPIC_API_KEY is not set');
