@@ -337,3 +337,24 @@ test('--disallowedTools and --disallowed-tools add deny rules after the settings
   assert.deepEqual(results(res), [denied('Read(./a.txt)'), denied('Read(./b.txt)'), denied('Bash(git push:*)'), 'ok\n[exit 0]', 'unknown tool Write']);
   assert.equal(existsSync(join(cwd, 'c.txt')), false);
 });
+
+test('--disallowedTools Bash leaves Bash out of the request tools and every system prompt; sandbox rules remove no tool', GUARD, async (t) => {
+  const { home, cwd, dir, user } = await setup(t);
+  const named = (res, call = 0) => [res.calls[call].body.tools.map((tool) => tool.name), res.calls[call].body.system[0].text.includes('Bash')];
+  const res = await runMain(['-p', 'go', '--disallowedTools', 'Bash'], { home, cwd, responses: [textReply('ok')] });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(named(res), [['Read', 'Write', 'Edit', 'Grep', 'Glob'], false]);
+  const repl = startRepl(['--disallowed-tools', 'Bash'], { home, cwd, replies: [textReply('ok')] });
+  await repl.prompts(1);
+  repl.stdin.type('/model claude-haiku-5-5\r');
+  await repl.prompts(2);
+  repl.stdin.type('hi\r');
+  await repl.prompts(3);
+  assert.deepEqual(named(repl.fetch), [['Read', 'Write', 'Edit', 'Grep', 'Glob'], false]);
+  repl.stdin.type('\x04');
+  assert.equal(await repl.done, 0);
+  const settings = writeSettings(dir, guardedFixture(user));
+  const guarded = await runMain(['-p', 'go', '--settings', settings], { home, cwd, env: { HOME: user }, responses: [textReply('ok')] });
+  assert.equal(guarded.code, 0, guarded.stderr);
+  assert.deepEqual(named(guarded), [['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob'], true]);
+});

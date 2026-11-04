@@ -565,7 +565,7 @@ Sandbox block: clodent does not sandbox Bash. A settings source with `sandbox.en
 - Each `credentials.envVars` entry `{name, mode: "deny"}` removes that variable from the environment of the Bash tool's commands only. Hooks and the statusLine keep it, and so does clodent's own process.
 - A `credentials` entry whose `mode` is not `"deny"` is ignored with the warning `settings <path>: sandbox: ignored entry <entry as JSON>`.
 - Every other key (`allowWrite`, `network`, `allowUnsandboxedCommands`, `excludedCommands`, …) is ignored. Every source with `enabled: true` prints one warning, `settings <path>: sandbox: clodent does not sandbox Bash; filesystem and credentials entries are enforced as permission rules, other keys ignored`.
-- These rules are path rules: they never remove a tool from the request.
+- These rules are path rules: they never remove a tool from the request's `tools` or the system prompt.
 - Startup errors, `clodent: settings <path>: <message>` and exit 2 as above: `sandbox.<filesystem|credentials> is not an object`; `sandbox.<section>.<list> is not an array`; `sandbox.filesystem.<list>[<i>] is not a string`; `sandbox.credentials.<list>[<i>] is not an object`; `sandbox.credentials.files[<i>].path` or `sandbox.credentials.envVars[<i>].name is not a string`; and `sandbox.filesystem.<list>[<i>]` or `sandbox.credentials.files[<i>].path` followed by `"<path>": <reason>` for a path the rule parser refuses.
 
 ### Hooks

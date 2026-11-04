@@ -149,7 +149,7 @@ async function prepare(opts, deps) {
   const addDirs = extraDirs(opts, settings, cwd);
   let system;
   try {
-    system = systemPrompt(opts, model, addDirs, deps, settings.permissions);
+    system = systemPrompt(opts, model, addDirs, deps, permissions);
   } catch (err) {
     return fail(err.message);
   }
@@ -223,7 +223,7 @@ function createRuntime(prep, opts, deps, render) {
     open,
     model: () => current.model,
     setModel(model) {
-      const system = systemPrompt(opts, model, addDirs, deps, settings.permissions);
+      const system = systemPrompt(opts, model, addDirs, deps, permissions);
       Object.assign(current, { model, system });
       return system;
     },
