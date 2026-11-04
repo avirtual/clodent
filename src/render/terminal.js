@@ -37,6 +37,14 @@ export function createRenderer({ out, err, mode }) {
     info.write(`${paint(info, style, text)}\n`);
   }
 
+  function warnUnpriced(turn) {
+    for (const model of turn.unpriced) {
+      if (warnedUnpriced.has(model)) continue;
+      warnedUnpriced.add(model);
+      line(formatUnpriced(model), 'yellow');
+    }
+  }
+
   const handlers = {
     request_start() {
       thinkingShown.clear();
@@ -82,11 +90,7 @@ export function createRenderer({ out, err, mode }) {
       line('clay: interrupted', 'yellow');
     },
     turn_end({ turn }) {
-      for (const model of turn.unpriced) {
-        if (warnedUnpriced.has(model)) continue;
-        warnedUnpriced.add(model);
-        line(formatUnpriced(model), 'yellow');
-      }
+      warnUnpriced(turn);
       if (!repl && finalText !== '') out.write(`${finalText}\n`);
       line(formatCost(turn), 'dim');
       finalText = '';
@@ -94,6 +98,7 @@ export function createRenderer({ out, err, mode }) {
     },
     compacted({ preTokens, postTokens, turn }) {
       line(`clay: conversation compacted (${preTokens} → ${postTokens} tokens)`);
+      warnUnpriced(turn);
       line(formatCost(turn), 'dim');
     },
     session_end({ session }) {
