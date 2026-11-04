@@ -174,7 +174,7 @@ const NOT_READ_ONLY = [
 ];
 
 test('the allowlist is the one the spec names', () => {
-  assert.equal(READ_ONLY_COMMANDS.length, 61);
+  assert.equal(READ_ONLY_COMMANDS.length, 58);
   assert.ok(READ_ONLY_COMMANDS.includes('['));
   assert.ok(!READ_ONLY_COMMANDS.includes('rm'));
 });
