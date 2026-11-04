@@ -78,7 +78,15 @@ export function heldFetch(replies = []) {
     }
     const reply = ready.length > 0 ? ready.shift() : await new Promise((resolve, reject) => {
       waiting.push(resolve);
-      init.signal?.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+      init.signal?.addEventListener(
+        'abort',
+        () => {
+          const at = waiting.indexOf(resolve);
+          if (at !== -1) waiting.splice(at, 1);
+          reject(init.signal.reason);
+        },
+        { once: true },
+      );
     });
     return createFakeFetch([reply])(url, init);
   }
