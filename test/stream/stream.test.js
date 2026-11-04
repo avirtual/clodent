@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ASK_DENIAL } from '../../src/agent/permission.js';
 import { EMPTY_PROMPT } from '../../src/stream/output.js';
-import { runMain, textReply, toolsReply, writeSettings } from '../helpers/run-main.js';
+import { hookGroup, runMain, textReply, toolsReply, writeSettings } from '../helpers/run-main.js';
 import { useTempDir } from '../tools/tmp-dir.js';
 import { kinds, parseRecords, STDIO, startStream, STREAM_ARGV, userLine, UUID } from './harness.js';
 
@@ -201,6 +201,38 @@ test('set_model acks and the next request uses the stripped model', GUARD, async
   const ack = parseRecords(s.out.text).find((record) => record.type === 'control_response');
   assert.deepEqual(ack.response, { subtype: 'success', request_id: 'clodex-set-model-1' });
   assert.deepEqual(s.fetch.calls.map((call) => call.body.model), ['claude-opus-5-5', 'claude-haiku-5-5']);
+});
+
+test('a set_model during a request prices that response at the model it was sent to', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID], { home, cwd });
+  s.send(userLine('go'));
+  await s.fetch.called(1);
+  s.send({ type: 'control_request', request_id: 'clodex-set-model-1', request: { subtype: 'set_model', model: 'claude-haiku-5-5' } });
+  s.fetch.push(toolsReply([['Bash', { command: 'echo hi' }]], USAGE));
+  await s.fetch.called(2);
+  s.fetch.push(textReply('ok', USAGE));
+  await s.until('result');
+  s.close();
+  assert.equal(await s.done, 0);
+  assert.deepEqual(s.fetch.calls.map((call) => call.body.model), ['claude-opus-5-5', 'claude-haiku-5-5']);
+  assert.equal(results(s)[0].total_cost_usd, 0.00615);
+});
+
+test('a stdio ask fires the Notification hook with notification_type permission_prompt', GUARD, async (t) => {
+  const { home, cwd, dir } = await dirs(t);
+  const seen = join(dir, 'notification.json');
+  const settings = writeSettings(dir, { hooks: { Notification: [hookGroup('', `cat > ${seen}`)] } });
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID, ...STDIO, '--settings', settings], { home, cwd, replies: [toolsReply([['Write', { file_path: 'w.txt', content: 'w' }]]), textReply('ok')] });
+  s.send(userLine('go'));
+  const ask = (await s.until('control_request')).find((record) => record.type === 'control_request');
+  s.send({ type: 'control_response', response: { subtype: 'success', request_id: ask.request_id, response: { behavior: 'allow', updatedInput: ask.request.input } } });
+  await s.until('result');
+  s.close();
+  assert.equal(await s.done, 0);
+  const notice = JSON.parse(readFileSync(seen, 'utf8'));
+  assert.deepEqual([notice.hook_event_name, notice.notification_type, notice.tool, notice.id], ['Notification', 'permission_prompt', 'Write', 'toolu_1']);
+  assert.equal(readFileSync(join(cwd, 'w.txt'), 'utf8'), 'w');
 });
 
 test('a permission reply for no waiting request warns and is ignored', GUARD, async (t) => {
