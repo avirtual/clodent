@@ -1,8 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
 import { createStatusLine, usedPercentage } from '../../src/hooks/status-line.js';
 import { CONTEXT_WINDOW, contextWindowFor } from '../../src/hooks/context-window.js';
 import { PRICES } from '../../src/cost/prices.js';
@@ -95,4 +97,21 @@ test('a null statusLine runs nothing', async () => {
   line.update(state(1));
   await line.flush();
   assert.equal(spawned, 0);
+});
+
+test('a statusLine command still running after 5 s is killed and warns as a timeout', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const child = Object.assign(new EventEmitter(), { pid: 4242, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough() });
+  const kills = [];
+  const warnings = [];
+  const fake = { spawn: () => child, kill: (pid, signal) => kills.push([pid, signal]), warn: (w) => warnings.push(w) };
+  const line = createStatusLine({ settings: settingsWith({}, { statusLine: { type: 'command', command: 'status' } }), cwd: '/', env: {} }, fake);
+  line.update(state(1));
+  t.mock.timers.tick(4999);
+  assert.deepEqual(kills, []);
+  t.mock.timers.tick(1);
+  assert.deepEqual(kills, [[-4242, 'SIGTERM']]);
+  child.emit('close', null, 'SIGTERM');
+  await line.flush();
+  assert.deepEqual(warnings, ['statusLine "status": timeout']);
 });
