@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseRule, parseRules, RuleError, ruleHome } from '../../src/permissions/rules.js';
-import { loadSettings, SANDBOX_REFUSAL } from '../../src/settings/load.js';
+import { loadSettings } from '../../src/settings/load.js';
 
 const WHERE = { file: '/etc/clodent/settings.json', cwd: '/work', home: '/Users/u' };
 const rule = (text) => parseRule(text, WHERE);
@@ -113,10 +113,8 @@ test('loadSettings concatenates deny and ask across sources in order and reports
     [{ permissions: [] }, 'permissions is not an object'],
     [{ permissions: { ask: 'Read' } }, 'permissions.ask is not an array'],
     [{ permissions: { deny: ['Edit()'] } }, 'permissions.deny[0] "Edit()": empty () on Edit'],
-    [{ sandbox: { enabled: true } }, SANDBOX_REFUSAL],
   ];
   for (const [source, message] of fatal) {
     await assert.rejects(loadSettings({ files: ['/2.json'], cwd: '/w', home: '/Users/u' }, fakeFs({ '/2.json': source })), { message: `settings /2.json: ${message}` });
   }
-  assert.equal(SANDBOX_REFUSAL, 'sandbox.enabled is not supported: clodent does not sandbox Bash; remove the sandbox block');
 });

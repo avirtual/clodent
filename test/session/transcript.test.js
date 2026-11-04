@@ -36,7 +36,7 @@ test('append writes one line per record with the common fields and an unbroken p
   assert.equal(writes.length, 2);
   assert.ok(writes.every((w) => w.endsWith('\n') && w.indexOf('\n') === w.length - 1));
   const [a, b] = lines(path);
-  const common = { isSidechain: false, timestamp: '2026-11-04T12:00:00.000Z', cwd: '/w', sessionId: 's', version: '9.9.9', entrypoint: 'clodent' };
+  const common = { isSidechain: false, timestamp: '2026-11-04T12:00:00.000Z', cwd: '/w', sessionId: 's', version: '9.9.9', entrypoint: 'clodent', userType: 'external', gitBranch: '' };
   assert.deepEqual(a, { parentUuid: null, ...common, type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'hi' }] }, uuid: 'uuid-1' });
   assert.deepEqual(b, { parentUuid: 'uuid-1', ...common, type: 'system', subtype: 'turn_duration', durationMs: 5, messageCount: 1, uuid: 'uuid-2' });
   assert.equal(transcript.lastUuid(), 'uuid-2');
@@ -85,4 +85,22 @@ test('a copied record without a uuid leaves the chain on the last uuid seen', as
   transcript.copy([{ type: 'user', uuid: 'a', parentUuid: null }, { type: 'summary' }]);
   transcript.append({ type: 'user', message: { role: 'user', content: [] } });
   assert.equal(lines(path)[2].parentUuid, 'a');
+});
+
+test('every record carries userType external and the gitBranch read at creation, until refreshBranch reads it again', async (t) => {
+  const dir = await useTempDir(t);
+  const path = join(dir, 's.jsonl');
+  const branches = ['main', 'feature/x'];
+  const reads = [];
+  const gitBranch = () => {
+    reads.push(branches[reads.length]);
+    return reads.at(-1);
+  };
+  const transcript = createTranscript({ path, sessionId: 's', cwd: '/w', version: '1' }, { appendFileSync, mkdirSync, clock: CLOCK, uuid: counter(), gitBranch });
+  transcript.append({ type: 'user' });
+  transcript.append({ type: 'assistant' });
+  transcript.refreshBranch();
+  transcript.append({ type: 'user' });
+  assert.deepEqual(lines(path).map((r) => [r.userType, r.gitBranch]), [['external', 'main'], ['external', 'main'], ['external', 'feature/x']]);
+  assert.equal(reads.length, 2);
 });

@@ -5,7 +5,7 @@ import { emptyOutcome, hookContextBlock, NO_HOOKS } from '../hooks/fire.js';
 import { denialReason, OPEN_GUARD } from '../permissions/guard.js';
 import { COMPACT_TOOL_CHOICE, compactMessages, compactTokens, NOTHING_TO_COMPACT, summaryMessage, summaryOf } from './compact.js';
 import { appendMessage } from './history.js';
-import { ASK_DENIAL, decide } from './permission.js';
+import { ASK_DENIAL, asksInMode, decide } from './permission.js';
 
 export const INTERRUPT_MARKER = '[clodent: previous turn interrupted by the user]';
 export const INTERRUPTED_RESULT = 'interrupted by user';
@@ -107,15 +107,21 @@ export function createAgent(config, deps) {
   function verdictFor(tool, input, pre, ruled) {
     if (pre.decision === 'deny') return { allow: false, reason: pre.reason };
     if (ruled?.decision === 'deny') return { allow: false, reason: denialReason(ruled.rule) };
-    if (ruled?.decision === 'ask' && permission !== 'yolo') return { allow: false, ask: permission === 'ask', reason: ASK_DENIAL };
-    if (pre.decision === 'allow' && permission === 'ask') return ALLOWED;
+    if (ruled?.decision === 'ask' && permission !== 'yolo') return { allow: false, ask: asksInMode(permission), reason: ASK_DENIAL };
+    if (pre.decision === 'allow' && asksInMode(permission)) return ALLOWED;
     return decide(tool, input, permission);
   }
 
   async function askUser(tool, use, input, signal) {
     const request = { id: use.id, name: use.name, input, summary: tool.summary?.(input) ?? '' };
     emit({ type: 'permission_request', ...request });
-    const notice = { notification_type: 'permission', tool: use.name, id: use.id, message: `clodent needs permission to use ${use.name}` };
+    const notice = {
+      notification_type: 'permission_prompt',
+      title: 'Permission needed',
+      message: `clodent needs your permission to use ${use.name}`,
+      tool: use.name,
+      id: use.id,
+    };
     const [answer] = await Promise.all([config.ask(request, signal), fireHook('Notification', notice, signal)]);
     if (signal?.aborted) return { allow: false, reason: INTERRUPTED_RESULT };
     return answer?.allow ? ALLOWED : { allow: false, reason: answer?.reason ?? USER_DENIAL };
@@ -268,7 +274,7 @@ export function createAgent(config, deps) {
   }
 
   async function fireSessionStart(source, { signal } = {}) {
-    const outcome = await fireHook('SessionStart', { source }, signal);
+    const outcome = await fireHook('SessionStart', { source, model }, signal);
     heldContext.push(...outcome.additionalContext);
     return outcome;
   }

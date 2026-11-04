@@ -54,18 +54,19 @@ This section is the contract a host integrates against. It describes clodent 0.2
 
 A summary for a host adapter; each point links to the section that pins it down.
 
-- Launch: `clodent` without `-p`, in a PTY, in the seat's working directory. Pass `--session-id <uuid>` for a new session, or `--resume <id>`, with `--fork-session` to continue under a new id (the `--session-id` if given). Add `--settings <file>` for the host's hooks and statusLine, one `--add-dir <path>` per extra directory, `--system-prompt-file <path>` and `--append-system-prompt-file <path>` for the prompt, `--model <id>`, `--effort low|medium|high`, and `--yolo` or `--read-only` (default: ask). See [Flags](#flags) and [System prompt](#system-prompt).
+- Launch: `clodent` without `-p`, in a PTY, in the seat's working directory. Pass `--session-id <uuid>` for a new session, or `--resume <id>`, with `--fork-session` to continue under a new id (the `--session-id` if given). Add `--settings <file>` for the host's hooks and statusLine, one `--add-dir <path>` per extra directory, `--system-prompt-file <path>` and `--append-system-prompt-file <path>` for the prompt, `--model <id>` (one trailing `[…]` suffix such as `[1m]` is dropped), `--effort low|medium|high|xhigh|max`, and a permission mode: `--dangerously-skip-permissions` or `--yolo`, `--permission-mode default|plan|acceptEdits|bypassPermissions`, or `--read-only` (default: ask). Permission flags that name different modes exit 2. `--disallowedTools <list>` (or `--disallowed-tools`) adds deny rules. See [Flags](#flags) and [System prompt](#system-prompt).
+- Accepted and ignored: `--plugin-dir <dir>`, `--agents <json>`, `--mcp-config <path>`, `--strict-mcp-config`, `--allowedTools <list>` (or `--allowed-tools`) and `--dangerously-bypass-hook-trust`. Each one given prints `clodent: ignoring --<name>: not supported` once on stderr and changes nothing. See [Flags](#flags).
 - Env: `ANTHROPIC_API_KEY` (required), `CLODENT_HOME` as the per-account config dir (`settings.json` and `projects/`; default `~/.clodent`), and optionally `ANTHROPIC_BASE_URL` to send requests to another origin, such as a proxy. See [Environment](#environment).
 - Transcript: `$CLODENT_HOME/projects/<slug>/<session-id>.jsonl`, where `<slug>` is the working directory with every `/` and `.` replaced by `-`. `SessionStart` hooks get the path as `transcript_path`. See [Sessions](#sessions).
 - Boot-ready: the first `\x1b[?2004h` on stdout. It follows the `[clodent:session] <id>` line and the `SessionStart` hook. A startup error exits 2 before it. See [REPL](#repl).
 - Inject: write `\x1b[200~<text>\x1b[201~`, then `\r`. The paste is one prompt with its newlines kept, and the `\r` submits it. A prompt submitted during a turn is queued. See [REPL](#repl).
 - Idle: a turn the model ended writes an assistant record with `message.stop_reason` `end_turn`. Every turn, including an interrupted or failed one, then writes a `system` record with `subtype: "turn_duration"` and fires `Stop`; the REPL then shows the next prompt unless it is exiting. See [Sessions](#sessions).
 - Context delivery: `hookSpecificOutput.additionalContext` from `SessionStart` (held for the next prompt), `UserPromptSubmit` (after the prompt text), and `PostToolUse` or `PostToolUseFailure` (after the tool results). See [Hooks](#hooks).
-- Permission ask (default mode only): clodent prints `[clodent:permit <Tool> <tool_use id>] <summary>` and `Allow? [y/n] `, then fires `Notification` with `notification_type: "permission"`, `tool` and `id` while the ask is listening. Answer once, by writing `y` or `n` then `\r`, as soon as you see the permit line or the Notification. A second answer arrives while the turn is busy and is queued as a prompt. See [REPL](#repl).
+- Permission ask (default and `acceptEdits` modes only): clodent prints `[clodent:permit <Tool> <tool_use id>] <summary>` and `Allow? [y/n] `, then fires `Notification` with `notification_type: "permission_prompt"`, `title: "Permission needed"`, `message: "clodent needs your permission to use <Tool>"`, `tool` and `id` while the ask is listening. Answer once, by writing `y` or `n` then `\r`, as soon as you see the permit line or the Notification. A second answer arrives while the turn is busy and is queued as a prompt. See [REPL](#repl).
 - `/compact`: fires `PreCompact` (`trigger: "manual"`), replaces the history with a summary under the same session id, writes the `compact_boundary` and `isCompactSummary` records, and fires `SessionStart` with `source: "compact"`. `/clear`: prints a new `[clodent:session] <id>`, records into a new transcript, and fires `SessionStart` with `source: "clear"`. Type either as plain text, then `\r`; a pasted `/compact` is a prompt. Like every slash command, neither writes a `turn_duration` record or fires `Stop`: its end is the next `\x1b[?2004h`. See [REPL](#repl).
 - statusLine: the settings `statusLine` command gets `context_window.used_tokens`, `context_window.context_window_size`, `context_window.used_percentage`, `model.id` and `cost.total_cost_usd` on stdin after each API response, after `/clear` (zero usage) and after `/compact` (`used_tokens` is the summary's size). See [Hooks](#hooks).
 - Signals: SIGINT acts as Ctrl-C: it interrupts a turn, and two in a row at an empty prompt exit 0. SIGTERM exits 143 and SIGHUP 129, after interrupting a running turn, whose `Stop` hook still fires. Ctrl-D, `/quit` and stdin closing exit 0. See [REPL](#repl).
-- Settings guard: permissions.deny/ask are enforced (see Permission rules); sandbox.enabled: true is a startup error (exit 2), so drop sandbox for clodent seats.
+- Settings guard: `permissions.deny`/`ask` are enforced (see [Permission rules](#permission-rules)). A `sandbox` block with `enabled: true` is never fatal: its `filesystem.denyRead`, `filesystem.denyWrite` and deny `credentials.files` entries are enforced as deny rules, its deny `credentials.envVars` are removed from the Bash tool's environment, and its other keys are ignored with one warning; clodent does not sandbox Bash. A malformed sandbox shape is a startup error (exit 2).
 - Absent in 0.2.0: the stream-json io (`--input-format`/`--output-format stream-json`, planned for v0.3), MCP and subagents, so hooks never get `agent_id`.
 
 ### Flags
@@ -73,11 +74,14 @@ A summary for a host adapter; each point links to the section that pins it down.
 | flag | status | meaning |
 |---|---|---|
 | `-p`, `--print <prompt>` | works | run one prompt without the REPL, print the reply and exit; without `-p`, clodent starts the [REPL](#repl) |
-| `--model <id>` | works | model id; default the settings `model`, else `claude-opus-5-5` |
-| `--effort <level>` | works | `low`, `medium` or `high`; default the settings `effortLevel`, else none |
+| `--model <id>` | works | model id; default the settings `model`, else `claude-opus-5-5`. One trailing bracketed suffix is dropped before any use (`claude-haiku-5-5[1m]` is `claude-haiku-5-5`), as it is from the settings `model` and `/model <id>` |
+| `--effort <level>` | works | `low`, `medium`, `high`, `xhigh` or `max`, sent as is; default the settings `effortLevel`, else none |
 | `--budget <usd>` | works | stop before the session spends more than this many US dollars |
 | `--yolo` | works | run every tool without asking |
 | `--read-only` | works | refuse write tools and any Bash command that is not read-only (see [Read-only Bash](#read-only-bash)) |
+| `--dangerously-skip-permissions` | works | same as `--yolo` |
+| `--permission-mode <mode>` | works | `default` (ask, as with no permission flag), `plan` (as `--read-only`), `acceptEdits` (run write tools and read-only Bash commands without asking, ask for any other Bash command; see [Print mode](#print-mode)) or `bypassPermissions` (as `--yolo`) |
+| `--disallowedTools <list>`, `--disallowed-tools <list>` | works | deny rules, see below; repeatable |
 | `--session-id <uuid>` | works | use this session id instead of minting one; see [Sessions](#sessions) |
 | `--resume <id>` | works | resume the session with this id |
 | `--fork-session` | works | with `--resume`, continue under a new session id in a new transcript |
@@ -87,15 +91,25 @@ A summary for a host adapter; each point links to the section that pins it down.
 | `--system-prompt-file <path>` | works | replace the base system prompt with this file |
 | `--append-system-prompt <text>` | works | append this text to the system prompt; repeatable |
 | `--append-system-prompt-file <path>` | works | append this file's contents to the system prompt; repeatable |
+| `--allowedTools <list>`, `--allowed-tools <list>` | ignored | accepted and ignored; repeatable |
+| `--plugin-dir <dir>` | ignored | accepted and ignored; repeatable |
+| `--agents <json>` | ignored | accepted and ignored |
+| `--mcp-config <path>` | ignored | accepted and ignored; repeatable, one path each |
+| `--strict-mcp-config` | ignored | accepted and ignored |
+| `--dangerously-bypass-hook-trust` | ignored | accepted and ignored |
 | `-v`, `--version` | works | print `clodent <version>` and exit 0 |
 | `-h`, `--help` | works | print usage, one line per flag, and exit 0 |
 
 Parsing:
 
 - A value is the next argument, or the text after the first `=` (`--model=x`, `-p=x`). When the next argument is itself a clodent flag, such as `--yolo` or `-p`, the value counts as missing; the `=` form passes such text.
-- `--settings`, `--add-dir`, `--append-system-prompt` and `--append-system-prompt-file` collect every occurrence in argv order. Any other flag given twice is an error.
+- `--settings`, `--add-dir`, `--append-system-prompt`, `--append-system-prompt-file`, `--disallowedTools`, `--allowedTools`, `--plugin-dir` and `--mcp-config` collect every occurrence in argv order; the two spellings of `--disallowedTools` and of `--allowedTools` count as one flag. Any other flag given twice is an error.
 - An empty value (`--model ''` or `--model=`) counts as missing, except for `-p`, `--system-prompt` and `--append-system-prompt`, which take it. An empty `-p` prompt is a startup error (see [Print mode](#print-mode)); an empty `--system-prompt` leaves the base part out, and an empty `--append-system-prompt` adds nothing.
-- These are errors: an unknown flag, a positional argument (clodent takes none), a missing value, a value on a flag that takes none, an `--effort` other than `low`, `medium` or `high`, a `--budget` that is not a decimal number greater than 0, a `--session-id` not shaped as 8-4-4-4-12 hex digits, `--yolo` with `--read-only`, `--fork-session` without `--resume`, `--session-id` with `--resume` but without `--fork-session` (`--session-id with --resume requires --fork-session`), and `--system-prompt` with `--system-prompt-file`.
+- These are errors: an unknown flag, a positional argument (clodent takes none), a missing value, a value on a flag that takes none, an `--effort` other than `low`, `medium`, `high`, `xhigh` or `max`, a `--permission-mode` other than `default`, `plan`, `acceptEdits` or `bypassPermissions`, a `--budget` that is not a decimal number greater than 0, a `--session-id` not shaped as 8-4-4-4-12 hex digits, two of `--yolo`, `--read-only`, `--dangerously-skip-permissions` and `--permission-mode` that name different modes (`--<a> and --<b> cannot be combined`, in table order; flags that name the same mode combine), `--fork-session` without `--resume`, `--session-id` with `--resume` but without `--fork-session` (`--session-id with --resume requires --fork-session`), and `--system-prompt` with `--system-prompt-file`.
+
+`--disallowedTools <list>`: each value is split at commas and whitespace outside parentheses, and each entry is a deny rule parsed exactly as a settings `permissions.deny` entry (see [Permission rules](#permission-rules)), so `Bash`, `Bash(git push:*)` and `Read(~/x)` all work and other tool names are ignored silently; a `/p` path is relative to the working directory. These rules follow the settings deny rules. A malformed entry prints `clodent: --disallowedTools: "<entry>": <reason>` and exits 2, before the `[clodent:session]` line, any hook and any request.
+
+The ignored flags take their value, if they have one, and change nothing. Each one given prints `clodent: ignoring --<name>: not supported` once per run, `<name>` spelled as in the table's first column, on stderr: in `-p` right after the `[clodent:session]` line, in the REPL before it.
 
 Exit codes:
 
@@ -112,7 +126,7 @@ Exit codes:
 | `ANTHROPIC_BASE_URL` | replaces the API origin: requests go to `<value without trailing slashes>/v1/messages`; must be an `http:` or `https:` URL, else clodent prints `clodent: invalid ANTHROPIC_BASE_URL` and exits 2; an empty value counts as unset |
 | `CLODENT_HOME` | where clodent keeps its data, such as `settings.json` and session transcripts; default `~/.clodent`; an empty value counts as unset |
 
-The settings `env` (see [Settings](#settings)) is laid over the process environment, and that one environment is what clodent reads `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` from and what tools and hooks run in. `CLODENT_HOME` alone is read from the process environment, since it locates `settings.json`.
+The settings `env` (see [Settings](#settings)) is laid over the process environment, and that one environment is what clodent reads `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` from and what tools and hooks run in, less the settings sandbox `credentials.envVars` names for the Bash tool (see [Permission rules](#permission-rules)). `CLODENT_HOME` alone is read from the process environment, since it locates `settings.json`.
 
 ### Print mode
 
@@ -121,7 +135,7 @@ The settings `env` (see [Settings](#settings)) is laid over the process environm
 stdout gets only the final answer: the text blocks of the turn's last assistant message whose `stop_reason` is not `tool_use`, joined, then a newline. When there is no such message or it has no text, stdout gets nothing; text the model writes alongside a tool call is never printed. Thinking is never printed. stderr gets everything else, one line each:
 
 - `[clodent:session] <session-id>` first, before any other line; see [Sessions](#sessions).
-- `clodent: settings <path>: <what was dropped>` for each settings warning, right after it.
+- `clodent: ignoring --<name>: not supported` once for each ignored flag given (see [Flags](#flags)), then `clodent: settings <path>: <what was dropped>` for each settings warning.
 - `● <Tool> <summary>` for each tool call; the summary is the call's main input: `file_path` for Read, Write and Edit, `command` for Bash, `pattern` for Grep and Glob. It is one line, with each line break shown as `⏎`, and is cut to 200 characters ending in `…`. With an empty summary the line is `● <Tool>`.
 - `  ✗ <reason>` when a tool call is refused, and `  ✗ <first line of the result>` when a tool returns an error.
 - `clodent: <message>` for warnings and errors, hook warnings included. An API error message is printed verbatim.
@@ -134,22 +148,23 @@ Exit codes:
 
 - 0: the model ended its turn (`end_turn` or `stop_sequence`). A `pause_turn` response is sent back for the model to continue.
 - 1: an API error, a budget stop, a refusal, `max_tokens` (warned as `clodent: response hit max_tokens`), or any other stop reason (warned as `clodent: unexpected stop_reason <reason>`).
-- 2: an argument error; a settings file error, printed as `clodent: <message>` (see [Settings](#settings)); an empty prompt (`-p ''` or `-p=`), printed as `clodent: -p needs a non-empty prompt`; `ANTHROPIC_API_KEY` unset, printed as `clodent: ANTHROPIC_API_KEY is not set`; an invalid `ANTHROPIC_BASE_URL`, printed as `clodent: invalid ANTHROPIC_BASE_URL`; an unreadable prompt file, printed as `clodent: <message>`; or a session error (see [Sessions](#sessions)). Settings warnings print first, as `clodent: <warning>` lines. No request is sent and no `[clodent:session]` line is printed.
+- 2: an argument error; a settings file error, printed as `clodent: <message>` (see [Settings](#settings)); an empty prompt (`-p ''` or `-p=`), printed as `clodent: -p needs a non-empty prompt`; `ANTHROPIC_API_KEY` unset, printed as `clodent: ANTHROPIC_API_KEY is not set`; an invalid `ANTHROPIC_BASE_URL`, printed as `clodent: invalid ANTHROPIC_BASE_URL`; an unreadable prompt file, printed as `clodent: <message>`; a malformed `--disallowedTools` entry (see [Flags](#flags)); or a session error (see [Sessions](#sessions)). Settings warnings print first, as `clodent: <warning>` lines. No request is sent and no `[clodent:session]` line is printed.
 - 130: SIGINT; 143: SIGTERM; 129: SIGHUP. clodent aborts the request, the running tool or the running hooks, waits for them to return (each process group gets SIGTERM, then SIGKILL 2 s later), prints `clodent: interrupted` and the turn's cost line, fires `Stop` (a second signal kills it), prints the session total, waits for the statusLine command, sends any pending SIGKILL (see [Tools](#tools)), and exits. The transcript ends with the interrupt and `turn_duration` records, so `--resume` continues it.
 
 Permissions in `-p` go by the tool's kind (see [Tools](#tools)), and for `Bash` by the command (see [Read-only Bash](#read-only-bash)). A refused call is not run: the model gets the reason as an error tool result, and the turn goes on.
 
 | mode | read | write | exec (`Bash`) |
 |---|---|---|---|
-| default | runs | refused: `permission required: run clodent without -p to approve it, or pass --yolo` | a read-only command runs; any other is refused, same reason |
-| `--yolo` | runs | runs | runs |
-| `--read-only` | runs | refused: `--read-only: <Tool> is not allowed` | a read-only command runs; any other is refused: `--read-only: Bash command is not read-only (<reason>)` |
+| default, `--permission-mode default` | runs | refused: `permission required: run clodent without -p to approve it, or pass --yolo` | a read-only command runs; any other is refused, same reason |
+| `--permission-mode acceptEdits` | runs | runs | a read-only command runs; any other is refused: `permission required: run clodent without -p to approve it, or pass --yolo` |
+| `--yolo`, `--dangerously-skip-permissions`, `--permission-mode bypassPermissions` | runs | runs | runs |
+| `--read-only`, `--permission-mode plan` | runs | refused: `--read-only: <Tool> is not allowed` | a read-only command runs; any other is refused: `--read-only: Bash command is not read-only (<reason>)` |
 
-A `PreToolUse` hook can refuse any call or let a call run in the default mode; see [Hooks](#hooks) for the order. A call a settings deny rule matches is refused in every mode, and one an ask rule matches is refused unless `--yolo` is given; see [Permission rules](#permission-rules).
+A `PreToolUse` hook can refuse any call or let a call run in the default mode; see [Hooks](#hooks) for the order. A call a settings deny rule matches is refused in every mode, and one an ask rule matches is refused unless the mode is `--yolo`'s; see [Permission rules](#permission-rules).
 
 ### REPL
 
-`clodent` without `-p` starts the interactive REPL on stdin and stdout; a host such as Clodex drives it through a PTY. Everything it prints goes to stdout. Only a startup error that exits 2 (the [Print mode](#print-mode) list, settings warnings first) goes to stderr.
+`clodent` without `-p` starts the interactive REPL on stdin and stdout; a host such as Clodex drives it through a PTY. Everything it prints goes to stdout. Only a startup error that exits 2 (the [Print mode](#print-mode) list, settings warnings first) and the `clodent: ignoring --<name>: not supported` lines, written before the `[clodent:session]` line (see [Flags](#flags)), go to stderr.
 
 Startup, in this order:
 
@@ -191,7 +206,7 @@ Slash commands: a submitted line is a command when it was typed, with no paste i
 | `/help` | one line per command |
 | `/cost` | prints the `[clodent:cost] session total …` line |
 | `/model` | prints `clodent: model <id>` |
-| `/model <id>` | uses `<id>` for the next requests and rebuilds the system prompt, which names the model; the history is kept. If the rebuild fails, prints `clodent: <message>` and keeps the model. Then prints `clodent: model <id>`. With more than one word after `/model`, prints `clodent: /model takes one model id` and changes nothing |
+| `/model <id>` | uses `<id>`, less one trailing bracketed suffix such as `[1m]`, for the next requests and rebuilds the system prompt, which names the model; the history is kept. If the rebuild fails, prints `clodent: <message>` and keeps the model. Then prints `clodent: model <id>`. With more than one word after `/model`, prints `clodent: /model takes one model id` and changes nothing |
 | `/clear` | starts a new session with a minted id (never the `--session-id`) and an empty history: prints `[clodent:session] <new id>`, records into a new transcript and leaves the old one as is, sends a statusLine update with zero usage and the new session id, and fires `SessionStart` with `source` `clear`, whose context goes into the next prompt. The cost, model and effort carry over |
 | `/compact [<instructions>]` | summarises the conversation into one message, under the same session id (see below) |
 | `/quit`, `/exit` | exits, as Ctrl-D does |
@@ -207,11 +222,11 @@ Slash commands: a submitted line is a command when it was typed, with no paste i
 
 A compact is not a turn: it fires no `Stop` hook and writes no `turn_duration` record. Print mode has no compact.
 
-Permission ask: in the default mode, a write or exec tool call that no hook allowed or denied waits for an answer, unless it is a read-only `Bash` command (see [Read-only Bash](#read-only-bash)). So does any call a settings ask rule matches, even one a hook allowed; a call a deny rule matches is refused without asking (see [Permission rules](#permission-rules)). `--yolo` and `--read-only` never ask, and print mode refuses the call instead.
+Permission ask: in the default mode, a write or exec tool call that no hook allowed or denied waits for an answer, unless it is a read-only `Bash` command (see [Read-only Bash](#read-only-bash)). In `--permission-mode acceptEdits` write tools run, so only a `Bash` command that is not read-only waits. So does any call a settings ask rule matches, even one a hook allowed; a call a deny rule matches is refused without asking (see [Permission rules](#permission-rules)). The `--yolo` and `--read-only` modes, whichever flag names them, never ask, and print mode refuses the call instead.
 
 1. clodent prints `[clodent:permit <Tool> <tool_use id>] <summary>` on its own line, with the summary of the `● <Tool> <summary>` line; with an empty summary the line ends at `]`.
 2. It writes `Allow? [y/n] ` and starts reading one line.
-3. With the ask listening, it fires the `Notification` hook with `notification_type: "permission"`, `tool` (the tool name), `id` (the tool_use id) and `message: "clodent needs permission to use <Tool>"`. A line written while the hook runs is read as the answer. The call runs or is refused once both the answer and the hook are done. A hook warning may print after `Allow? [y/n] `.
+3. With the ask listening, it fires the `Notification` hook with `notification_type: "permission_prompt"`, `title: "Permission needed"`, `message: "clodent needs your permission to use <Tool>"`, `tool` (the tool name) and `id` (the tool_use id). A line written while the hook runs is read as the answer. The call runs or is refused once both the answer and the hook are done. A hook warning may print after `Allow? [y/n] `.
 4. `y` or `yes`, trimmed and in any case, runs the call. `n` or `no` refuses it with the reason `denied by the user`. An empty line asks again. Any other line, and any line with a paste in it, is not an answer: it is queued as a prompt, and clodent prints `clodent: queued as a prompt; answer y or n` and asks again.
 5. Ctrl-C interrupts the turn, and the call does not run. stdin closing refuses the call with the reason `denied: input closed`.
 
@@ -251,7 +266,7 @@ clodent sends every request as `POST https://api.anthropic.com/v1/messages`, or 
 - `content-type: application/json`
 - `user-agent: clodent/<version>`
 
-No `anthropic-beta` header is sent. The body always has `stream: true`, `thinking: {"type": "adaptive"}` and `max_tokens: 32000`; `output_config: {"effort": "low"|"medium"|"high"}` is present only when an effort is set. It carries exactly three `cache_control: {"type": "ephemeral"}` breakpoints: the system block, the last tool definition, and the last content block of the last message, skipping back over trailing `thinking` and `redacted_thinking` blocks. With no tools the tool breakpoint is absent and `tools` is omitted.
+No `anthropic-beta` header is sent. The body always has `stream: true`, `thinking: {"type": "adaptive"}` and `max_tokens: 32000`; `output_config: {"effort": "low"|"medium"|"high"|"xhigh"|"max"}` is present only when an effort is set. It carries exactly three `cache_control: {"type": "ephemeral"}` breakpoints: the system block, the last tool definition, and the last content block of the last message, skipping back over trailing `thinking` and `redacted_thinking` blocks. With no tools the tool breakpoint is absent and `tools` is omitted.
 
 Requests that fail before the first SSE event with status 429, 500, 502, 503, 504 or 529, or with a network error, are tried at most 4 times. The waits are 1 s, 2 s and 4 s, each with ±20% jitter, and a `retry-after` header in seconds replaces the wait, capped at 60 s. Any other status is not retried. An `error` event once the stream has started discards the partial response; when its type is `overloaded_error` or `api_error`, clodent re-sends the same request at most 2 more times, after 2 s and then 4 s, each announced by a `clodent: <message>; retrying in <n> s` warning. Any other `error` event is not retried. The API's error message is surfaced verbatim.
 
@@ -293,7 +308,7 @@ Line formats. Each is one line. Amounts have exactly four decimals, rounded half
 
 ### Tools
 
-clodent gives the model six built-in tools, in this order; a bare-name deny rule in settings removes one (see [Permission rules](#permission-rules)). `kind` decides how permissions treat a tool. Input names follow the common agent-tool convention, so a hook reading `tool_input` sees the same fields. Relative paths resolve against the working directory, and every path in a result is absolute.
+clodent gives the model six built-in tools, in this order; a bare-name deny rule in settings or `--disallowedTools` removes one (see [Permission rules](#permission-rules)). `kind` decides how permissions treat a tool. Input names follow the common agent-tool convention, so a hook reading `tool_input` sees the same fields. Relative paths resolve against the working directory, and every path in a result is absolute.
 
 | Tool | Kind | Inputs | Result |
 |---|---|---|---|
@@ -441,6 +456,8 @@ Every record carries:
 | `isSidechain` | `false` |
 | `version` | clodent's version |
 | `entrypoint` | `clodent` |
+| `userType` | `external` |
+| `gitBranch` | the working directory's git branch: from `.git/HEAD` at the git root (a `.git` file's `gitdir:` is followed, as in a worktree), `ref: refs/heads/<b>` gives `<b>`, any other HEAD gives `HEAD`, and no repository or an unreadable HEAD gives `""`. Read without a subprocess at session start and again before the first record of each turn |
 
 Record kinds, in the order a turn writes them:
 
@@ -466,7 +483,7 @@ Sources, in this order:
 1. `<CLODENT_HOME>/settings.json`, where `CLODENT_HOME` defaults to `~/.clodent`. A missing file counts as empty.
 2. Each `--settings <file>`, in argv order; a relative path resolves against the working directory. A missing one is an error: `settings file not found: <path>`.
 
-A file that is not valid JSON, or whose top level is not an object, is an error: `invalid settings file <path>: <reason>`. Any other read failure is `cannot read settings file <path>: <reason>`. A malformed permission rule list and `sandbox.enabled: true` are errors too, `settings <path>: <message>` (see [Permission rules](#permission-rules)). An error prints `clodent: <error>` and exits 2 before any request.
+A file that is not valid JSON, or whose top level is not an object, is an error: `invalid settings file <path>: <reason>`. Any other read failure is `cannot read settings file <path>: <reason>`. A malformed permission rule list and a malformed `sandbox` block under `enabled: true` are errors too, `settings <path>: <message>` (see [Permission rules](#permission-rules)). An error prints `clodent: <error>` and exits 2 before any request.
 
 Honored keys and how they merge across sources; later sources win unless the row says otherwise:
 
@@ -476,10 +493,10 @@ Honored keys and how they merge across sources; later sources win unless the row
 | `statusLine` | `{"type": "command", "command": "<cmd>"}`; the last one wins |
 | `env` | shallow merge of string values; a non-string value is dropped with a warning. Laid over the process environment for the API key, `ANTHROPIC_BASE_URL`, tools and hooks (see [Environment](#environment)) |
 | `trustedDirectories`, `permissions.additionalDirectories` | concatenated in source order (within a file, `trustedDirectories` first) and deduplicated, as one list of extra directories; listed in the system prompt after the `--add-dir` paths |
-| `effortLevel` | `low`, `medium` or `high`; the last valid one wins; any other value, such as `xhigh`, is ignored with a warning. The effort when `--effort` is absent |
-| `model` | the last one wins. The model when `--model` is absent |
+| `effortLevel` | `low`, `medium`, `high`, `xhigh` or `max`; the last valid one wins; any other value is ignored with a warning. The effort when `--effort` is absent |
+| `model` | the last one wins, less one trailing bracketed suffix such as `[1m]`. The model when `--model` is absent |
 | `permissions.deny`, `permissions.ask` | rule lists, concatenated in source order; see [Permission rules](#permission-rules). A malformed list or rule is an error |
-| `sandbox` | `enabled: true` in any source is an error; any other `sandbox` value or key is ignored |
+| `sandbox` | per source, with `enabled: true`: `filesystem.denyRead`, `filesystem.denyWrite` and `credentials.files` become deny rules and `credentials.envVars` names leave the Bash tool's environment, joined across sources; see [Permission rules](#permission-rules). Without `enabled: true` the block is ignored silently |
 
 Every other key, such as `voice`, `voiceEnabled`, `skillOverrides`, `permissions.allow` or `permissions.defaultMode`, is ignored silently. A malformed value of an honored key is dropped with a warning `settings <path>: <what was dropped>`, and loading continues. A hook entry whose `type` is not `"command"` is dropped with such a warning.
 
@@ -537,7 +554,19 @@ Startup errors: each of these prints `clodent: settings <path>: <message>` and e
 - `permissions` that is not an object: `permissions is not an object`.
 - `deny` or `ask` that is not an array: `permissions.<list> is not an array`; an entry that is not a string: `permissions.<list>[<i>] is not a string`.
 - A malformed rule, `permissions.<list>[<i>] "<rule>": <reason>`, where the reason is `unbalanced parenthesis`, `text after the closing parenthesis`, `no tool name`, `tool name "<name>" is not exactly <Tool>`, `empty () on <Tool>` (for a clodent tool only), or `the path expands to nothing (HOME is not set)`.
-- `sandbox.enabled: true` in any source: `sandbox.enabled is not supported: clodent does not sandbox Bash; remove the sandbox block`.
+- A malformed `sandbox` block under `enabled: true`, see below.
+
+Rules from `--disallowedTools` (see [Flags](#flags)) join the deny list after the settings ones and act exactly as they do.
+
+Sandbox block: clodent does not sandbox Bash. A settings source with `sandbox.enabled: true` has its block enforced as deny rules instead, after that source's `permissions.deny`:
+
+- Each `filesystem.denyRead` path becomes a `Read(<path>)` rule and each `filesystem.denyWrite` path an `Edit(<path>)` rule. Each `credentials.files` entry `{path, mode: "deny"}` becomes both.
+- A path `/abs` becomes `//abs`, `~` and `~/x` stay home-relative, and any other path is relative to the working directory; `*` and `**` work as above.
+- Each `credentials.envVars` entry `{name, mode: "deny"}` removes that variable from the environment of the Bash tool's commands only. Hooks and the statusLine keep it, and so does clodent's own process.
+- A `credentials` entry whose `mode` is not `"deny"` is ignored with the warning `settings <path>: sandbox: ignored entry <entry as JSON>`.
+- Every other key (`allowWrite`, `network`, `allowUnsandboxedCommands`, `excludedCommands`, …) is ignored. Every source with `enabled: true` prints one warning, `settings <path>: sandbox: clodent does not sandbox Bash; filesystem and credentials entries are enforced as permission rules, other keys ignored`.
+- These rules are path rules: they never remove a tool from the request's `tools` or the system prompt.
+- Startup errors, `clodent: settings <path>: <message>` and exit 2 as above: `sandbox.<filesystem|credentials> is not an object`; `sandbox.<section>.<list> is not an array`; `sandbox.filesystem.<list>[<i>] is not a string`; `sandbox.credentials.<list>[<i>] is not an object`; `sandbox.credentials.files[<i>].path` or `sandbox.credentials.envVars[<i>].name is not a string`; and `sandbox.filesystem.<list>[<i>]` or `sandbox.credentials.files[<i>].path` followed by `"<path>": <reason>` for a path the rule parser refuses.
 
 ### Hooks
 
@@ -564,15 +593,15 @@ When each event fires:
 | `Notification` | in the REPL, when a tool call waits for a permission answer: after the `[clodent:permit]` line and `Allow? [y/n] `, while the ask is listening (see [REPL](#repl)) |
 | `PreCompact` | in the REPL, at `/compact` on a non-empty history, before the summary request; its output is ignored apart from warnings |
 
-`permission_mode` names the mode as Claude Code does: `default` (the default ask mode), `bypassPermissions` (`--yolo`) or `plan` (`--read-only`).
+`permission_mode` names the mode as Claude Code does: `default` (the default ask mode), `bypassPermissions` (`--yolo`, `--dangerously-skip-permissions`), `plan` (`--read-only`) or `acceptEdits`; `--permission-mode <mode>` gives `<mode>`.
 
 The permission decision for a tool call goes in this order:
 
 1. A hook `deny` wins: the call does not run and the model gets the hook's reason as an error tool result.
 2. A settings deny rule refuses the call in every mode, `--yolo` included (see [Permission rules](#permission-rules)); a hook `allow` does not override it.
-3. A settings ask rule asks in the REPL's default mode; `-p` and `--read-only` refuse the call instead, and `--yolo` runs it. A hook `allow` does not skip the ask.
+3. A settings ask rule asks in the REPL's default and `acceptEdits` modes; `-p` and `--read-only` refuse the call instead, and `--yolo` runs it. A hook `allow` does not skip the ask.
 4. `--read-only` refuses write tools and any Bash command that is not read-only; a hook `allow` does not override it.
-5. A hook `allow` runs the call without the default mode's refusal.
+5. A hook `allow` runs the call without the default or `acceptEdits` mode's ask or refusal.
 6. A hook `ask`, or no decision, leaves it to the mode (see [Print mode](#print-mode)); in the REPL the default mode asks (see [REPL](#repl)).
 
 A hook `updatedInput` replaces the input before the decision and the run, and the `tool_use` event and the `● <Tool> <summary>` line show it. The history sent to the API keeps the model's own `tool_use` block; the transcript's `toolUseResult.input` records the input that ran.
@@ -604,12 +633,12 @@ stdin is one JSON object followed by a newline, then closed. Every event sends `
 
 | event | extra fields |
 |---|---|
-| `SessionStart` | `source`: `startup`, `resume`, `clear` or `compact` |
+| `SessionStart` | `source`: `startup`, `resume`, `clear` or `compact`; `model`: the session's model id |
 | `UserPromptSubmit` | `prompt` |
 | `PreToolUse` | `tool_name`, `tool_input`, `tool_use_id` |
 | `PostToolUse` | `tool_name`, `tool_input` (the input that ran), `tool_use_id`, `tool_response`: `{content, isError}` |
 | `PostToolUseFailure` | the `PostToolUse` fields, and `error`: the result text |
-| `Notification` | `notification_type`, `message`; a permission prompt sends `notification_type: "permission"`, `tool` and `id` |
+| `Notification` | a permission prompt sends `notification_type: "permission_prompt"`, `title: "Permission needed"`, `message: "clodent needs your permission to use <Tool>"`, `tool` and `id` |
 | `PreCompact` | `trigger`: `manual`; `custom_instructions`: the `/compact` instructions, or `""` |
 | `Stop` | `stop_hook_active`: `false` |
 

@@ -132,10 +132,19 @@ test('trustedDirectories and permissions.additionalDirectories union into extraD
   assert.deepEqual(warnings, []);
 });
 
-test('effortLevel xhigh warns and is not kept', async () => {
-  const { settings, warnings } = await loadSettings({ files: ['/1.json'] }, fakeFs({ '/1.json': { effortLevel: 'xhigh' } }));
+test('effortLevel ultra warns and is not kept; xhigh and max are kept', async () => {
+  const { settings, warnings } = await loadSettings({ files: ['/1.json'] }, fakeFs({ '/1.json': { effortLevel: 'ultra' } }));
   assert.equal(Object.hasOwn(settings, 'effortLevel'), false);
-  assert.deepEqual(warnings, ['settings /1.json: effortLevel "xhigh" is not low, medium or high; ignored']);
+  assert.deepEqual(warnings, ['settings /1.json: effortLevel "ultra" is not low, medium, high, xhigh or max; ignored']);
+  for (const effortLevel of ['xhigh', 'max']) {
+    const loaded = await loadSettings({ files: ['/1.json'] }, fakeFs({ '/1.json': { effortLevel } }));
+    assert.deepEqual([loaded.settings.effortLevel, loaded.warnings], [effortLevel, []]);
+  }
+});
+
+test('settings model drops one trailing [suffix]', async () => {
+  const { settings } = await loadSettings({ files: ['/1.json'] }, fakeFs({ '/1.json': { model: 'claude-opus-5-5[1m]' } }));
+  assert.equal(settings.model, 'claude-opus-5-5');
 });
 
 test('unknown keys are ignored silently', async () => {

@@ -1,16 +1,22 @@
-export const DEFAULT_MODEL = 'claude-opus-5-5';
+import { EFFORTS } from './api/request.js';
 
-const EFFORTS = ['low', 'medium', 'high'];
+export const DEFAULT_MODEL = 'claude-opus-5-5';
+export const PERMISSION_MODE_NAMES = Object.freeze({ default: 'ask', plan: 'read-only', acceptEdits: 'accept-edits', bypassPermissions: 'yolo' });
+
+const MODEL_SUFFIX = /^(.+)\[[^[\]]*\]$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DECIMAL = /^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
 export const FLAGS = [
   { long: 'print', short: 'p', key: 'print', arg: 'prompt', allowEmpty: true, help: 'run one prompt without the REPL, print the reply and exit' },
-  { long: 'model', key: 'model', arg: 'id', help: `model id (default ${DEFAULT_MODEL})` },
-  { long: 'effort', key: 'effort', arg: 'level', check: checkEffort, help: 'reasoning effort: low, medium or high' },
+  { long: 'model', key: 'model', arg: 'id', check: checkModel, help: `model id (default ${DEFAULT_MODEL}); a trailing [suffix] such as [1m] is dropped` },
+  { long: 'effort', key: 'effort', arg: 'level', check: checkEffort, help: 'reasoning effort: low, medium, high, xhigh or max' },
   { long: 'budget', key: 'budgetUsd', arg: 'usd', check: checkBudget, help: 'stop before the session spends more than this many US dollars' },
-  { long: 'yolo', key: 'permission', value: 'yolo', help: 'run every tool without asking' },
-  { long: 'read-only', key: 'permission', value: 'read-only', help: 'refuse write tools and any Bash command that is not read-only' },
+  { long: 'yolo', key: 'yolo', value: true, mode: 'yolo', help: 'run every tool without asking' },
+  { long: 'read-only', key: 'readOnly', value: true, mode: 'read-only', help: 'refuse write tools and any Bash command that is not read-only' },
+  { long: 'dangerously-skip-permissions', key: 'skipPermissions', value: true, mode: 'yolo', help: 'same as --yolo' },
+  { long: 'permission-mode', key: 'permissionMode', arg: 'mode', check: checkPermissionMode, help: 'default (ask), plan (--read-only), acceptEdits (run edits without asking) or bypassPermissions (--yolo)' },
+  { long: 'disallowedTools', alias: 'disallowed-tools', key: 'disallowedTools', arg: 'list', repeat: true, help: 'deny these tools or permission rules, separated by commas or spaces (repeatable)' },
   { long: 'session-id', key: 'sessionId', arg: 'uuid', check: checkUuid, help: 'use this session id instead of minting one' },
   { long: 'resume', key: 'resume', arg: 'id', check: checkResume, help: 'resume the session with this id' },
   { long: 'fork-session', key: 'forkSession', value: true, help: 'with --resume, continue under a new session id' },
@@ -20,16 +26,36 @@ export const FLAGS = [
   { long: 'system-prompt-file', key: 'systemPromptFile', arg: 'path', help: 'replace the base system prompt with this file' },
   { long: 'append-system-prompt', key: 'appendSystemPrompt', arg: 'text', allowEmpty: true, repeat: true, help: 'append this text to the system prompt (repeatable)' },
   { long: 'append-system-prompt-file', key: 'appendSystemPromptFile', arg: 'path', repeat: true, help: "append this file's contents to the system prompt (repeatable)" },
+  { long: 'allowedTools', alias: 'allowed-tools', key: 'allowedTools', arg: 'list', repeat: true, ignored: true, help: 'accepted and ignored' },
+  { long: 'plugin-dir', key: 'pluginDir', arg: 'dir', repeat: true, ignored: true, help: 'accepted and ignored' },
+  { long: 'agents', key: 'agents', arg: 'json', ignored: true, help: 'accepted and ignored' },
+  { long: 'mcp-config', key: 'mcpConfig', arg: 'path', repeat: true, ignored: true, help: 'accepted and ignored' },
+  { long: 'strict-mcp-config', key: 'strictMcpConfig', value: true, ignored: true, help: 'accepted and ignored' },
+  { long: 'dangerously-bypass-hook-trust', key: 'bypassHookTrust', value: true, ignored: true, help: 'accepted and ignored' },
   { long: 'version', short: 'v', key: 'version', value: true, help: 'print the version and exit' },
   { long: 'help', short: 'h', key: 'help', value: true, help: 'print this help and exit' },
 ];
 
-const BY_LONG = new Map(FLAGS.map((flag) => [`--${flag.long}`, flag]));
+const BY_LONG = new Map(FLAGS.flatMap((flag) => [flag.long, ...(flag.alias ? [flag.alias] : [])].map((name) => [`--${name}`, flag])));
 const BY_SHORT = new Map(FLAGS.filter((flag) => flag.short).map((flag) => [`-${flag.short}`, flag]));
+const PERMISSION_FLAGS = FLAGS.filter((flag) => flag.mode !== undefined || flag.key === 'permissionMode');
+
+export function stripModelSuffix(id) {
+  return id.match(MODEL_SUFFIX)?.[1] ?? id;
+}
+
+function checkModel(raw) {
+  return { value: stripModelSuffix(raw) };
+}
+
+function checkPermissionMode(raw) {
+  if (Object.hasOwn(PERMISSION_MODE_NAMES, raw)) return { value: PERMISSION_MODE_NAMES[raw] };
+  return { error: `--permission-mode must be default, plan, acceptEdits or bypassPermissions, got "${raw}"` };
+}
 
 function checkEffort(raw) {
   if (EFFORTS.includes(raw)) return { value: raw };
-  return { error: `--effort must be low, medium or high, got "${raw}"` };
+  return { error: `--effort must be low, medium, high, xhigh or max, got "${raw}"` };
 }
 
 function checkBudget(raw) {
@@ -65,8 +91,16 @@ function fail(error) {
   return { ok: false, error };
 }
 
+function permissionOf(opts, seen) {
+  const given = PERMISSION_FLAGS.filter((flag) => seen.has(flag.long)).map((flag) => ({ name: flag.long, mode: flag.mode ?? opts.permissionMode }));
+  if (given.length === 0) return { mode: 'ask' };
+  const other = given.find((flag) => flag.mode !== given[0].mode);
+  if (other) return { error: `--${given[0].name} and --${other.name} cannot be combined` };
+  return { mode: given[0].mode };
+}
+
 export function parseArgs(argv) {
-  const opts = { permission: 'ask', settings: [], addDirs: [], appendSystemPrompt: [], appendSystemPromptFile: [] };
+  const opts = { permission: 'ask', settings: [], addDirs: [], appendSystemPrompt: [], appendSystemPromptFile: [], disallowedTools: [] };
   const seen = new Set();
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -98,10 +132,13 @@ export function parseArgs(argv) {
       if (checked.error) return fail(checked.error);
       value = checked.value;
     }
-    if (flag.repeat) opts[flag.key].push(value);
+    if (flag.ignored) opts[flag.key] = true;
+    else if (flag.repeat) opts[flag.key].push(value);
     else opts[flag.key] = value;
   }
-  if (seen.has('yolo') && seen.has('read-only')) return fail('--yolo and --read-only cannot be combined');
+  const permission = permissionOf(opts, seen);
+  if (permission.error) return fail(permission.error);
+  opts.permission = permission.mode;
   if (seen.has('fork-session') && !seen.has('resume')) return fail('--fork-session requires --resume');
   if (seen.has('session-id') && seen.has('resume') && !seen.has('fork-session')) {
     return fail('--session-id with --resume requires --fork-session');
@@ -115,8 +152,7 @@ export function parseArgs(argv) {
 export function givenFlags(opts) {
   return FLAGS.filter((flag) => {
     const value = opts[flag.key];
-    if (flag.repeat) return value.length > 0;
-    if (flag.key === 'permission') return value === flag.value;
+    if (flag.repeat && !flag.ignored) return value.length > 0;
     return value !== undefined;
   }).map((flag) => flag.long);
 }

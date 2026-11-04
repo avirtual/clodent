@@ -26,6 +26,7 @@ export function createRecorder(transcript, { now }) {
       toolInputs.set(event.id, event.input);
     },
     message_append(event) {
+      if (turnStart === null) transcript.refreshBranch();
       if (event.kind === 'prompt' && turnStart === null) turnStart = now();
       const record = messageRecord(event);
       for (const block of event.content) {

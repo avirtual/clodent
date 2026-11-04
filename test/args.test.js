@@ -24,6 +24,7 @@ test('no arguments yields the defaults', () => {
     addDirs: [],
     appendSystemPrompt: [],
     appendSystemPromptFile: [],
+    disallowedTools: [],
   });
 });
 
@@ -34,6 +35,11 @@ const VALUE_FLAGS = [
   ['--effort', 'effort', 'low', 'low'],
   ['--effort', 'effort', 'medium', 'medium'],
   ['--effort', 'effort', 'high', 'high'],
+  ['--effort', 'effort', 'xhigh', 'xhigh'],
+  ['--effort', 'effort', 'max', 'max'],
+  ['--model', 'model', 'claude-haiku-5-5[1m]', 'claude-haiku-5-5'],
+  ['--model', 'model', 'claude-opus-5-5[1m][2m]', 'claude-opus-5-5[1m]'],
+  ['--model', 'model', '[1m]', '[1m]'],
   ['--budget', 'budgetUsd', '2.5', 2.5],
   ['--budget', 'budgetUsd', '0.01', 0.01],
   ['--budget', 'budgetUsd', '3', 3],
@@ -56,6 +62,8 @@ const REPEATABLE = [
   ['--add-dir', 'addDirs'],
   ['--append-system-prompt', 'appendSystemPrompt'],
   ['--append-system-prompt-file', 'appendSystemPromptFile'],
+  ['--disallowedTools', 'disallowedTools'],
+  ['--disallowed-tools', 'disallowedTools'],
 ];
 
 for (const [flag, key] of REPEATABLE) {
@@ -127,10 +135,48 @@ test('a boolean flag given a value is an error', () => {
   assert.equal(err(['--version=2']), '--version takes no value');
 });
 
-test('--effort rejects anything but low, medium or high', () => {
-  for (const raw of ['max', 'LOW', 'xhigh']) {
-    assert.equal(err(['--effort', raw]), `--effort must be low, medium or high, got "${raw}"`);
+test('--effort rejects anything but low, medium, high, xhigh or max', () => {
+  for (const raw of ['MAX', 'LOW', 'x-high', 'ultra']) {
+    assert.equal(err(['--effort', raw]), `--effort must be low, medium, high, xhigh or max, got "${raw}"`);
   }
+});
+
+test('--dangerously-skip-permissions is --yolo, and --permission-mode maps the four Claude modes', () => {
+  assert.equal(ok(['--dangerously-skip-permissions']).permission, 'yolo');
+  const modes = { default: 'ask', plan: 'read-only', acceptEdits: 'accept-edits', bypassPermissions: 'yolo' };
+  for (const [name, mode] of Object.entries(modes)) {
+    assert.equal(ok(['--permission-mode', name]).permission, mode);
+    assert.equal(ok([`--permission-mode=${name}`]).permission, mode);
+  }
+});
+
+test('--permission-mode rejects any other value, naming the four', () => {
+  for (const raw of ['ask', 'yolo', 'Default', 'dontAsk', 'accept-edits']) {
+    assert.equal(err(['--permission-mode', raw]), `--permission-mode must be default, plan, acceptEdits or bypassPermissions, got "${raw}"`);
+  }
+});
+
+test('permission flags that resolve to different modes cannot be combined; flags that agree can', () => {
+  assert.equal(err(['--dangerously-skip-permissions', '--read-only']), '--read-only and --dangerously-skip-permissions cannot be combined');
+  assert.equal(err(['--permission-mode', 'plan', '--yolo']), '--yolo and --permission-mode cannot be combined');
+  assert.equal(err(['--permission-mode', 'acceptEdits', '--dangerously-skip-permissions']), '--dangerously-skip-permissions and --permission-mode cannot be combined');
+  assert.equal(err(['--read-only', '--permission-mode', 'default']), '--read-only and --permission-mode cannot be combined');
+  assert.equal(ok(['--yolo', '--dangerously-skip-permissions', '--permission-mode', 'bypassPermissions']).permission, 'yolo');
+  assert.equal(ok(['--permission-mode', 'plan', '--read-only']).permission, 'read-only');
+});
+
+test('the accepted-and-ignored flags parse, take their value, and keep none of it', () => {
+  const opts = ok([
+    '--plugin-dir', 'a', '--plugin-dir=b', '--agents', '{"x":{}}', '--mcp-config', 'm.json', '--mcp-config', 'n.json',
+    '--strict-mcp-config', '--allowedTools', 'Read Bash(git:*)', '--allowed-tools', 'Edit', '--dangerously-bypass-hook-trust', '-p', 'go',
+  ]);
+  assert.deepEqual(
+    [opts.pluginDir, opts.agents, opts.mcpConfig, opts.strictMcpConfig, opts.allowedTools, opts.bypassHookTrust, opts.print],
+    [true, true, true, true, true, true, 'go'],
+  );
+  assert.equal(err(['--agents', 'a', '--agents', 'b']), '--agents given more than once');
+  assert.equal(err(['--strict-mcp-config=1']), '--strict-mcp-config takes no value');
+  assert.equal(err(['--plugin-dir', '--yolo']), '--plugin-dir needs a value');
 });
 
 test('--budget rejects anything but a finite number greater than 0', () => {
@@ -205,10 +251,12 @@ test('givenFlags names every flag present, in table order', () => {
   assert.deepEqual(givenFlags(ok(['--read-only', '--add-dir', 'x', '-p', 'go'])), ['print', 'read-only', 'add-dir']);
   assert.deepEqual(givenFlags(ok(['--yolo'])), ['yolo']);
   assert.deepEqual(givenFlags(ok(['--system-prompt-file', 'sys.md'])), ['system-prompt-file']);
+  assert.deepEqual(givenFlags(ok(['--dangerously-skip-permissions', '--strict-mcp-config'])), ['dangerously-skip-permissions', 'strict-mcp-config']);
   const every = FLAGS.filter((f) => f.long !== 'read-only' && f.long !== 'system-prompt-file');
   const argv = every.flatMap((f) => {
     if (!f.arg) return [`--${f.long}`];
     if (f.long === 'effort') return ['--effort', 'low'];
+    if (f.long === 'permission-mode') return ['--permission-mode', 'bypassPermissions'];
     if (f.long === 'budget') return ['--budget', '1'];
     if (f.long === 'session-id') return ['--session-id', UUID];
     return [`--${f.long}`, 'x'];

@@ -45,12 +45,12 @@ test('boot prints the session line, runs SessionStart (startup), then shows the 
   const { home, cwd, dir } = await dirs(t);
   const log = join(dir, 'start.jsonl');
   const hook = await script(dir, 'start.sh', `cat >> ${JSON.stringify(log)}\n${hookOutput({ hookEventName: 'SessionStart', additionalContext: 'boot context' })}`);
-  const settings = writeSettings(dir, { effortLevel: 'xhigh', hooks: { SessionStart: [hookGroup('', hook)] } });
+  const settings = writeSettings(dir, { effortLevel: 'ultra', hooks: { SessionStart: [hookGroup('', hook)] } });
   const repl = startRepl(['--settings', settings], { home, cwd, replies: [textReply('hello')] });
   repl.stdin.type('early');
   await repl.prompts(1);
   const [id] = repl.sessionIds();
-  const warning = `clodent: settings ${settings}: effortLevel "xhigh" is not low, medium or high; ignored`;
+  const warning = `clodent: settings ${settings}: effortLevel "ultra" is not low, medium, high, xhigh or max; ignored`;
   assert.ok(repl.out.text.startsWith(`[clodent:session] ${id}\n${warning}\n${PASTE_ON}> early`), JSON.stringify(repl.out.text));
   assert.equal(repl.err.text, '');
   assert.deepEqual(readJsonl(log).map((input) => [input.hook_event_name, input.source]), [['SessionStart', 'startup']]);
@@ -311,9 +311,10 @@ test('permission ask: [clodent:permit] line and Notification hook; y allows, n d
   await repl.prompts(2);
   const [notice] = readJsonl(log);
   assert.deepEqual(
-    [notice.hook_event_name, notice.notification_type, notice.tool, notice.id, notice.message],
-    ['Notification', 'permission', 'Write', 'toolu_1', 'clodent needs permission to use Write'],
+    [notice.hook_event_name, notice.notification_type, notice.title, notice.message, notice.tool, notice.id],
+    ['Notification', 'permission_prompt', 'Permission needed', 'clodent needs your permission to use Write', 'Write', 'toolu_1'],
   );
+  assert.deepEqual(Object.keys(notice).sort(), ['cwd', 'hook_event_name', 'id', 'message', 'notification_type', 'permission_mode', 'session_id', 'title', 'tool', 'transcript_path']);
   assert.equal(readFileSync(join(cwd, 'a.txt'), 'utf8'), 'a.txt');
 
   repl.stdin.type('write b\r');

@@ -75,7 +75,7 @@ test('compact sends one quiet summary request, replaces the history with the sum
   assert.deepEqual(h.types().slice(mark), ['warning', 'request_start', 'compacted']);
   const compacted = h.events.at(-1);
   assert.deepEqual({ ...compacted, turn: compacted.turn.requests }, { type: 'compacted', trigger: 'manual', summary: 'the summary', preTokens: 240, postTokens: 7, turn: 1 });
-  assert.deepEqual(h.fired.slice(-2), [['PreCompact', { trigger: 'manual', custom_instructions: 'keep paths' }], ['SessionStart', { source: 'compact' }]]);
+  assert.deepEqual(h.fired.slice(-2), [['PreCompact', { trigger: 'manual', custom_instructions: 'keep paths' }], ['SessionStart', { source: 'compact', model: 'claude-opus-5-5' }]]);
   assert.deepEqual(h.agent.messages(), [{ role: 'user', content: [text(`${SUMMARY_PREFIX}the summary`)] }]);
   await h.agent.runTurn('next');
   assert.deepEqual(strip(h.bodies()[2].messages), [

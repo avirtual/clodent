@@ -105,7 +105,7 @@ test('empty or non-string system throws', () => {
 
 test('effort maps to output_config only when set', () => {
   assert.equal('output_config' in buildRequest(base(), deps).body, false);
-  for (const effort of ['low', 'medium', 'high']) {
+  for (const effort of ['low', 'medium', 'high', 'xhigh', 'max']) {
     assert.deepEqual(buildRequest(base({ effort }), deps).body.output_config, { effort });
   }
 });
@@ -117,7 +117,7 @@ test('toolChoice maps to tool_choice only when set', () => {
 });
 
 test('an invalid effort throws', () => {
-  for (const effort of ['max', 'HIGH', '', 3]) {
+  for (const effort of ['ultra', 'MAX', 'HIGH', '', 3]) {
     assert.throws(() => buildRequest(base({ effort }), deps), /invalid effort/);
   }
 });

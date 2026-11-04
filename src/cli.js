@@ -7,8 +7,9 @@ import { DEFAULT_MODEL, FLAGS, givenFlags, parseArgs } from './args.js';
 import { createLedger } from './cost/ledger.js';
 import { createHookFirer } from './hooks/fire.js';
 import { createStatusLine } from './hooks/status-line.js';
+import { flagRules } from './permissions/flag-rules.js';
 import { createGuard, sentTools } from './permissions/guard.js';
-import { ruleHome } from './permissions/rules.js';
+import { RuleError, ruleHome } from './permissions/rules.js';
 import { killPendingGroups } from './proc/run.js';
 import { buildSystemPrompt } from './prompt/system.js';
 import { createRenderer } from './render/terminal.js';
@@ -16,6 +17,7 @@ import { runRepl } from './repl/repl.js';
 import { loadSettings } from './settings/load.js';
 import { openSession } from './session/open.js';
 import { clodentHome } from './session/paths.js';
+import { gitBranch } from './session/git-branch.js';
 import { createRecorder } from './session/recorder.js';
 import { createTools } from './tools/index.js';
 
@@ -29,7 +31,7 @@ function version() {
 
 function usage() {
   const rows = FLAGS.map((flag) => {
-    const names = flag.short ? `-${flag.short}, --${flag.long}` : `--${flag.long}`;
+    const names = [flag.short && `-${flag.short}`, `--${flag.long}`, flag.alias && `--${flag.alias}`].filter(Boolean).join(', ');
     const label = flag.arg ? `${names} <${flag.arg}>` : names;
     const status = NOT_YET.has(flag.long) ? ' (not implemented yet)' : '';
     return [label, `${flag.help}${status}`];
@@ -41,6 +43,10 @@ function usage() {
 
 function home(deps) {
   return clodentHome(deps.env, deps.homedir ?? homedir());
+}
+
+function ignoredFlags(opts) {
+  return FLAGS.filter((flag) => flag.ignored && opts[flag.key] === true).map((flag) => `clodent: ignoring --${flag.long}: not supported\n`);
 }
 
 function baseUrlFrom(env) {
@@ -100,19 +106,21 @@ function startSession(opts, deps) {
       mkdirSync,
       clock: deps.clock,
       uuid: deps.uuid ?? randomUUID,
+      gitBranch: () => gitBranch(deps.cwd, { readFileSync, statSync }),
     },
   );
 }
 
 async function prepare(opts, deps) {
   const { stderr, cwd } = deps;
+  const rulesHome = ruleHome(deps.env, () => deps.homedir ?? homedir());
   let loaded;
   try {
     loaded = await loadSettings({
       clodentHome: home(deps),
       files: opts.settings.map((file) => resolve(cwd, file)),
       cwd,
-      home: ruleHome(deps.env, () => deps.homedir ?? homedir()),
+      home: rulesHome,
     });
   } catch (err) {
     stderr.write(`clodent: ${err.message}\n`);
@@ -124,6 +132,14 @@ async function prepare(opts, deps) {
     return { code: 2 };
   };
   const { settings } = loaded;
+  let disallowed;
+  try {
+    disallowed = flagRules(opts.disallowedTools, { cwd, home: rulesHome });
+  } catch (err) {
+    if (!(err instanceof RuleError)) throw err;
+    return fail(`--disallowedTools: ${err.message}`);
+  }
+  const permissions = { deny: [...(settings.permissions?.deny ?? []), ...disallowed], ask: settings.permissions?.ask ?? [] };
   const env = { ...deps.env, ...settings.env };
   if (opts.print === '') return fail('-p needs a non-empty prompt');
   if (!env.ANTHROPIC_API_KEY) return fail('ANTHROPIC_API_KEY is not set');
@@ -133,7 +149,7 @@ async function prepare(opts, deps) {
   const addDirs = extraDirs(opts, settings, cwd);
   let system;
   try {
-    system = systemPrompt(opts, model, addDirs, deps, settings.permissions);
+    system = systemPrompt(opts, model, addDirs, deps, permissions);
   } catch (err) {
     return fail(err.message);
   }
@@ -145,11 +161,11 @@ async function prepare(opts, deps) {
   }
   if (!session.ok) return fail(session.error);
   const warnings = [...loaded.warnings, ...session.warnings];
-  return { settings, env, baseUrl: base.baseUrl, model, addDirs, system, session, warnings };
+  return { settings, permissions, env, baseUrl: base.baseUrl, model, addDirs, system, session, warnings };
 }
 
 function createRuntime(prep, opts, deps, render) {
-  const { settings, env, baseUrl, addDirs } = prep;
+  const { settings, permissions, env, baseUrl, addDirs } = prep;
   const { cwd } = deps;
   const procDeps = { spawn: deps.spawn, kill: deps.kill };
   const ledger = createLedger({ budgetUsd: opts.budgetUsd }, {});
@@ -157,8 +173,8 @@ function createRuntime(prep, opts, deps, render) {
     { settings, env, cwd, version: version() },
     { ...procDeps, warn: (message) => render({ type: 'warning', message }) },
   );
-  const guard = createGuard(settings.permissions);
-  const tools = createTools(procDeps).filter((tool) => !guard.removes(tool.name));
+  const guard = createGuard(permissions);
+  const tools = createTools({ ...procDeps, envDeny: settings.envDeny ?? [] }).filter((tool) => !guard.removes(tool.name));
   const current = { model: prep.model, system: prep.system };
   const statusOf = (session, usage) =>
     statusState(usage, { modelId: current.model, sessionId: session.sessionId, transcriptPath: session.transcriptPath }, ledger);
@@ -207,7 +223,7 @@ function createRuntime(prep, opts, deps, render) {
     open,
     model: () => current.model,
     setModel(model) {
-      const system = systemPrompt(opts, model, addDirs, deps, settings.permissions);
+      const system = systemPrompt(opts, model, addDirs, deps, permissions);
       Object.assign(current, { model, system });
       return system;
     },
@@ -237,6 +253,7 @@ async function runPrint(opts, deps) {
   const prep = await prepare(opts, deps);
   if (prep.code !== undefined) return prep.code;
   stderr.write(`[clodent:session] ${prep.session.sessionId}\n`);
+  for (const line of ignoredFlags(opts)) stderr.write(line);
   for (const warning of prep.warnings) stderr.write(`clodent: ${warning}\n`);
   const render = createRenderer({ out: stdout, err: stderr, mode: 'print' });
   const runtime = createRuntime(prep, opts, deps, render);
@@ -270,6 +287,7 @@ async function runPrint(opts, deps) {
 async function runInteractive(opts, deps) {
   const prep = await prepare(opts, deps);
   if (prep.code !== undefined) return prep.code;
+  for (const line of ignoredFlags(opts)) deps.stderr.write(line);
   const render = createRenderer({ out: deps.stdout, err: deps.stderr, mode: 'repl' });
   const runtime = createRuntime(prep, opts, deps, render);
   return runRepl(

@@ -72,7 +72,7 @@ test('--help prints usage and returns 0', async () => {
 test('--help lists every flag with a description and marks the unimplemented ones', async () => {
   const { stdout } = await run(['--help']);
   for (const flag of FLAGS) {
-    const names = flag.short ? `-${flag.short}, --${flag.long}` : `--${flag.long}`;
+    const names = [flag.short && `-${flag.short}`, `--${flag.long}`, flag.alias && `--${flag.alias}`].filter(Boolean).join(', ');
     const label = flag.arg ? `${names} <${flag.arg}>` : names;
     const line = stdout.split('\n').find((l) => l.trimStart().startsWith(`${label} `));
     assert.ok(line, `no help line for ${label}`);
@@ -92,10 +92,15 @@ test('a parse error prints the error and a pointer to --help, and returns 2', as
     stdout: '',
     stderr: 'clodent: unknown option: --frobnicate\nclodent: see --help\n',
   });
-  assert.deepEqual(await run(['--effort', 'max']), {
+  assert.deepEqual(await run(['--effort', 'ultra']), {
     code: 2,
     stdout: '',
-    stderr: 'clodent: --effort must be low, medium or high, got "max"\nclodent: see --help\n',
+    stderr: 'clodent: --effort must be low, medium, high, xhigh or max, got "ultra"\nclodent: see --help\n',
+  });
+  assert.deepEqual(await run(['--permission-mode', 'plan', '--yolo']), {
+    code: 2,
+    stdout: '',
+    stderr: 'clodent: --yolo and --permission-mode cannot be combined\nclodent: see --help\n',
   });
   assert.equal((await run(['fix it'])).code, 2);
 });
@@ -131,7 +136,7 @@ test('README ### Flags marks exactly the NOT_YET flags as parsed; not yet implem
   const status = new Map(
     rows.map((row) => {
       const cells = row.split('|').map((cell) => cell.trim());
-      return [cells[1].match(/`--([a-z-]+)/)[1], cells[2]];
+      return [cells[1].match(/`--([A-Za-z-]+)/)[1], cells[2]];
     }),
   );
   assert.deepEqual([...status.keys()].sort(), FLAGS.map((flag) => flag.long).sort());

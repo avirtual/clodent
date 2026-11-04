@@ -1,9 +1,9 @@
 import { readFile as fsReadFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { EFFORTS } from '../api/request.js';
+import { stripModelSuffix } from '../args.js';
 import { parseRules, RuleError, ruleHome } from '../permissions/rules.js';
-
-const EFFORTS = new Set(['low', 'medium', 'high']);
-export const SANDBOX_REFUSAL = 'sandbox.enabled is not supported: clodent does not sandbox Bash; remove the sandbox block';
+import { sandboxGuard } from './sandbox.js';
 
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -116,12 +116,15 @@ function mergeDirs(acc, dirs, name, warn) {
   });
 }
 
-function mergeGuard(acc, source, where) {
-  if (isObject(source.sandbox) && source.sandbox.enabled === true) throw new RuleError(SANDBOX_REFUSAL);
-  if (source.permissions === undefined) return;
-  if (!isObject(source.permissions)) throw new RuleError('permissions is not an object');
-  acc.deny.push(...parseRules(source.permissions.deny, 'permissions.deny', where));
-  acc.ask.push(...parseRules(source.permissions.ask, 'permissions.ask', where));
+function mergeGuard(acc, source, where, warn) {
+  if (source.permissions !== undefined) {
+    if (!isObject(source.permissions)) throw new RuleError('permissions is not an object');
+    acc.deny.push(...parseRules(source.permissions.deny, 'permissions.deny', where));
+    acc.ask.push(...parseRules(source.permissions.ask, 'permissions.ask', where));
+  }
+  const sandbox = sandboxGuard(source.sandbox, where, warn);
+  acc.deny.push(...sandbox.deny);
+  for (const name of sandbox.envDeny) acc.envDeny.add(name);
 }
 
 function mergeSource(acc, source, warn) {
@@ -138,11 +141,11 @@ function mergeSource(acc, source, warn) {
   mergeDirs(acc, source.trustedDirectories, 'trustedDirectories', warn);
   if (source.permissions !== undefined) mergeDirs(acc, source.permissions.additionalDirectories, 'permissions.additionalDirectories', warn);
   if (source.effortLevel !== undefined) {
-    if (EFFORTS.has(source.effortLevel)) acc.effortLevel = source.effortLevel;
-    else warn(`effortLevel ${JSON.stringify(source.effortLevel)} is not low, medium or high; ignored`);
+    if (EFFORTS.includes(source.effortLevel)) acc.effortLevel = source.effortLevel;
+    else warn(`effortLevel ${JSON.stringify(source.effortLevel)} is not low, medium, high, xhigh or max; ignored`);
   }
   if (source.model !== undefined) {
-    if (typeof source.model === 'string' && source.model !== '') acc.model = source.model;
+    if (typeof source.model === 'string' && source.model !== '') acc.model = stripModelSuffix(source.model);
     else warn('model is not a non-empty string; ignored');
   }
 }
@@ -152,18 +155,19 @@ export async function loadSettings({ clodentHome, files = [], cwd = process.cwd(
   const sources = [];
   if (clodentHome) sources.push({ path: join(clodentHome, 'settings.json'), optional: true });
   for (const path of files) sources.push({ path, optional: false });
-  const acc = { hooks: new Map(), statusLine: null, env: new Map(), extraDirs: new Set(), effortLevel: null, model: null, deny: [], ask: [] };
+  const acc = { hooks: new Map(), statusLine: null, env: new Map(), extraDirs: new Set(), effortLevel: null, model: null, deny: [], ask: [], envDeny: new Set() };
   const warnings = [];
   for (const { path, optional } of sources) {
     const source = await readSource(path, optional, readFile);
     if (!source) continue;
+    const warn = (message) => warnings.push(`settings ${path}: ${message}`);
     try {
-      mergeGuard(acc, source, { file: path, cwd, home });
+      mergeGuard(acc, source, { file: path, cwd, home }, warn);
     } catch (err) {
       if (err instanceof RuleError) throw new Error(`settings ${path}: ${err.message}`);
       throw err;
     }
-    mergeSource(acc, source, (message) => warnings.push(`settings ${path}: ${message}`));
+    mergeSource(acc, source, warn);
   }
   const settings = {
     hooks: Object.fromEntries(acc.hooks),
@@ -174,5 +178,6 @@ export async function loadSettings({ clodentHome, files = [], cwd = process.cwd(
   if (acc.effortLevel) settings.effortLevel = acc.effortLevel;
   if (acc.model) settings.model = acc.model;
   if (acc.deny.length > 0 || acc.ask.length > 0) settings.permissions = { deny: acc.deny, ask: acc.ask };
+  if (acc.envDeny.size > 0) settings.envDeny = [...acc.envDeny];
   return { settings, warnings };
 }
