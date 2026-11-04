@@ -104,9 +104,8 @@ export function createAgent(config, deps) {
     }
   }
 
-  async function verdictFor(tool, input, pre) {
+  function verdictFor(tool, input, pre, ruled) {
     if (pre.decision === 'deny') return { allow: false, reason: pre.reason };
-    const ruled = await guard.check(tool.name, input, deps.cwd);
     if (ruled?.decision === 'deny') return { allow: false, reason: denialReason(ruled.rule) };
     if (ruled?.decision === 'ask' && permission !== 'yolo') return { allow: false, ask: permission === 'ask', reason: ASK_DENIAL };
     if (pre.decision === 'allow' && permission === 'ask') return ALLOWED;
@@ -123,7 +122,12 @@ export function createAgent(config, deps) {
   }
 
   async function execute(tool, use, input, pre, signal) {
-    let verdict = await verdictFor(tool, input, pre);
+    let ruled = null;
+    if (guard.active) {
+      ruled = await guard.check(tool.name, input, deps.cwd);
+      if (signal?.aborted) return { content: INTERRUPTED_RESULT, isError: true, ran: false };
+    }
+    let verdict = verdictFor(tool, input, pre, ruled);
     if (verdict.ask && config.ask) verdict = await askUser(tool, use, input, signal);
     emit({
       type: 'permission',

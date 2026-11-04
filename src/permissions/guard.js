@@ -6,6 +6,7 @@ const PATH_FIELDS = { Read: 'file_path', Edit: 'file_path', Write: 'file_path', 
 const LISTING_TOOLS = new Set(['Grep', 'Glob']);
 
 export const OPEN_GUARD = Object.freeze({
+  active: false,
   removes: () => false,
   check: async () => null,
   hidden: () => null,
@@ -118,6 +119,7 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
   }
 
   return {
+    active: deny.length > 0 || ask.length > 0,
     removes: (tool) => deny.some((rule) => rule.kind === 'tool' && rule.tool === tool),
     check,
     hidden,
