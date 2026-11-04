@@ -131,6 +131,16 @@ test('the last of two "Files to reload:" sections wins', () => {
   assert.deepEqual(pick('Files to reload:\n/w/old.js\n\nMore notes.\nFiles to reload:\n/w/new.js'), ['/w/new.js']);
 });
 
+test('a path written inline after "Files to reload:" is the first one, cleaned like the lines below it, and both are reloaded in order', async (t) => {
+  assert.deepEqual(pick('Files to reload: - `src/a.js`  \nsrc/b.js'), ['/w/src/a.js', '/w/src/b.js']);
+  const cwd = await useTempDir(t);
+  await plant(cwd, { 'src/a.js': 'alpha', 'src/b.js': 'beta' });
+  const h = harness([reply('S\nFiles to reload: src/a.js\nsrc/b.js')], { cwd, compactReloadFiles: 5 });
+  assert.equal((await h.agent.compact(MANUAL)).ok, true);
+  assert.deepEqual(h.compacted().reloaded.map((file) => file.path), [join(cwd, 'src/a.js'), join(cwd, 'src/b.js')]);
+  assert.deepEqual(h.compacted().skipped, []);
+});
+
 test('with no section, the Read, Edit and Write file_path of the history are picked, most recent first', () => {
   const history = [
     { role: 'user', content: [text('go')] },
@@ -186,6 +196,22 @@ test('a path a settings permissions.deny rule matches is skipped as denied, and 
   for (const where of [h.raw.join(''), JSON.stringify(h.events), JSON.stringify(h.agent.messages())]) {
     assert.equal(where.includes('MARKER-PERMISSIONS-DENY'), false);
   }
+});
+
+test('with a settings deny of bare Read, which removes the Read tool, the summary request asks for no list and nothing is reloaded', async (t) => {
+  const cwd = await useTempDir(t);
+  await plant(cwd, { 'a.js': 'alpha' });
+  const permissions = await guardFrom(writeSettings(cwd, { permissions: { deny: ['Read'] } }), cwd);
+  const tools = [createRead()].filter((tool) => !createGuard(permissions).removes(tool.name));
+  assert.deepEqual(tools, []);
+  const summary = 'S\nFiles to reload:\na.js';
+  const h = harness([reply(summary)], { cwd, permissions, tools, compactReloadFiles: 5 });
+  assert.equal((await h.agent.compact(MANUAL)).ok, true);
+  const asked = JSON.parse(h.raw[0]).messages.at(-1).content.at(-1).text;
+  assert.equal(asked.includes('Files to reload'), false);
+  assert.equal(asked, COMPACT_PROMPT);
+  assert.deepEqual([h.compacted().reloaded, h.compacted().skipped], [[], []]);
+  assert.deepEqual(h.agent.messages(), [{ role: 'user', content: [text(`${SUMMARY_PREFIX}${summary}`)] }]);
 });
 
 test('paths only the settings sandbox block denies (denyRead, credentials.files) are skipped as denied, under yolo, and their content goes nowhere', async (t) => {

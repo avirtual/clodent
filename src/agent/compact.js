@@ -56,12 +56,14 @@ function listedPath(line) {
   return path.replace(/^`+([^`]*)`+$/, '$1').trim();
 }
 
-export function listedFiles(summary) {
+function listedFiles(summary) {
   const lines = summary.split('\n');
   const at = lines.findLastIndex((line) => line.trim().startsWith(RELOAD_HEADING));
   if (at === -1) return null;
-  if (lines[at].trim().slice(RELOAD_HEADING.length).trim().toLowerCase() === 'none') return [];
-  const paths = [];
+  const inline = lines[at].trim().slice(RELOAD_HEADING.length);
+  if (inline.trim().toLowerCase() === 'none') return [];
+  const first = listedPath(inline);
+  const paths = first === '' ? [] : [first];
   for (const line of lines.slice(at + 1)) {
     if (line.trim() === '') break;
     const path = listedPath(line);
@@ -70,7 +72,7 @@ export function listedFiles(summary) {
   return paths;
 }
 
-export function touchedFiles(history) {
+function touchedFiles(history) {
   const paths = [];
   for (const message of history.toReversed()) {
     if (message.role !== 'assistant') continue;
