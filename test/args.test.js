@@ -38,7 +38,7 @@ const VALUE_FLAGS = [
   ['--budget', 'budgetUsd', '0.01', 0.01],
   ['--budget', 'budgetUsd', '3', 3],
   ['--session-id', 'sessionId', UUID, UUID],
-  ['--session-id', 'sessionId', UUID.toUpperCase(), UUID.toUpperCase()],
+  ['--session-id', 'sessionId', UUID.toUpperCase(), UUID],
   ['--resume', 'resume', 'abc', 'abc'],
   ['--system-prompt', 'systemPrompt', 'be terse', 'be terse'],
   ['--system-prompt-file', 'systemPromptFile', 'sys.md', 'sys.md'],
