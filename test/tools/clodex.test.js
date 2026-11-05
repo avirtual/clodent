@@ -40,7 +40,10 @@ async function seat(t, dir, replies = []) {
   const env = seatEnv(dir);
   const lines = [];
   const queue = [...replies];
+  const open = new Set();
   const server = createServer((conn) => {
+    open.add(conn);
+    conn.on('close', () => open.delete(conn));
     let buf = '';
     conn.on('data', (data) => {
       if (buf === null) return;
@@ -56,7 +59,13 @@ async function seat(t, dir, replies = []) {
     conn.on('error', () => {});
   });
   await new Promise((resolve) => server.listen(env.CLODEX_INTENT_SOCK, resolve));
-  t.after(() => new Promise((resolve) => server.close(resolve)));
+  t.after(
+    () =>
+      new Promise((resolve) => {
+        for (const conn of open) conn.destroy();
+        server.close(resolve);
+      }),
+  );
   return { env, lines, payloads: () => lines.map((line) => JSON.parse(line)) };
 }
 
@@ -70,11 +79,13 @@ const run = (tool, input, ctx = {}) => tool.run(input, { cwd: '/', env: {}, ...c
 test('without both CLODEX_INTENT_SOCK and CLODEX_INTENT_CRED there is no catalog read, no tool and no warning', async (t) => {
   const dir = await useTempDir(t);
   writeCatalog(dir, catalog([DM]));
-  const fs = { readFileSync: () => assert.fail('the catalog must not be read') };
+  const reads = [];
+  const fs = { readFileSync: (path) => reads.push(path) };
   const { CLODEX_INTENT_SOCK, CLODEX_INTENT_CRED } = seatEnv(dir);
   for (const env of [{}, { CLODEX_INTENT_SOCK }, { CLODEX_INTENT_CRED }, { CLODEX_INTENT_SOCK, CLODEX_INTENT_CRED: '' }]) {
     assert.deepEqual(readClodexCatalog(env, { fs }), { tools: [], warnings: [], rev: null });
   }
+  assert.deepEqual(reads, []);
 });
 
 test('an absent, empty or malformed catalog is no tools and no warning', async (t) => {
