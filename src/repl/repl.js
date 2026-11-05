@@ -1,4 +1,5 @@
 import { INTERRUPTED_RESULT, USER_DENIAL } from '../agent/loop.js';
+import { visible } from '../render/terminal.js';
 import { createEditor, isBlank, isTyped, lineCount } from './editor.js';
 import { createKeyParser } from './keys.js';
 import { parseCommand, runCommand } from './slash.js';
@@ -41,7 +42,7 @@ export async function runRepl(ctx, deps) {
   let exitCode = null;
 
   const write = (text) => stdout.write(text);
-  const print = (line) => write(`${line}\n`);
+  const print = (line) => write(`${visible(line)}\n`);
 
   function showPrompt() {
     mode = 'idle';

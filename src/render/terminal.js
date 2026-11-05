@@ -4,7 +4,7 @@ const STYLES = { dim: 2, red: 31, yellow: 33 };
 const LINE_CONTROLS = /[\u0000-\u001f\u007f-\u009f]/g;
 const TEXT_CONTROLS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
 
-function visible(text, controls = LINE_CONTROLS) {
+export function visible(text, controls = LINE_CONTROLS) {
   return String(text ?? '').replace(controls, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
 }
 

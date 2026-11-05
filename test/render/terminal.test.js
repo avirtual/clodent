@@ -234,6 +234,13 @@ test('repl mode: a Bash summary that forges a permit line reaches the terminal w
   assert.ok(!out.text().includes('\x1b'));
 });
 
+test('repl mode: a tool name or tool_use id from the model reaches the terminal with no control byte', () => {
+  const { out, render } = setup('repl', true);
+  render({ type: 'tool_use', id: 'toolu_\x1b[2K', name: 'Bash\x1b[1G\r', input: {}, summary: 'ls' });
+  render({ type: 'permission_request', id: 'toolu_\x1b[2K', name: 'Bash\x1b[1G\r', input: {}, summary: '' });
+  assert.equal(out.text(), '● Bash\\u001b[1G\\u000d ls\n[clodent:permit Bash\\u001b[1G\\u000d toolu_\\u001b[2K]\n');
+});
+
 test('repl mode: a summary with \\r or \\n cannot move the cursor back to the line start', () => {
   const { out, render } = setup('repl');
   render({ type: 'tool_use', id: 't1', name: 'Bash', input: {}, summary: 'rm -rf ~\r\tls\nok' });

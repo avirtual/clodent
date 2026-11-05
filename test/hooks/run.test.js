@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { runCommand } from '../../src/hooks/command.js';
+import { commandLabel, runCommand } from '../../src/hooks/command.js';
 import { buildHookInput, runHooks, HOOK_EVENTS } from '../../src/hooks/run.js';
 import { cleanEnv, useTempDir } from '../tools/tmp-dir.js';
 import { entry, group, hookOutput, isGone, script, settingsWith } from './scripts.js';
@@ -387,4 +387,9 @@ test('an already aborted signal runs nothing', GUARD, async (t) => {
   const outcome = await runHooks('Stop', {}, ctxFor(dir, settings, { signal: AbortSignal.abort() }), { spawn: count });
   assert.equal(spawned, 0);
   assert.deepEqual(outcome.warnings, ['hook Stop "true": aborted']);
+});
+
+test('the command label in hook and statusLine warnings is cut to 60 code points, so an emoji at the cut stays whole', () => {
+  assert.equal(commandLabel(`${'a'.repeat(59)}\u{1F600}b`), `${'a'.repeat(59)}\u{1F600}`);
+  assert.equal(commandLabel('short'), 'short');
 });

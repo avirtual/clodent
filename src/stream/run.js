@@ -71,7 +71,7 @@ export async function runStream(ctx, deps) {
   function onPermission(response) {
     const pending = asks.get(response.request_id);
     if (!pending) {
-      warn(`stdin: no permission request ${JSON.stringify(response.request_id ?? null)} is waiting; reply ignored`);
+      warn(`stdin: no permission request ${JSON.stringify(response.request_id)} is waiting; reply ignored`);
       return;
     }
     const reply = response.response ?? {};
