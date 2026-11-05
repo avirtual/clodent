@@ -11,7 +11,7 @@ import { hookGroup, runMain, textReply, toolsReply, writeSettings } from '../hel
 import { script } from '../hooks/scripts.js';
 import { sseError, sseEvents } from '../helpers/sse-builder.js';
 import { useTempDir } from '../tools/tmp-dir.js';
-import { kinds, parseRecords, STDIO, startStream, STREAM_ARGV, userLine, UUID } from './harness.js';
+import { kinds, parseRecords, stallingReply, STDIO, startStream, STREAM_ARGV, userLine, UUID } from './harness.js';
 
 const GUARD = { timeout: 5000 };
 const USAGE = { input_tokens: 1000, output_tokens: 100 };
@@ -99,16 +99,23 @@ test('num_turns counts responses only, while usage sums every charged attempt of
   const { home, cwd } = await dirs(t);
   const retried = sseEvents({ blocks: [{ type: 'text', text: 'lost' }], usage: { input_tokens: 40, output_tokens: 7 } }).slice(0, -1).join('') + sseError('overloaded_error', 'Overloaded');
   const failed = sseEvents({ blocks: [{ type: 'text', text: 'half' }], usage: { input_tokens: 30 } }).slice(0, 3).join('') + sseError('invalid_request_error', 'bad thing');
-  const s = startStream([...STREAM_ARGV, '--session-id', UUID], { home, cwd, replies: [{ body: retried }, textReply('ok', USAGE), { body: failed }] });
+  const stall = stallingReply([{ type: 'text', text: 'part' }], 4);
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID], { home, cwd, replies: [{ body: retried }, textReply('ok', USAGE), { body: failed }, stall] });
   s.send(userLine('first'));
   await s.until('result');
   s.send(userLine('second'));
   await s.until('result', 2);
+  s.send(userLine('third'));
+  await stall.drained;
+  await new Promise((resolve) => setImmediate(resolve));
+  s.send({ type: 'control_request', request_id: 'clodex-interrupt-1', request: { subtype: 'interrupt' } });
+  await s.until('result', 3);
   s.close();
   assert.equal(await s.done, 0);
-  const [first, second] = results(s);
+  const [first, second, third] = results(s);
   assert.deepEqual([first.num_turns, first.is_error, first.usage], [1, false, { input_tokens: 1040, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 107 }]);
   assert.deepEqual([second.num_turns, second.is_error, second.usage], [0, true, { input_tokens: 30, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 }]);
+  assert.deepEqual([third.num_turns, third.is_error, third.result, third.usage], [0, false, 'part', { input_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 }]);
 });
 
 test('a user message sent during a turn joins the next tool result: one result, and the request carries it', GUARD, async (t) => {
@@ -176,6 +183,27 @@ test('a prompt that arrives during a turn waits behind an older waiting prompt i
   assert.equal(await s.done, 0);
   assert.deepEqual(results(s).map((record) => record.result), ['A done', 'B done', 'C done']);
   assert.deepEqual([lastUserTexts(s.fetch.calls[2]), lastUserTexts(s.fetch.calls[3])], [['B'], ['C']]);
+});
+
+test('an empty prompt sent during a turn holds a newer prompt back from the tool result; each runs in its place after the turn', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID], { home, cwd });
+  s.send(userLine('start'));
+  await s.fetch.called(1);
+  s.send(userLine(''));
+  s.send(userLine('B'));
+  s.fetch.push(toolsReply([['Bash', { command: 'echo hi' }]]));
+  await s.fetch.called(2);
+  assert.deepEqual(lastUserTexts(s.fetch.calls[1]), []);
+  s.fetch.push(textReply('start done'));
+  await s.fetch.called(3);
+  assert.deepEqual(lastUserTexts(s.fetch.calls[2]), ['B']);
+  s.fetch.push(textReply('B done'));
+  await s.until('result', 3);
+  s.close();
+  assert.equal(await s.done, 0);
+  const [first, empty, last] = results(s);
+  assert.deepEqual([first.result, empty.is_error, empty.result, last.result], ['start done', true, EMPTY_PROMPT, 'B done']);
 });
 
 test('two prompts in one stdin chunk while idle run as two turns; the second never joins the first tool result', GUARD, async (t) => {

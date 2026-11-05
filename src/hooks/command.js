@@ -33,7 +33,7 @@ export function failureOf(result) {
 }
 
 export function commandLabel(command) {
-  return command.slice(0, 60);
+  return Array.from(command).slice(0, 60).join('');
 }
 
 export async function runCommand(command, { cwd, env, stdin, timeoutMs, signal }, deps = {}) {

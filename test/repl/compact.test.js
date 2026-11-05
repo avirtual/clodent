@@ -140,6 +140,17 @@ test('failed compacts leave the history and transcript unchanged and print why: 
   ]);
 });
 
+test('a compact failure reason holding control bytes prints them as visible escapes', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  const hostile = { status: 400, body: JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'bad\x1b[2Jthing' } }) };
+  const repl = startRepl([], { home, cwd, replies: [textReply('r1'), hostile] });
+  await repl.prompts(1);
+  await steps(repl, ['one', '/compact']);
+  await exit(repl);
+  assert.ok(repl.out.text.includes('> /compact\nclodent: compact failed: bad\\u001b[2Jthing\n'));
+  assert.equal(repl.out.text.includes('\x1b[2J'), false);
+});
+
 test('a budget stop fails the compact before any request, with the transcript unchanged', GUARD, async (t) => {
   const { home, cwd } = await dirs(t);
   const repl = startRepl(['--budget', '0.0001'], { home, cwd, replies: [textReply('r1')] });

@@ -1,6 +1,6 @@
 # clodent
 
-clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.5.1 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), a stream-json mode for hosts, six built-in tools, cost accounting, JSONL session transcripts, settings files, hooks and post-compact file reload. clodent was named clay up to 0.2.0.
+clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.5.2 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), a stream-json mode for hosts, six built-in tools, cost accounting, JSONL session transcripts, settings files, hooks and post-compact file reload. clodent was named clay up to 0.2.0.
 
 Non-goals for v0.5: MCP, plugins, skills, subagents, web tools, image input, Windows, telemetry.
 
@@ -10,7 +10,7 @@ Requires Node.js 22 or later. clodent has no dependencies. From a checkout:
 
 ```sh
 npm link
-clodent --version   # clodent 0.5.1
+clodent --version   # clodent 0.5.2
 ```
 
 ## Usage
@@ -57,7 +57,7 @@ An opt-in check against the real Messages API; the suite only runs it without a 
 
 ## Contract
 
-This section is the contract a host integrates against. It describes clodent 0.5.1.
+This section is the contract a host integrates against. It describes clodent 0.5.2.
 
 ### Hosting clodent
 
@@ -72,13 +72,13 @@ A summary for a host adapter; each point links to the section that pins it down.
 - Boot-ready: the first `\x1b[?2004h` on stdout. It follows the `[clodent:session] <id>` line and the `SessionStart` hook. A startup error exits 2 before it. See [REPL](#repl).
 - Inject: write `\x1b[200~<text>\x1b[201~`, then `\r`. The paste is one prompt with its newlines kept, and the `\r` submits it. A prompt submitted during a turn is queued. See [REPL](#repl).
 - Idle: a turn the model ended writes an assistant record with `message.stop_reason` `end_turn`. Every turn, including an interrupted or failed one, then writes a `system` record with `subtype: "turn_duration"` and fires `Stop`; the REPL then shows the next prompt unless it is exiting. See [Sessions](#sessions).
-- Context delivery: `hookSpecificOutput.additionalContext` from `SessionStart` (held for the next prompt), `UserPromptSubmit` (after the prompt text), and `PostToolUse` or `PostToolUseFailure` (after the tool results). See [Hooks](#hooks).
+- Context delivery: `hookSpecificOutput.additionalContext` from `SessionStart` (held for the next prompt), `UserPromptSubmit` (after the prompt text), and `PostToolUse` or `PostToolUseFailure` (after the tool results). That context is capped by the settings `hookContextMaxBytes`: 65536 UTF-8 bytes per hook command and 262144 per firing (`SessionStart` is exempt from the per-firing cap); a cut keeps the first and last bytes around a `[clodent: hook context of <bytes> bytes truncated to <limit>]` line, warns, and under stream-json writes a `hook_context_truncated` record. See [Hooks](#hooks).
 - Permission ask (default and `acceptEdits` modes only): clodent prints `[clodent:permit <Tool> <tool_use id>] <summary>` and `Allow? [y/n] `, then fires `Notification` with `notification_type: "permission_prompt"`, `title: "Permission needed"`, `message: "clodent needs your permission to use <Tool>"`, `tool` and `id` while the ask is listening. Answer once, by writing `y` or `n` then `\r`, as soon as you see the permit line or the Notification. A second answer arrives while the turn is busy and is queued as a prompt. See [REPL](#repl).
 - `/compact`: fires `PreCompact` (`trigger: "manual"`), replaces the history with a summary plus up to `compactReloadFiles` (default 5) files the summary names (or the last files touched when the summary names none), re-read from disk, under the same session id, writes the `compact_boundary` and `isCompactSummary` records, and fires `SessionStart` with `source: "compact"`. `/clear`: prints a new `[clodent:session] <id>`, records into a new transcript, and fires `SessionStart` with `source: "clear"`. Type either as plain text, then `\r`; a pasted `/compact` is a prompt. Like every slash command, neither writes a `turn_duration` record or fires `Stop`: its end is the next `\x1b[?2004h`. See [REPL](#repl).
 - statusLine: the settings `statusLine` command gets `context_window.used_tokens`, `context_window.context_window_size`, `context_window.used_percentage`, `model.id` and `cost.total_cost_usd` on stdin after each API response, after `/clear` (zero usage) and after `/compact` (`used_tokens` is the summary's size). See [Hooks](#hooks).
 - Signals: SIGINT acts as Ctrl-C: it interrupts a turn, and two in a row at an empty prompt exit 0. SIGTERM exits 143 and SIGHUP 129, after interrupting a running turn, whose `Stop` hook still fires. Ctrl-D, `/quit` and stdin closing exit 0. See [REPL](#repl).
-- Settings guard: `permissions.deny`/`ask` are enforced (see [Permission rules](#permission-rules)). A `sandbox` block with `enabled: true` is never fatal: its `filesystem.denyRead`, `filesystem.denyWrite` and deny `credentials.files` entries are enforced as deny rules, its deny `credentials.envVars` are removed from the Bash tool's environment, and its other keys are ignored with one warning; clodent does not sandbox Bash. A malformed sandbox shape is a startup error (exit 2). clodent also always denies Read and Edit of every settings file it loaded and Read of `/proc/*/environ`, and the Bash tool's environment never contains `ANTHROPIC_API_KEY`.
-- Absent in 0.5.1: MCP and subagents, so hooks never get `agent_id`.
+- Settings guard: `permissions.deny`/`ask` are enforced (see [Permission rules](#permission-rules)). A `sandbox` block with `enabled: true` is never fatal: its `filesystem.denyRead`, `filesystem.denyWrite` and deny `credentials.files` entries are enforced as deny rules, its deny `credentials.envVars` are removed from the environment of the Bash tool, of Grep and Glob's git calls, and of hooks and the statusLine command, and its other keys are ignored with one warning; clodent does not sandbox Bash. A malformed sandbox shape is a startup error (exit 2). clodent also always denies Read and Edit of every settings file it loaded and Read of `/proc/*/environ`, and `ANTHROPIC_API_KEY` is never in the environment of the Bash tool, Grep and Glob's git calls, hooks or the statusLine command; the value is replaced with `[redacted]` in hook warnings and deny reasons.
+- Absent in 0.5.2: MCP and subagents, so hooks never get `agent_id`.
 
 ### Flags
 
@@ -139,7 +139,7 @@ Exit codes:
 | variable | meaning |
 |---|---|
 | `ANTHROPIC_API_KEY` | the API key, sent as `x-api-key`; clodent exits 2 without it |
-| `ANTHROPIC_BASE_URL` | replaces the API origin: requests go to `<value without trailing slashes>/v1/messages`; must be an `http:` or `https:` URL, else clodent prints `clodent: invalid ANTHROPIC_BASE_URL` and exits 2; a URL with a user name or password (`https://user:pass@host`) is refused with `clodent: ANTHROPIC_BASE_URL: credentials in the URL are not supported`, which never prints the URL, and exit 2; an empty value counts as unset |
+| `ANTHROPIC_BASE_URL` | replaces the API origin: requests go to `<value without trailing slashes>/v1/messages`; must be an `http:` or `https:` URL, else clodent prints `clodent: invalid ANTHROPIC_BASE_URL` and exits 2; a URL with a user name or password (`https://user:pass@host`) makes clodent print `clodent: ANTHROPIC_BASE_URL: credentials in the URL are not supported` and exit 2; an empty value counts as unset |
 | `CLODENT_HOME` | where clodent keeps its data, such as `settings.json` and session transcripts; default `~/.clodent`; an empty value counts as unset |
 
 The settings `env` (see [Settings](#settings)) is laid over the process environment, and that one environment is what clodent reads `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` from and what tools, hooks and the statusLine command run in, less `ANTHROPIC_API_KEY` and the settings sandbox `credentials.envVars` names for the Bash tool, Grep and Glob's git calls, hooks and the statusLine command (see [Permission rules](#permission-rules) and [Hooks](#hooks)). `CLODENT_HOME` alone is read from the process environment, since it locates `settings.json`.
@@ -305,7 +305,7 @@ Queueing: during a turn, input is parsed but not echoed, and each submitted line
 
 A prompt runs one turn of the agent loop, as in print mode. The model's text streams as it arrives, and the tool lines, warnings and the per-turn `[clodent:cost]` line follow it on stdout. Thinking is never printed; when stdout is a TTY, each thinking block shows one dim `thinking…` line instead. On a TTY, these lines carry SGR colour codes around their text, closed by `\x1b[0m`: yellow (`\x1b[33m`) for warnings, `clodent: interrupted`, `[clodent:budget]` and the no-price warning; red (`\x1b[31m`) for errors and `  ✗` lines; dim (`\x1b[2m`) for `thinking…` and the per-turn and session-total `[clodent:cost]` lines. The `[clodent:session]`, `[clodent:permit …]`, `● <Tool>` and slash command lines are never coloured.
 
-In the streamed text and in the `● <Tool>`, `[clodent:permit …]`, `  ✗`, warning, error, `conversation compacted`, `reloaded` and `not reloaded` lines, each C0 control byte, DEL and C1 control (U+0080–U+009F) is written as `\u` and four lowercase hex digits, such as `\u001b` for ESC, except `\n` and `\t` in the streamed text, so model or tool text cannot move the cursor or send a terminal escape; print mode's stderr lines get the same, while its stdout answer, transcripts, stream-json and hook stdin keep the raw text.
+In the streamed text and in the `● <Tool>`, `[clodent:permit …]`, `  ✗`, warning, error, `conversation compacted`, `reloaded` and `not reloaded` lines, and in the REPL's own lines, such as `clodent: compact failed: <reason>`, each C0 control byte, DEL and C1 control (U+0080–U+009F) is written as `\u` and four lowercase hex digits, such as `\u001b` for ESC, except `\n` and `\t` in the streamed text, so model or tool text cannot move the cursor or send a terminal escape; print mode's stderr lines get the same, while its stdout answer, transcripts, stream-json and hook stdin keep the raw text.
 
 Slash commands: a submitted line is a command when it was typed, with no paste in it, and its first word is `/` followed by lowercase letters. Anything else is a prompt, such as `/Users/me/x fix it` or a pasted `/clear`.
 
@@ -779,7 +779,7 @@ The context of `SessionStart`, `UserPromptSubmit`, `PostToolUse` and `PostToolUs
 
 - `perHook` (default 65536): one command's context over it is cut to its first and last bytes around the line `[clodent: hook context of <bytes> bytes truncated to <limit>]`; a cut never splits a character.
 - `perEvent` (default 262144): after the per-command cuts, the texts of one firing joined by a blank line, when over it, are cut the same way into one text. `SessionStart` is exempt from `perEvent`, not from `perHook`.
-- Each cut adds a warning, `hook <Event> "<first 60 characters of the command>": context of <bytes> bytes truncated to <limit>` for a command and `hook <Event>: context of <bytes> bytes truncated to <limit>` for a firing; [Stream JSON](#stream-json) also writes it to stdout as a `hook_context_truncated` record.
+- Each cut adds a warning, `hook <Event> "<first 60 code points of the command>": context of <bytes> bytes truncated to <limit>` for a command and `hook <Event>: context of <bytes> bytes truncated to <limit>` for a firing; [Stream JSON](#stream-json) also writes it to stdout as a `hook_context_truncated` record.
 
 Hook warnings print as `clodent: <warning>` lines. Hooks get the turn's interrupt: a signal kills running hooks, and a hook that would start after it does not run. `Stop` runs even after an interrupt, under its own abort: a second SIGTERM or SIGHUP kills it (in `-p`, any second signal).
 
@@ -828,7 +828,7 @@ Combining: a deny beats an ask, and an ask beats an allow. The reason comes from
 Warnings are one line each:
 
 ```
-hook <Event> "<first 60 characters of the command>": <exit <n>|timeout|aborted|killed by <signal>|<error message>|invalid JSON ignored|stdout over 1 MiB truncated|unknown permissionDecision <value as JSON> ignored|context of <bytes> bytes truncated to <limit>>
+hook <Event> "<first 60 code points of the command>": <exit <n>|timeout|aborted|killed by <signal>|<error message>|invalid JSON ignored|stdout over 1 MiB truncated|unknown permissionDecision <value as JSON> ignored|context of <bytes> bytes truncated to <limit>>
 hook <Event>: context of <bytes> bytes truncated to <limit>
 ```
 
@@ -852,5 +852,5 @@ statusLine: after each API response other than a compact's summary request, and 
 - `context_window_size` is 200000 for every model.
 - `used_percentage` is `used_tokens` over `context_window_size`, as a number from 0 to 100 with at most one decimal.
 - At most one statusLine command runs at a time. An update that arrives while one runs replaces any update already waiting, so only the latest runs next.
-- stdout is discarded. The first failure prints one warning, `statusLine "<first 60 characters of the command>": <reason>`; later failures are silent.
+- stdout is discarded. The first failure prints one warning, `statusLine "<first 60 code points of the command>": <reason>`; later failures are silent.
 - Before exit, clodent waits for the running statusLine command and the latest waiting update to finish.
