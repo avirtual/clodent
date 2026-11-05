@@ -1,3 +1,4 @@
+import { CRED_ENV } from '../tools/clodex.js';
 import { toolEnv } from '../tools/env.js';
 import { commandLabel, failureOf, runCommand } from './command.js';
 import { contextWindowFor } from './context-window.js';
@@ -40,7 +41,7 @@ export function createStatusLine(ctx, deps = {}) {
     return { update() {}, flush: () => Promise.resolve() };
   }
   const warn = deps.warn ?? (() => {});
-  const env = { ...toolEnv({ ...ctx.env, ...settings.env }, settings.envDeny), CLODENT_PROJECT_DIR: ctx.cwd };
+  const env = { ...toolEnv({ ...ctx.env, ...settings.env }, [...(settings.envDeny ?? []), CRED_ENV]), CLODENT_PROJECT_DIR: ctx.cwd };
   let queued = null;
   let running = null;
   let warned = false;
