@@ -34,7 +34,7 @@ function catalogRows(list, builtins, file) {
   const tools = [];
   const warnings = [];
   for (const row of list) {
-    if (!isObject(row) || typeof row.name !== 'string' || !isObject(row.inputSchema)) continue;
+    if (!isObject(row) || typeof row.name !== 'string' || !isObject(row.inputSchema) || row.inputSchema.type !== 'object') continue;
     const name = `${CLODEX_PREFIX}${row.name}`;
     if (!isClodexToolName(name)) continue;
     if (taken.has(name)) {
@@ -165,6 +165,14 @@ function resultText(r, timeoutMs) {
   return BAD_REPLY;
 }
 
+function outcome(r, timeoutMs) {
+  try {
+    return { text: resultText(r, timeoutMs), status: statusOf(r) };
+  } catch {
+    return outcome({ transport: 'bad-reply' }, timeoutMs);
+  }
+}
+
 const plain = (text) => ({ content: capResult(text), isError: false });
 
 function firstString(input) {
@@ -182,8 +190,7 @@ async function callTool(tool, input, ctx, { env, ring, timeoutMs, deps }) {
   const payload = { cred: env[CRED_ENV], tool, args, ...(typeof ident === 'string' && ident ? { ident } : {}) };
   const r = await callSocket({ sockPath: env[SOCK_ENV], payload, timeoutMs, signal: ctx?.signal }, deps);
   if (r.transport === 'aborted') return { content: INTERRUPTED, isError: true };
-  const text = resultText(r, timeoutMs);
-  const status = statusOf(r);
+  const { text, status } = outcome(r, timeoutMs);
   if (status === 'ok') ring.cleared(key);
   else if (status !== 'invalid' && status !== 'timeout') ring.failed(key, text);
   return plain(text);

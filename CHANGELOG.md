@@ -4,7 +4,14 @@ clodent was named clay up to 0.2.0.
 
 ## Unreleased
 
+## 0.6.0 — 2026-11-06
+
+Clodex integration release: a Clodex seat's plugin tools are native clodent tools.
+
 - Under Clodex, the seat's plugin tools (`mcp__clodex__*`) are native tools that call the seat's intent socket; no MCP.
+- A Clodex tool catalog row whose `inputSchema` does not have `type: "object"` is dropped silently, so it can no longer get every request of the seat rejected by the API.
+- A permission rule that names a Clodex tool with a space before `(`, such as `mcp__clodex__dm (x)`, is a startup error, as `Read (x)` is; it used to be ignored.
+- A Clodex tool reply with a field that cannot be read as text reads `bad reply from the seat channel` and counts toward the loop breaker, so the call is not an error and fires `PostToolUse`, not `PostToolUseFailure`.
 
 ## 0.5.2 — 2026-11-05
 
