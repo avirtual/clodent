@@ -21,6 +21,7 @@ const GUARD = { timeout: 10000 };
 const CRED = 'c0ffee'.repeat(8);
 const BUILTINS = ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob'];
 const WIRE_BUILTINS = ['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'Write'];
+const OBJECT = { type: 'object' };
 const SCHEMA = { type: 'object', properties: { to: { type: 'string' }, body: { type: 'string' } }, required: ['to', 'body'] };
 const DM = { name: 'dm', description: 'Send a dm.', inputSchema: SCHEMA, logKeys: ['to'] };
 const EXEC = { name: 'exec', description: 'Run an exec.', inputSchema: { type: 'object', properties: { command: { type: 'string' } } }, logKeys: ['command'] };
@@ -117,17 +118,19 @@ test('rows are prefixed mcp__clodex__ in catalog order; bad names and schemas ar
   const dir = await useTempDir(t);
   const rows = [
     EXEC,
-    { name: 'bad name', inputSchema: {} },
-    { name: '', inputSchema: {} },
-    { name: 'x'.repeat(52), inputSchema: {} },
-    { name: 7, inputSchema: {} },
+    { name: 'bad name', inputSchema: OBJECT },
+    { name: '', inputSchema: OBJECT },
+    { name: 'x'.repeat(52), inputSchema: OBJECT },
+    { name: 7, inputSchema: OBJECT },
     { name: 'noschema' },
     { name: 'arrayschema', inputSchema: [] },
     { name: 'nullschema', inputSchema: null },
+    { name: 'emptyschema', inputSchema: {} },
+    { name: 'stringschema', inputSchema: { type: 'string' } },
     'dm',
     null,
     { ...DM, description: 42 },
-    { name: `Up-${'y'.repeat(48)}`, description: 'longest', inputSchema: {} },
+    { name: `Up-${'y'.repeat(48)}`, description: 'longest', inputSchema: OBJECT },
   ];
   writeCatalog(dir, catalog(rows));
   const read = readClodexCatalog(seatEnv(dir), { builtins: BUILTINS });
@@ -135,7 +138,7 @@ test('rows are prefixed mcp__clodex__ in catalog order; bad names and schemas ar
     tools: [
       { name: 'mcp__clodex__exec', tool: 'exec', description: 'Run an exec.', inputSchema: EXEC.inputSchema },
       { name: 'mcp__clodex__dm', tool: 'dm', description: '', inputSchema: SCHEMA },
-      { name: `mcp__clodex__Up-${'y'.repeat(48)}`, tool: `Up-${'y'.repeat(48)}`, description: 'longest', inputSchema: {} },
+      { name: `mcp__clodex__Up-${'y'.repeat(48)}`, tool: `Up-${'y'.repeat(48)}`, description: 'longest', inputSchema: OBJECT },
     ],
     warnings: [],
     rev: 'r1',
@@ -193,6 +196,16 @@ test('each reply maps to plain text and never to isError', GUARD, async (t) => {
     texts.push(result.content);
   }
   assert.deepEqual(texts, ['sent', '', 'invalid: body is required', 'refused: not granted', 'failed', BAD_REPLY, BAD_REPLY, 'no newline', 'line kept open']);
+});
+
+test('a reply field that cannot become a string is a bad reply: not an error, and it counts toward the loop breaker', GUARD, async (t) => {
+  const dir = await useTempDir(t);
+  const s = await seat(t, dir, ['{"ok":true,"status":"ok","reply":{"toString":0}}\n', '{"ok":false,"status":"refused","error":{"toString":0}}\n']);
+  const tool = dmTool(s.env, { now: () => 0 });
+  assert.deepEqual(await run(tool, { to: 'lead', body: 'hi' }), { content: BAD_REPLY, isError: false });
+  assert.deepEqual(await run(tool, { to: 'lead', body: 'hi' }), { content: BAD_REPLY, isError: false });
+  assert.deepEqual(await run(tool, { to: 'lead', body: 'hi' }), { content: `the same call failed 3 times — stop retrying: ${BAD_REPLY}`, isError: false });
+  assert.equal(s.lines.length, 2);
 });
 
 test('no socket is "no seat channel: <message>", not an error', GUARD, async (t) => {
@@ -308,6 +321,7 @@ test('the loop breaker keeps at most LOOP_RING keys and drops the oldest first',
     await run(tool, { to, body: 'hi' });
   }
   assert.deepEqual(await run(tool, { to: keys[0], body: 'hi' }), { content: 'sent', isError: false });
+  assert.match((await run(tool, { to: keys[1], body: 'hi' })).content, /stop retrying/);
   assert.match((await run(tool, { to: keys[LOOP_RING], body: 'hi' })).content, /stop retrying/);
   assert.equal(s.lines.length, keys.length * 2 + 1);
 });

@@ -96,6 +96,8 @@ test('each malformed rule list is an error naming the key, the index and the rul
     [['BASH'], 'permissions.deny[0] "BASH": tool name "BASH" is not exactly Bash'],
     [['Read(/x)', ' glob '], 'permissions.deny[1] " glob ": tool name "glob" is not exactly Glob'],
     [['WRITE(./x)'], 'permissions.deny[0] "WRITE(./x)": tool name "WRITE" is not exactly Write'],
+    [['mcp__clodex__dm (x)'], 'permissions.deny[0] "mcp__clodex__dm (x)": tool name "mcp__clodex__dm " is not exactly mcp__clodex__dm'],
+    [['Read(/x)', 'mcp__clodex__term_exec\t(rm)'], 'permissions.deny[1] "mcp__clodex__term_exec\\t(rm)": tool name "mcp__clodex__term_exec\\t" is not exactly mcp__clodex__term_exec'],
   ];
   for (const [list, message] of bad) {
     assert.throws(() => parseRules(list, 'permissions.deny', WHERE), (err) => err instanceof RuleError && err.message === message, message);

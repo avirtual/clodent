@@ -111,6 +111,7 @@ export function parseRule(text, where) {
   if (name.trim() === '') throw new RuleError('no tool name');
   if (!CLODENT_TOOL_SET.has(name)) {
     if (isClodexToolName(name)) return { text, kind: 'tool', tool: name };
+    if (name.trimEnd() !== name && isClodexToolName(name.trimEnd())) throw new RuleError(`tool name ${JSON.stringify(name)} is not exactly ${name.trimEnd()}`);
     const near = FOLDED_TOOLS.get(name.trim().toLowerCase());
     if (near) throw new RuleError(`tool name ${JSON.stringify(name)} is not exactly ${near}`);
     return null;
