@@ -139,7 +139,7 @@ Exit codes:
 | variable | meaning |
 |---|---|
 | `ANTHROPIC_API_KEY` | the API key, sent as `x-api-key`; clodent exits 2 without it |
-| `ANTHROPIC_BASE_URL` | replaces the API origin: requests go to `<value without trailing slashes>/v1/messages`; must be an `http:` or `https:` URL, else clodent prints `clodent: invalid ANTHROPIC_BASE_URL` and exits 2; a URL with a user name or password (`https://user:pass@host`) is refused with `clodent: ANTHROPIC_BASE_URL: credentials in the URL are not supported`, which never prints the URL, and exit 2; an empty value counts as unset |
+| `ANTHROPIC_BASE_URL` | replaces the API origin: requests go to `<value without trailing slashes>/v1/messages`; must be an `http:` or `https:` URL, else clodent prints `clodent: invalid ANTHROPIC_BASE_URL` and exits 2; a URL with a user name or password (`https://user:pass@host`) makes clodent print `clodent: ANTHROPIC_BASE_URL: credentials in the URL are not supported` and exit 2; an empty value counts as unset |
 | `CLODENT_HOME` | where clodent keeps its data, such as `settings.json` and session transcripts; default `~/.clodent`; an empty value counts as unset |
 
 The settings `env` (see [Settings](#settings)) is laid over the process environment, and that one environment is what clodent reads `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` from and what tools, hooks and the statusLine command run in, less `ANTHROPIC_API_KEY` and the settings sandbox `credentials.envVars` names for the Bash tool, Grep and Glob's git calls, hooks and the statusLine command (see [Permission rules](#permission-rules) and [Hooks](#hooks)). `CLODENT_HOME` alone is read from the process environment, since it locates `settings.json`.
@@ -779,7 +779,7 @@ The context of `SessionStart`, `UserPromptSubmit`, `PostToolUse` and `PostToolUs
 
 - `perHook` (default 65536): one command's context over it is cut to its first and last bytes around the line `[clodent: hook context of <bytes> bytes truncated to <limit>]`; a cut never splits a character.
 - `perEvent` (default 262144): after the per-command cuts, the texts of one firing joined by a blank line, when over it, are cut the same way into one text. `SessionStart` is exempt from `perEvent`, not from `perHook`.
-- Each cut adds a warning, `hook <Event> "<first 60 characters of the command>": context of <bytes> bytes truncated to <limit>` for a command and `hook <Event>: context of <bytes> bytes truncated to <limit>` for a firing; [Stream JSON](#stream-json) also writes it to stdout as a `hook_context_truncated` record.
+- Each cut adds a warning, `hook <Event> "<first 60 code points of the command>": context of <bytes> bytes truncated to <limit>` for a command and `hook <Event>: context of <bytes> bytes truncated to <limit>` for a firing; [Stream JSON](#stream-json) also writes it to stdout as a `hook_context_truncated` record.
 
 Hook warnings print as `clodent: <warning>` lines. Hooks get the turn's interrupt: a signal kills running hooks, and a hook that would start after it does not run. `Stop` runs even after an interrupt, under its own abort: a second SIGTERM or SIGHUP kills it (in `-p`, any second signal).
 
@@ -828,7 +828,7 @@ Combining: a deny beats an ask, and an ask beats an allow. The reason comes from
 Warnings are one line each:
 
 ```
-hook <Event> "<first 60 characters of the command>": <exit <n>|timeout|aborted|killed by <signal>|<error message>|invalid JSON ignored|stdout over 1 MiB truncated|unknown permissionDecision <value as JSON> ignored|context of <bytes> bytes truncated to <limit>>
+hook <Event> "<first 60 code points of the command>": <exit <n>|timeout|aborted|killed by <signal>|<error message>|invalid JSON ignored|stdout over 1 MiB truncated|unknown permissionDecision <value as JSON> ignored|context of <bytes> bytes truncated to <limit>>
 hook <Event>: context of <bytes> bytes truncated to <limit>
 ```
 
@@ -852,5 +852,5 @@ statusLine: after each API response other than a compact's summary request, and 
 - `context_window_size` is 200000 for every model.
 - `used_percentage` is `used_tokens` over `context_window_size`, as a number from 0 to 100 with at most one decimal.
 - At most one statusLine command runs at a time. An update that arrives while one runs replaces any update already waiting, so only the latest runs next.
-- stdout is discarded. The first failure prints one warning, `statusLine "<first 60 characters of the command>": <reason>`; later failures are silent.
+- stdout is discarded. The first failure prints one warning, `statusLine "<first 60 code points of the command>": <reason>`; later failures are silent.
 - Before exit, clodent waits for the running statusLine command and the latest waiting update to finish.
