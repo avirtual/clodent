@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 export function cleanEnv(extra = {}) {
   const env = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (!key.startsWith('GIT_')) env[key] = value;
+    if (!key.startsWith('GIT_') && !key.startsWith('CLODEX_INTENT_')) env[key] = value;
   }
   return { ...env, ...extra };
 }

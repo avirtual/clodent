@@ -39,18 +39,33 @@ function resultBlock({ id, content, isError }) {
 export function createAgent(config, deps) {
   const { effort, permission, baseUrl, sessionId, cacheTtl } = config;
   let { model, system } = config;
-  const tools = config.tools ?? [];
+  const builtins = config.tools ?? [];
+  const toolset = config.toolset ?? null;
   const { emit, ledger, now } = deps;
   const hooks = deps.hooks ?? NO_HOOKS;
   const guard = deps.guard ?? OPEN_GUARD;
-  const byName = new Map(tools.map((tool) => [tool.name, tool]));
+  const byName = new Map(builtins.map((tool) => [tool.name, tool]));
   const reloadCount = byName.has('Read') ? (config.compactReloadFiles ?? 0) : 0;
-  const definitions = tools.map(definition);
+  let tools = builtins;
+  let definitions = tools.map(definition);
   const history = structuredClone(config.history ?? []);
   let interruptedBefore = config.interrupted ?? false;
   let heldContext = [];
 
+  function syncTools() {
+    if (!toolset) return [];
+    const { tools: more, warnings, changed } = toolset.refresh();
+    if (changed) {
+      for (const tool of more) byName.set(tool.name, tool);
+      tools = [...builtins, ...more];
+      definitions = tools.map(definition);
+    }
+    return warnings;
+  }
+
+  const startWarnings = syncTools();
   emit({ type: 'session_start', model, cwd: deps.cwd, tools: tools.map((tool) => tool.name), permission });
+  for (const message of startWarnings) emit({ type: 'warning', message });
 
   function append(role, blocks, kind, meta = {}) {
     appendMessage(history, role, blocks);
@@ -97,6 +112,7 @@ export function createAgent(config, deps) {
 
   async function request(signal, partial, { messages = history, toolChoice, quiet = false } = {}) {
     const sentModel = model;
+    for (const message of syncTools()) emit({ type: 'warning', message });
     const req = buildRequest({ model, system, tools: definitions, messages, effort, baseUrl, toolChoice, sessionId, cacheTtl }, { env: deps.env });
     const streamDeps = { fetch: deps.fetch, sleep: deps.sleep, random: deps.random, now, signal };
     const stream = quiet ? () => {} : emit;

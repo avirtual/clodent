@@ -79,6 +79,38 @@ A summary for a host adapter; each point links to the section that pins it down.
 - Signals: SIGINT acts as Ctrl-C: it interrupts a turn, and two in a row at an empty prompt exit 0. SIGTERM exits 143 and SIGHUP 129, after interrupting a running turn, whose `Stop` hook still fires. Ctrl-D, `/quit` and stdin closing exit 0. See [REPL](#repl).
 - Settings guard: `permissions.deny`/`ask` are enforced (see [Permission rules](#permission-rules)). A `sandbox` block with `enabled: true` is never fatal: its `filesystem.denyRead`, `filesystem.denyWrite` and deny `credentials.files` entries are enforced as deny rules, its deny `credentials.envVars` are removed from the environment of the Bash tool, of Grep and Glob's git calls, and of hooks and the statusLine command, and its other keys are ignored with one warning; clodent does not sandbox Bash. A malformed sandbox shape is a startup error (exit 2). clodent also always denies Read and Edit of every settings file it loaded and Read of `/proc/*/environ`, and `ANTHROPIC_API_KEY` is never in the environment of the Bash tool, Grep and Glob's git calls, hooks or the statusLine command; the value is replaced with `[redacted]` in hook warnings and deny reasons.
 - Absent in 0.5.2: MCP and subagents, so hooks never get `agent_id`.
+- Clodex tools: with `CLODEX_INTENT_SOCK` and `CLODEX_INTENT_CRED` set, the seat's `mcp-tools.json` catalog becomes native `mcp__clodex__<name>` tools that call the intent socket, with no MCP layer; see [Clodex tools](#clodex-tools).
+
+### Clodex tools
+
+Under Clodex, the seat's plugin tools are native clodent tools that send the same socket request as Clodex's `clodex-mcp` shim, with no MCP layer.
+
+- Activation: both `CLODEX_INTENT_SOCK` and `CLODEX_INTENT_CRED` are non-empty in clodent's environment (the settings `env` included). Nothing else turns the tools on; with either one unset there are no Clodex tools and no warning.
+- Catalog: the file `mcp-tools.json` in the directory of `CLODEX_INTENT_SOCK`, in the v1 shape `{"v": 1, "rev": "<string>", "tools": [{"name", "description", "inputSchema", "logKeys"}], "briefs": [...]}` that Clodex's `cli-hooks.js` `writeMcpCatalog` writes (see Clodex `docs/messaging.md`, "Intent socket"). `briefs` and `logKeys` are ignored.
+  - A missing, empty or unparseable file, a value that is not a JSON object, or a v1 catalog without a `tools` array is no tools and no warning.
+  - A JSON object whose `v` is not `1` is no tools and one warning, `clodent: Clodex tool catalog <path>: version <v> is not supported; no Clodex tools`, with `<v>` as JSON, or `missing`.
+  - A row is dropped silently when it is not an object, its `name` is not a string, `mcp__clodex__<name>` does not match `^[A-Za-z0-9_-]{1,64}$` or is just the prefix, or its `inputSchema` is not a JSON object. A `description` that is not a string is sent as `""`.
+- Names: a tool's name is `mcp__clodex__<name>`, the catalog name prefixed. That one name is what the model calls, the hook `tool_name`, what hook matchers test and what permission rules name. A row whose prefixed name is already taken, by a built-in tool or an earlier row, is skipped with the warning `clodent: Clodex tool catalog <path>: skipped "<name>": a tool named mcp__clodex__<name> already exists`; built-in tools always win.
+- Order: clodent's tool list is the built-in tools, then the Clodex tools in catalog order, and the `system/init` record's `tools` lists the ones the catalog holds when the agent session starts. The request sorts tools by name (see [API wire](#api-wire)), and every `mcp__clodex__` name sorts after every built-in name.
+- Call: each call opens one connection to the unix socket at `CLODEX_INTENT_SOCK` and writes one line, `JSON.stringify({cred, tool, args, ident})` then `\n`: `cred` is `CLODEX_INTENT_CRED`, `tool` the bare catalog name, and `args` the tool input after any PreToolUse `updatedInput`, without its `ident` field. `ident` is sent top-level only when it is a non-empty string, and is left out otherwise. Clodex's PreToolUse ident hook returns an `updatedInput` carrying its own `ident`, which replaces one the model wrote; without that hook, a model-supplied `ident` is sent as written. clodent reads the reply up to its first newline, or to the end of the stream, as one JSON object `{ok, status, reply, error}`.
+- Result: never an error (`is_error: false`), so a refusal reads as plain text. The text, capped at 32 KiB like every tool result (see [Tools](#tools)):
+
+  | reply | result text |
+  |---|---|
+  | `ok: true` | `reply` as a string; `""` when absent |
+  | `status: "invalid"` | `invalid: <error>` |
+  | any other reply | `error`, or `failed` when it is empty |
+  | no reply in 500 s | `completion unknown — do not retry: the seat did not answer within 500 s; the action may still have run — read the page before repeating it` |
+  | a socket error, such as no socket at that path | `no seat channel: <message>` |
+  | a reply that is not a JSON object | `bad reply from the seat channel` |
+
+- Interrupt: Ctrl-C or a signal during a call closes the socket, and the result is `interrupted by user` with `is_error: true`, as for any interrupted tool call.
+- Loop breaker: per agent session, a new one with each `/clear`. A call's key is the bare name plus `args` with object keys sorted at every depth; `ident` is never part of it. Every outcome is a failure except a reply with `ok: true` and `status: "ok"`, a reply without `ok: true` and with `status: "invalid"`, a timeout and an interrupt. A failure counts one more when it comes within 60 s of the key's last failure, and starts again at one otherwise. Once a key has two, an identical call within 60 s of the last one is not sent: its result is `the same call failed 3 times — stop retrying: <the last failure's text>`, and it restarts the 60 s. A reply with `ok: true` and `status: "ok"` clears the key. At most 12 keys are kept, the oldest dropped first.
+- Permissions: the kind is `read` (see [Tools](#tools)), so no mode asks, `--read-only` included: Clodex's socket checks the seat's grants. A PreToolUse `deny` or `ask` decision and the permission rules apply as to a built-in tool.
+- Rules: an exact `mcp__clodex__<name>` rule in `permissions.deny`, `permissions.ask` or `--disallowedTools` is a bare tool rule, so a deny rule removes the tool from every request. A specifier on it is ignored: `mcp__clodex__dm(x)` is the rule `mcp__clodex__dm`. `mcp__clodex__*`, `mcp__clodex` and every other name clodent has no tool for are ignored silently (see [Permission rules](#permission-rules)).
+- Refresh: clodent reads the catalog when an agent session starts (at startup and after `/clear`) and again before each API request. When its `rev`, or the warning it gives, has changed, the Clodex tools are rebuilt and the request carries the new list, its new warnings printed once; an unchanged `rev` keeps the tools as they were, so the prompt cache holds. A tool that leaves the catalog stays callable: a call the model still makes to it goes to the socket, which decides.
+- Hooks: `PreToolUse` and `PostToolUse` fire as for a built-in tool, with `tool_name` (prefixed), `tool_input`, `tool_use_id`, `session_id`, `transcript_path`, `cwd`, `hook_event_name` and `permission_mode`; there is no `agent_id`. Since a result is never an error, a call that completes fires `PostToolUse` and never `PostToolUseFailure`; an interrupted call fires neither.
+- Env: `CLODEX_INTENT_CRED` stays in the environment of the Bash tool, Grep and Glob's git calls and hooks, since Clodex's `clodex-send` and ident hook read it; the statusLine command runs without it.
 
 ### Flags
 
@@ -141,8 +173,9 @@ Exit codes:
 | `ANTHROPIC_API_KEY` | the API key, sent as `x-api-key`; clodent exits 2 without it |
 | `ANTHROPIC_BASE_URL` | replaces the API origin: requests go to `<value without trailing slashes>/v1/messages`; must be an `http:` or `https:` URL, else clodent prints `clodent: invalid ANTHROPIC_BASE_URL` and exits 2; a URL with a user name or password (`https://user:pass@host`) makes clodent print `clodent: ANTHROPIC_BASE_URL: credentials in the URL are not supported` and exit 2; an empty value counts as unset |
 | `CLODENT_HOME` | where clodent keeps its data, such as `settings.json` and session transcripts; default `~/.clodent`; an empty value counts as unset |
+| `CLODEX_INTENT_SOCK`, `CLODEX_INTENT_CRED` | set by Clodex; both non-empty turn on the Clodex tools (see [Clodex tools](#clodex-tools)) |
 
-The settings `env` (see [Settings](#settings)) is laid over the process environment, and that one environment is what clodent reads `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` from and what tools, hooks and the statusLine command run in, less `ANTHROPIC_API_KEY` and the settings sandbox `credentials.envVars` names for the Bash tool, Grep and Glob's git calls, hooks and the statusLine command (see [Permission rules](#permission-rules) and [Hooks](#hooks)). `CLODENT_HOME` alone is read from the process environment, since it locates `settings.json`.
+The settings `env` (see [Settings](#settings)) is laid over the process environment, and that one environment is what clodent reads `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` from and what tools, hooks and the statusLine command run in, less `ANTHROPIC_API_KEY` and the settings sandbox `credentials.envVars` names for the Bash tool, Grep and Glob's git calls, hooks and the statusLine command (see [Permission rules](#permission-rules) and [Hooks](#hooks)). `CLODENT_HOME` alone is read from the process environment, since it locates `settings.json`. The statusLine command also runs without `CLODEX_INTENT_CRED` (see [Clodex tools](#clodex-tools)).
 
 ### Print mode
 
@@ -433,7 +466,7 @@ A re-send the budget does not cover is not sent, and the turn stops with the `sp
 
 ### Tools
 
-clodent has six built-in tools, in this order (the request sends them sorted by name, see [API wire](#api-wire)); a bare-name deny rule in settings or `--disallowedTools` removes one (see [Permission rules](#permission-rules)). `kind` decides how permissions treat a tool. Input names follow the common agent-tool convention, so a hook reading `tool_input` sees the same fields. Relative paths resolve against the working directory, and every path in a result is absolute.
+clodent has six built-in tools, in this order (the request sends them sorted by name, see [API wire](#api-wire)), and under Clodex also the seat's Clodex tools (see [Clodex tools](#clodex-tools)); a bare-name deny rule in settings or `--disallowedTools` removes one (see [Permission rules](#permission-rules)). `kind` decides how permissions treat a tool. Input names follow the common agent-tool convention, so a hook reading `tool_input` sees the same fields. Relative paths resolve against the working directory, and every path in a result is absolute.
 
 | Tool | Kind | Inputs | Result |
 |---|---|---|---|
@@ -645,7 +678,7 @@ Every other key, such as `voice`, `voiceEnabled`, `skillOverrides`, `permissions
 
 ### Permission rules
 
-`permissions.deny` and `permissions.ask` in settings hold rules in Claude Code's syntax, so the lists Clodex writes for a seat load unchanged. clodent enforces them on its six tools; `permissions.allow` and `permissions.defaultMode` are ignored.
+`permissions.deny` and `permissions.ask` in settings hold rules in Claude Code's syntax, so the lists Clodex writes for a seat load unchanged. clodent enforces them on its six tools and its Clodex tools (see [Clodex tools](#clodex-tools)); `permissions.allow` and `permissions.defaultMode` are ignored.
 
 A rule is `Tool` or `Tool(specifier)`:
 
@@ -657,7 +690,8 @@ A rule is `Tool` or `Tool(specifier)`:
 | `Write(<path>)` | `Write` (`file_path`); a `Bash` command that mentions the path, unless it is read-only |
 | `Grep(<path>)`, `Glob(<path>)` | that tool's `path` |
 | `Bash(<command>)` | a `Bash` command, see below |
-| any other name, bare or with a specifier (`WebFetch`, `Agent(x)`, `mcp__…`, `NotebookEdit`, `Skill`, …) | nothing; ignored silently |
+| `mcp__clodex__<name>`, bare or with a specifier, which is ignored | every call of that Clodex tool (see [Clodex tools](#clodex-tools)) |
+| any other name, bare or with a specifier (`WebFetch`, `Agent(x)`, other `mcp__…` names such as `mcp__clodex__*`, `NotebookEdit`, `Skill`, …) | nothing; ignored silently |
 
 Names are case-sensitive. A name that differs from a clodent tool name only in letter case or by a space before `(` (`read(x)`, `Read (x)`, `BASH`) is a startup error. A path specifier expands to an absolute pattern:
 
@@ -832,7 +866,7 @@ hook <Event> "<first 60 code points of the command>": <exit <n>|timeout|aborted|
 hook <Event>: context of <bytes> bytes truncated to <limit>
 ```
 
-statusLine: after each API response other than a compact's summary request, and from the REPL or a stream-json slash command after `/clear` and a successful `/compact` (see [REPL](#repl) and [Stream JSON](#stream-json)), clodent runs the `statusLine` command the same way, with a 5 s timeout, and this JSON on stdin:
+statusLine: after each API response other than a compact's summary request, and from the REPL or a stream-json slash command after `/clear` and a successful `/compact` (see [REPL](#repl) and [Stream JSON](#stream-json)), clodent runs the `statusLine` command the same way, less `CLODEX_INTENT_CRED` (see [Clodex tools](#clodex-tools)), with a 5 s timeout, and this JSON on stdin:
 
 ```json
 {

@@ -1,5 +1,6 @@
 import { homedir as osHomedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
+import { isClodexToolName } from '../tools/clodex.js';
 
 export const CLODENT_TOOLS = Object.freeze(['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob']);
 const CLODENT_TOOL_SET = new Set(CLODENT_TOOLS);
@@ -109,6 +110,7 @@ export function parseRule(text, where) {
   const { name, specifier } = splitRule(trimmed);
   if (name.trim() === '') throw new RuleError('no tool name');
   if (!CLODENT_TOOL_SET.has(name)) {
+    if (isClodexToolName(name)) return { text, kind: 'tool', tool: name };
     const near = FOLDED_TOOLS.get(name.trim().toLowerCase());
     if (near) throw new RuleError(`tool name ${JSON.stringify(name)} is not exactly ${near}`);
     return null;

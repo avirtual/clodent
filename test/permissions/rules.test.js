@@ -68,9 +68,14 @@ test('a specifier may contain spaces', () => {
 });
 
 test('rules for tools clodent does not have are ignored, bare or with a specifier', () => {
-  const list = ['WebFetch', 'NotebookEdit', 'Agent(claude-code-guide)', 'mcp__clodex__dm', 'Skill', 'Agent()', 'Reads(/x)', 'Bash_(x)', 'Read(/x)'];
+  const list = ['WebFetch', 'NotebookEdit', 'Agent(claude-code-guide)', 'mcp__clodex', 'mcp__clodex__*', 'mcp__other__dm', 'mcp__clodex__', 'Skill', 'Agent()', 'Reads(/x)', 'Bash_(x)', 'Read(/x)'];
   assert.deepEqual(parseRules(list, 'permissions.deny', WHERE).map((r) => r.text), ['Read(/x)']);
   assert.deepEqual(parseRules(undefined, 'permissions.deny', WHERE), []);
+});
+
+test('an exact mcp__clodex__<name> rule is a bare tool rule, and a specifier on it is ignored', () => {
+  assert.deepEqual(rule('mcp__clodex__dm'), { text: 'mcp__clodex__dm', kind: 'tool', tool: 'mcp__clodex__dm' });
+  assert.deepEqual(rule('mcp__clodex__term_exec(rm -rf)'), { text: 'mcp__clodex__term_exec(rm -rf)', kind: 'tool', tool: 'mcp__clodex__term_exec' });
 });
 
 test('each malformed rule list is an error naming the key, the index and the rule', () => {

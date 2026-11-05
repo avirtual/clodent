@@ -4,6 +4,8 @@ clodent was named clay up to 0.2.0.
 
 ## Unreleased
 
+- Under Clodex, the seat's plugin tools (`mcp__clodex__*`) are native tools that call the seat's intent socket; no MCP.
+
 ## 0.5.2 — 2026-11-05
 
 Security release. Fixes from the second cloud security review (avirtual/clodent issues #7–#9) and the remaining items of the first (#6).
