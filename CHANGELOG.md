@@ -4,6 +4,11 @@ clodent was named clay up to 0.2.0.
 
 ## Unreleased
 
+## 0.6.1 — 2026-11-06
+
+- clodent is published on npm: `npm i -g clodent`.
+- Licensed under the Apache License 2.0 (0.6.0 on npm was published without a license).
+
 ## 0.6.0 — 2026-11-06
 
 Clodex integration release: a Clodex seat's plugin tools are native clodent tools.

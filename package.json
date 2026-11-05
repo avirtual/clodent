@@ -1,7 +1,8 @@
 {
   "name": "clodent",
-  "version": "0.6.0",
-  "private": true,
+  "version": "0.6.1",
+  "description": "A terminal coding agent that talks to the Anthropic Messages API directly; zero dependencies.",
+  "license": "Apache-2.0",
   "type": "module",
   "repository": {
     "type": "git",
@@ -14,6 +15,13 @@
   "bin": {
     "clodent": "bin/clodent.js"
   },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=22"
   },

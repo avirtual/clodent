@@ -288,6 +288,15 @@ test('bin/clodent.js --version runs from any cwd', () => {
   assert.match(res.stdout, /^clodent \d+\.\d+\.\d+\n$/);
 });
 
+test('package.json is publishable under Apache-2.0 and ships the LICENSE file', () => {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal('private' in pkg, false);
+  assert.equal(pkg.license, 'Apache-2.0');
+  for (const entry of ['bin', 'src', 'LICENSE']) assert.ok(pkg.files.includes(entry), entry);
+  const license = readFileSync(new URL('../LICENSE', import.meta.url), 'utf8');
+  assert.match(license.split('\n').find((line) => line.trim() !== ''), /Apache License/);
+});
+
 test('bin/clodent.js exits 2 on a parse error', () => {
   const bin = fileURLToPath(new URL('../bin/clodent.js', import.meta.url));
   const res = spawnSync(process.execPath, [bin, '--frobnicate'], { cwd: tmpdir(), encoding: 'utf8' });
