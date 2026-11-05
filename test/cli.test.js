@@ -285,6 +285,7 @@ test('bin/clodent.js --version runs from any cwd', () => {
   const res = spawnSync(process.execPath, [bin, '--version'], { cwd: tmpdir(), encoding: 'utf8' });
   assert.equal(res.status, 0, res.stderr);
   assert.equal(res.stdout, `clodent ${VERSION}\n`);
+  assert.match(res.stdout, /^clodent \d+\.\d+\.\d+\n$/);
 });
 
 test('bin/clodent.js exits 2 on a parse error', () => {
