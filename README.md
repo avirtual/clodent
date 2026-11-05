@@ -1,16 +1,24 @@
 # clodent
 
-clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.6.0 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), a stream-json mode for hosts, six built-in tools (under Clodex, the seat's plugin tools join them; see [Clodex tools](#clodex-tools)), cost accounting, JSONL session transcripts, settings files, hooks and post-compact file reload. clodent was named clay up to 0.2.0.
+clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.6.1 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), a stream-json mode for hosts, six built-in tools (under Clodex, the seat's plugin tools join them; see [Clodex tools](#clodex-tools)), cost accounting, JSONL session transcripts, settings files, hooks and post-compact file reload. clodent was named clay up to 0.2.0.
 
 Non-goals for v0.5: MCP, plugins, skills, subagents, web tools, image input, Windows, telemetry.
 
 ## Install
 
-Requires Node.js 22 or later. clodent has no dependencies. From a checkout:
+Requires Node.js 22 or later. clodent has no dependencies.
+
+```sh
+npm i -g clodent
+clodent --version   # clodent 0.6.1
+```
+
+A pinned version: `npm i -g clodent@<version>`.
+
+For development, from a checkout:
 
 ```sh
 npm link
-clodent --version   # clodent 0.6.0
 ```
 
 ## Usage
@@ -57,7 +65,7 @@ An opt-in check against the real Messages API; the suite only runs it without a 
 
 ## Contract
 
-This section is the contract a host integrates against. It describes clodent 0.6.0.
+This section is the contract a host integrates against. It describes clodent 0.6.1.
 
 ### Hosting clodent
 
@@ -78,7 +86,7 @@ A summary for a host adapter; each point links to the section that pins it down.
 - statusLine: the settings `statusLine` command gets `context_window.used_tokens`, `context_window.context_window_size`, `context_window.used_percentage`, `model.id` and `cost.total_cost_usd` on stdin after each API response, after `/clear` (zero usage) and after `/compact` (`used_tokens` is the summary's size). See [Hooks](#hooks).
 - Signals: SIGINT acts as Ctrl-C: it interrupts a turn, and two in a row at an empty prompt exit 0. SIGTERM exits 143 and SIGHUP 129, after interrupting a running turn, whose `Stop` hook still fires. Ctrl-D, `/quit` and stdin closing exit 0. See [REPL](#repl).
 - Settings guard: `permissions.deny`/`ask` are enforced (see [Permission rules](#permission-rules)). A `sandbox` block with `enabled: true` is never fatal: its `filesystem.denyRead`, `filesystem.denyWrite` and deny `credentials.files` entries are enforced as deny rules, its deny `credentials.envVars` are removed from the environment of the Bash tool, of Grep and Glob's git calls, and of hooks and the statusLine command, and its other keys are ignored with one warning; clodent does not sandbox Bash. A malformed sandbox shape is a startup error (exit 2). clodent also always denies Read and Edit of every settings file it loaded and Read of `/proc/*/environ`, and `ANTHROPIC_API_KEY` is never in the environment of the Bash tool, Grep and Glob's git calls, hooks or the statusLine command; the value is replaced with `[redacted]` in hook warnings and deny reasons.
-- Absent in 0.6.0: MCP and subagents, so hooks never get `agent_id`.
+- Absent in 0.6.1: MCP and subagents, so hooks never get `agent_id`.
 - Clodex tools: with `CLODEX_INTENT_SOCK` and `CLODEX_INTENT_CRED` set, the seat's `mcp-tools.json` catalog becomes native `mcp__clodex__<name>` tools that call the intent socket, with no MCP layer; see [Clodex tools](#clodex-tools).
 
 ### Clodex tools
@@ -105,7 +113,7 @@ Under Clodex, the seat's plugin tools are native clodent tools that send the sam
   | a reply that is not a JSON object, or whose `reply` or `error` cannot be converted to a string | `bad reply from the seat channel` |
 
 - Interrupt: Ctrl-C or a signal during a call closes the socket, and the result is `interrupted by user` with `is_error: true`, as for any interrupted tool call.
-- Loop breaker: per agent session, a new one with each `/clear`. A call's key is the bare name plus `args` with object keys sorted at every depth; `ident` is never part of it. Every outcome is a failure except a reply with `ok: true` and `status: "ok"`, a reply without `ok: true` and with `status: "invalid"`, a timeout and an interrupt; a bad reply is always a failure. A failure counts one more when it comes within 60 s of the key's last failure, and starts again at one otherwise. Once a key has two, an identical call within 60 s of the last one is not sent: its result is `the same call failed 3 times — stop retrying: <the last failure's text>`, and it restarts the 60 s. A reply with `ok: true` and `status: "ok"` clears the key. At most 12 keys are kept, the oldest dropped first.
+- Loop breaker: per agent session, a new one with each `/clear`. A call's key is the bare name plus `args` with object keys sorted at every depth; `ident` is never part of it. Every outcome is a failure except a reply with `ok: true` and `status: "ok"`, a reply without `ok: true` and with `status: "invalid"`, a timeout and an interrupt; a bad reply is always a failure. A failure counts one more when it comes within 60 s of the key's last failure, and starts again at one otherwise. Once a key has two, an identical call within 60 s of the last one is not sent: its result is `the same call failed 3 times — stop retrying: <the last failure's text>`, and it restarts the 60 s. A reply with `ok: true` and `status: "ok"` that is not a bad reply clears the key. At most 12 keys are kept, the oldest dropped first.
 - Permissions: the kind is `read` (see [Tools](#tools)), so no mode asks, `--read-only` included: Clodex's socket checks the seat's grants. A PreToolUse `deny` or `ask` decision and the permission rules apply as to a built-in tool.
 - Rules: an exact `mcp__clodex__<name>` rule in `permissions.deny`, `permissions.ask` or `--disallowedTools` is a bare tool rule, so a deny rule removes the tool from every request. A specifier on it is ignored: `mcp__clodex__dm(x)` is the rule `mcp__clodex__dm`; with a space before `(`, as in `mcp__clodex__dm (x)`, it is a startup error. `mcp__clodex__*`, `mcp__clodex` and every other name clodent has no tool for are ignored silently (see [Permission rules](#permission-rules)).
 - Refresh: clodent reads the catalog when an agent session starts (at startup and after `/clear`) and again before each API request. When its `rev`, or the warning it gives, has changed, the Clodex tools are rebuilt and the request carries the new list, its new warnings printed once; an unchanged `rev` keeps the tools as they were, so the prompt cache holds. A tool that leaves the catalog stays callable: a call the model still makes to it goes to the socket, which decides.
@@ -888,3 +896,7 @@ statusLine: after each API response other than a compact's summary request, and 
 - At most one statusLine command runs at a time. An update that arrives while one runs replaces any update already waiting, so only the latest runs next.
 - stdout is discarded. The first failure prints one warning, `statusLine "<first 60 code points of the command>": <reason>`; later failures are silent.
 - Before exit, clodent waits for the running statusLine command and the latest waiting update to finish.
+
+## License
+
+Apache License 2.0; see [LICENSE](LICENSE).
