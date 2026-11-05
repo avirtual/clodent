@@ -7,6 +7,7 @@ import {
   BAD_REPLY,
   COMPLETION_UNKNOWN,
   INTERRUPTED,
+  LOOP_RING,
   LOOP_WINDOW_MS,
   createClodexTools,
   createClodexToolset,
@@ -295,6 +296,30 @@ test('an abort through ctx.signal closes the socket and is the interrupted resul
   assert.deepEqual(result, { content: INTERRUPTED, isError: true });
   assert.deepEqual(await run(tool, { to: 'lead', body: 'hi' }, { signal: AbortSignal.abort() }), { content: INTERRUPTED, isError: true });
   assert.equal(s.lines.length, 1);
+});
+
+test('the loop breaker keeps at most LOOP_RING keys and drops the oldest first', GUARD, async (t) => {
+  const dir = await useTempDir(t);
+  const keys = Array.from({ length: LOOP_RING + 1 }, (_, i) => `k${i}`);
+  const s = await seat(t, dir, keys.flatMap(() => [REFUSED, REFUSED]));
+  const tool = dmTool(s.env, { now: () => 0 });
+  for (const to of keys) {
+    await run(tool, { to, body: 'hi' });
+    await run(tool, { to, body: 'hi' });
+  }
+  assert.deepEqual(await run(tool, { to: keys[0], body: 'hi' }), { content: 'sent', isError: false });
+  assert.match((await run(tool, { to: keys[LOOP_RING], body: 'hi' })).content, /stop retrying/);
+  assert.equal(s.lines.length, keys.length * 2 + 1);
+});
+
+test('an interrupted call does not count toward the loop breaker', GUARD, async (t) => {
+  const dir = await useTempDir(t);
+  const controllers = [new AbortController(), new AbortController()];
+  const s = await seat(t, dir, controllers.map((c) => () => c.abort()));
+  const tool = dmTool(s.env, { now: () => 0 });
+  for (const c of controllers) assert.deepEqual(await run(tool, { to: 'lead', body: 'hi' }, { signal: c.signal }), { content: INTERRUPTED, isError: true });
+  assert.deepEqual(await run(tool, { to: 'lead', body: 'hi' }), { content: 'sent', isError: false });
+  assert.equal(s.lines.length, 3);
 });
 
 test('the summary is the first string argument on one line, never ident', () => {
