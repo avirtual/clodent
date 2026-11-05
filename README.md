@@ -1,6 +1,6 @@
 # clodent
 
-clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.5.1 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), a stream-json mode for hosts, six built-in tools, cost accounting, JSONL session transcripts, settings files, hooks and post-compact file reload. clodent was named clay up to 0.2.0.
+clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.5.2 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), a stream-json mode for hosts, six built-in tools, cost accounting, JSONL session transcripts, settings files, hooks and post-compact file reload. clodent was named clay up to 0.2.0.
 
 Non-goals for v0.5: MCP, plugins, skills, subagents, web tools, image input, Windows, telemetry.
 
@@ -10,7 +10,7 @@ Requires Node.js 22 or later. clodent has no dependencies. From a checkout:
 
 ```sh
 npm link
-clodent --version   # clodent 0.5.1
+clodent --version   # clodent 0.5.2
 ```
 
 ## Usage
@@ -57,7 +57,7 @@ An opt-in check against the real Messages API; the suite only runs it without a 
 
 ## Contract
 
-This section is the contract a host integrates against. It describes clodent 0.5.1.
+This section is the contract a host integrates against. It describes clodent 0.5.2.
 
 ### Hosting clodent
 
@@ -305,7 +305,7 @@ Queueing: during a turn, input is parsed but not echoed, and each submitted line
 
 A prompt runs one turn of the agent loop, as in print mode. The model's text streams as it arrives, and the tool lines, warnings and the per-turn `[clodent:cost]` line follow it on stdout. Thinking is never printed; when stdout is a TTY, each thinking block shows one dim `thinking…` line instead. On a TTY, these lines carry SGR colour codes around their text, closed by `\x1b[0m`: yellow (`\x1b[33m`) for warnings, `clodent: interrupted`, `[clodent:budget]` and the no-price warning; red (`\x1b[31m`) for errors and `  ✗` lines; dim (`\x1b[2m`) for `thinking…` and the per-turn and session-total `[clodent:cost]` lines. The `[clodent:session]`, `[clodent:permit …]`, `● <Tool>` and slash command lines are never coloured.
 
-In the streamed text and in the `● <Tool>`, `[clodent:permit …]`, `  ✗`, warning, error, `conversation compacted`, `reloaded` and `not reloaded` lines, each C0 control byte, DEL and C1 control (U+0080–U+009F) is written as `\u` and four lowercase hex digits, such as `\u001b` for ESC, except `\n` and `\t` in the streamed text, so model or tool text cannot move the cursor or send a terminal escape; print mode's stderr lines get the same, while its stdout answer, transcripts, stream-json and hook stdin keep the raw text.
+In the streamed text and in the `● <Tool>`, `[clodent:permit …]`, `  ✗`, warning, error, `conversation compacted`, `reloaded` and `not reloaded` lines, and in the REPL's own lines, such as `clodent: compact failed: <reason>`, each C0 control byte, DEL and C1 control (U+0080–U+009F) is written as `\u` and four lowercase hex digits, such as `\u001b` for ESC, except `\n` and `\t` in the streamed text, so model or tool text cannot move the cursor or send a terminal escape; print mode's stderr lines get the same, while its stdout answer, transcripts, stream-json and hook stdin keep the raw text.
 
 Slash commands: a submitted line is a command when it was typed, with no paste in it, and its first word is `/` followed by lowercase letters. Anything else is a prompt, such as `/Users/me/x fix it` or a pasted `/clear`.
 
