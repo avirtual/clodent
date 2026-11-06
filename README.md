@@ -2,7 +2,7 @@
 
 clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.6.1 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), a stream-json mode for hosts, six built-in tools (under Clodex, the seat's plugin tools join them; see [Clodex tools](#clodex-tools)), cost accounting, JSONL session transcripts, settings files, hooks and post-compact file reload. clodent was named clay up to 0.2.0.
 
-Non-goals for v0.5: MCP, plugins, skills, subagents, web tools, image input, Windows, telemetry.
+Not supported: MCP servers, plugins, a skill tool, subagents, web tools, image input, Windows, telemetry. Under Clodex, a seat's plugin tools and skills still reach the model; see [Clodex tools](#clodex-tools) and [Hosting clodent](#hosting-clodent).
 
 ## Install
 
@@ -88,6 +88,7 @@ A summary for a host adapter; each point links to the section that pins it down.
 - Settings guard: `permissions.deny`/`ask` are enforced (see [Permission rules](#permission-rules)). A `sandbox` block with `enabled: true` is never fatal: its `filesystem.denyRead`, `filesystem.denyWrite` and deny `credentials.files` entries are enforced as deny rules, its deny `credentials.envVars` are removed from the environment of the Bash tool, of Grep and Glob's git calls, and of hooks and the statusLine command, and its other keys are ignored with one warning; clodent does not sandbox Bash. A malformed sandbox shape is a startup error (exit 2). clodent also always denies Read and Edit of every settings file it loaded and Read of `/proc/*/environ`, and `ANTHROPIC_API_KEY` is never in the environment of the Bash tool, Grep and Glob's git calls, hooks or the statusLine command; the value is replaced with `[redacted]` in hook warnings and deny reasons.
 - Absent in 0.6.1: MCP and subagents, so hooks never get `agent_id`.
 - Clodex tools: with `CLODEX_INTENT_SOCK` and `CLODEX_INTENT_CRED` set, the seat's `mcp-tools.json` catalog becomes native `mcp__clodex__<name>` tools that call the intent socket, with no MCP layer; see [Clodex tools](#clodex-tools).
+- Skills: clodent has no skill tool and no skill discovery. Clodex lists a seat's enabled skills in a `# Clodex skills` block inside the `--append-system-prompt-file` text (Clodex `skill-delivery.js` `deliverCatalog`), which clodent appends to the system prompt as part 4, and the model reads a skill's `SKILL.md` with `Read`; a bare-name `Read` deny removes that tool, leaving Bash or Grep's `content` mode to reach the file. See [System prompt](#system-prompt).
 
 ### Clodex tools
 
