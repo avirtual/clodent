@@ -462,11 +462,17 @@ export function searchesTree(cmd, args) {
   return args.some((arg) => shortHas(arg, 'rR') || longMatches(arg, 'recursive') || longMatches(arg, 'dereference-recursive') || arg.includes('recurse'));
 }
 
+const harmlessRedirect = (op, target) => op === '<' || (op === '>&' && DIGITS.test(target.raw)) || (!target.dynamic && target.value === '/dev/null');
+
 function checkRedirect(op, target) {
-  if (op === '<') return;
-  if (op === '>&' && DIGITS.test(target.raw)) return;
-  if (!target.dynamic && target.value === '/dev/null') return;
-  refuse('output redirection');
+  if (!harmlessRedirect(op, target)) refuse('output redirection');
+}
+
+export function redirectsOutput(command) {
+  const tokens = lex(command);
+  return tokens.some(
+    (token, k) => token.type === 'error' || (token.type === 'redir' && !(tokens[k + 1]?.type === 'word' && harmlessRedirect(token.op, tokens[k + 1]))),
+  );
 }
 
 function checkSegment(items, state) {

@@ -94,13 +94,39 @@ test('a path allow rule needs both the lexical and the real path, so a symlink o
   assert.equal(await verdictOf(deny, 'Edit', { file_path: 'src/link/x.js' }), 'deny Edit(./src/**)');
 });
 
+test('a path that exists but does not resolve, as a dangling or looping link or an unreadable entry, asks under a path rule and a bare rule', async () => {
+  const entries = { '/work/src/out': 'link', '/work/src/dir': 'link', '/work/src/locked': 'EACCES' };
+  const realpath = async (path) => (path === '/work' || path === '/work/src' ? path : missing());
+  const lstat = async (path) => {
+    if (entries[path] === 'link') return { isSymbolicLink: () => true, isDirectory: () => false };
+    if (entries[path]) throw Object.assign(new Error(entries[path]), { code: entries[path] });
+    return missing();
+  };
+  for (const allow of ['Edit(./src/**)', 'Write']) {
+    const guard = guardOf({ allow: [allow] }, { realpath, lstat });
+    assert.equal(await verdictOf(guard, 'Write', { file_path: 'src/new.js', content: '' }), `allow ${allow}`);
+    for (const file of ['src/out', 'src/dir/x.js', 'src/locked/a.js']) {
+      assert.equal(await verdictOf(guard, 'Write', { file_path: file, content: '' }), null, `${allow} ${file}`);
+    }
+  }
+});
+
+test('Bash allow: a command only a Bash rule admits asks when it redirects output anywhere but /dev/null or another fd', async () => {
+  const guard = guardOf({ allow: ['Bash(git status:*)', 'Bash(git log:*)'] });
+  for (const command of ['git status > /dev/null', 'git status 2>/dev/null', 'git status < in']) {
+    assert.equal(await bash(guard, command), 'allow Bash(git status:*)', command);
+  }
+  for (const command of ['git status > x', 'git status >> x', 'git log > ~/.bashrc', 'git status > $OUT', 'git status && git log > x']) {
+    assert.equal(await bash(guard, command), null, command);
+  }
+});
+
 test('protected paths ask even when an allow rule matches: .git, .clodent and .claude parts, hook scripts and settings files', async () => {
   const files = ['/work/hooks/pre.sh', '/Users/u/.config/seat-settings.json', '/work/node'];
-  const lstat = async (path) => {
-    if (path === '/work/node') return missing();
-    return { isDirectory: () => false };
-  };
-  const guard = guardOf({ allow: ['Edit', 'Write', 'Bash'] }, { protect: files, lstat });
+  const exists = (path) => files.includes(path) && path !== '/work/node';
+  const lstat = async (path) => (exists(path) ? { isDirectory: () => false } : missing());
+  const realpath = async (path) => (exists(path) ? path : missing());
+  const guard = guardOf({ allow: ['Edit', 'Write', 'Bash'] }, { protect: files, lstat, realpath });
   for (const file of ['.git/config', 'sub/.GIT/hooks/pre-commit', '.clodent/settings.json', '.claude/settings.json', 'hooks/pre.sh', '/Users/u/.config/seat-settings.json']) {
     for (const tool of ['Edit', 'Write']) assert.equal(await verdictOf(guard, tool, { file_path: file }), null, `${tool} ${file}`);
   }

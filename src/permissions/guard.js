@@ -1,6 +1,6 @@
 import { lstat as fsLstat, readdir as fsReaddir, realpath as fsRealpath } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve } from 'node:path';
-import { classifyBash, searchesTree } from '../tools/bash-readonly.js';
+import { classifyBash, redirectsOutput, searchesTree } from '../tools/bash-readonly.js';
 import { CLODENT_TOOLS, isProtected, mentionRegExp, pathRegExp, protectedRules, ruleHome, splitPattern } from './rules.js';
 
 const PATH_FIELDS = { Read: 'file_path', Edit: 'file_path', Write: 'file_path', Grep: 'path', Glob: 'path' };
@@ -8,6 +8,7 @@ const LISTING_TOOLS = new Set(['Grep', 'Glob']);
 const ALLOWED_TOOLS = { Read: ['Read', 'Grep', 'Glob'], Edit: ['Edit', 'Write'], Write: ['Write'], Grep: ['Grep'], Glob: ['Glob'] };
 const SUBSTITUTION = /`|[$<>](?:\\\n)*\(/;
 const DIR_CHANGES = new Set(['cd', 'pushd', 'popd']);
+const ABSENT = new Set(['ENOENT', 'ENOTDIR']);
 const DATA_VOLUME = '/System/Volumes/Data';
 
 export const OPEN_GUARD = Object.freeze({
@@ -30,13 +31,14 @@ export function denialReason(rule, uncertain = false) {
 
 export const uncertainDecision = (list, mode, kind = 'strong') => (list === 'deny' && mode === 'yolo' && kind === 'strong' ? 'deny' : 'ask');
 
-async function realpathDeep(path, realpath) {
+async function realpathDeep(path, realpath, missed = []) {
   const rest = [];
   let head = path;
   for (;;) {
     try {
       return join(await realpath(head), ...rest);
     } catch {
+      missed.push(head);
       const parent = dirname(head);
       if (parent === head) return path;
       rest.unshift(basename(head));
@@ -817,7 +819,7 @@ function bashAllowed(rules, command, cwd) {
   let granted = null;
   for (const piece of pieces) {
     const rule = rules.find((one) => one.kind === 'bash' && one.test(piece));
-    if (!rule && !classifyBash(piece, dir).readOnly) return null;
+    if (!(rule && !redirectsOutput(piece)) && !classifyBash(piece, dir).readOnly) return null;
     granted ??= rule ?? null;
   }
   return granted;
@@ -868,7 +870,10 @@ export function createGuard({ deny = [], ask = [], allow = [] } = {}, deps = {})
     const value = input?.[PATH_FIELDS[tool]] ?? (LISTING_TOOLS.has(tool) ? '.' : undefined);
     if (typeof value !== 'string') return null;
     const lexical = resolve(cwd, value);
-    return { lexical, real: await realpathDeep(lexical, realpath) };
+    const missed = [];
+    const real = await realpathDeep(lexical, realpath, missed);
+    const present = (path) => lstat(path).then(() => true, (err) => !ABSENT.has(err?.code));
+    return { lexical, real, unresolved: allow.length > 0 && (await Promise.all(missed.map(present))).some(Boolean) };
   }
 
   const rootPaths = (root) => (root ? [...spellings(root.lexical), ...spellings(root.real)] : []);
@@ -943,7 +948,7 @@ export function createGuard({ deny = [], ask = [], allow = [] } = {}, deps = {})
       return rule && !shielded() ? rule : null;
     }
     if (!Object.hasOwn(PATH_FIELDS, tool)) return bare ?? null;
-    if (!root || rootPaths(root).some((path) => isProtected(path, files))) return null;
+    if (!root || root.unresolved || rootPaths(root).some((path) => isProtected(path, files))) return null;
     const both = (rule) => [root.lexical, root.real].every((path) => matchesPaths(rule, spellings(path), ruleForms));
     return bare ?? allow.find((rule) => rule.kind === 'path' && ALLOWED_TOOLS[rule.tool].includes(tool) && both(rule)) ?? null;
   }
