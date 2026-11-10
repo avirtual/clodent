@@ -292,7 +292,7 @@ test('--cache-ttl 1h holds for every request across /compact, /model and /clear'
   for (const { body } of calls) {
     assert.deepEqual(body.system[0].cache_control, { type: 'ephemeral', ttl: '1h' });
     assert.deepEqual(body.tools.at(-1).cache_control, { type: 'ephemeral', ttl: '1h' });
-    assert.deepEqual(body.messages.at(-1).content.at(-1).cache_control, { type: 'ephemeral' });
+    assert.deepEqual(body.messages.at(-1).content.at(-1).cache_control, { type: 'ephemeral', ttl: '1h' });
   }
   assert.deepEqual(calls.map(({ body }) => body.model), ['claude-opus-5-5', 'claude-opus-5-5', 'claude-opus-5-5', 'claude-haiku-5-5', 'claude-haiku-5-5']);
   assert.equal(repl.sessionIds().length, 2);

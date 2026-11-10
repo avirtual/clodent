@@ -96,11 +96,11 @@ test('cacheTtl: the default is 5m, settings 1h reaches the wire, --cache-ttl bea
   assert.deepEqual(ttls(plain.calls[0].body), [short, short, short]);
   const settings = writeSettings(dir, { cacheTtl: '1h' });
   const fromSettings = await runMain(['-p', 'hi', '--settings', settings], { home, cwd, responses: [textReply('ok')] });
-  assert.deepEqual(ttls(fromSettings.calls[0].body), [long, long, short]);
+  assert.deepEqual(ttls(fromSettings.calls[0].body), [long, long, long]);
   const flagWins = await runMain(['-p', 'hi', '--settings', settings, '--cache-ttl', '5m'], { home, cwd, responses: [textReply('ok')] });
   assert.deepEqual(ttls(flagWins.calls[0].body), [short, short, short]);
   const flagOnly = await runMain(['-p', 'hi', '--cache-ttl', '1h'], { home, cwd, responses: [textReply('ok')] });
-  assert.deepEqual(ttls(flagOnly.calls[0].body), [long, long, short]);
+  assert.deepEqual(ttls(flagOnly.calls[0].body), [long, long, long]);
   const bad = writeSettings(dir, { cacheTtl: '1d' }, 'bad.json');
   const warned = await runMain(['-p', 'hi', '--settings', bad], { home, cwd, responses: [textReply('ok')] });
   assert.equal(warned.code, 0, warned.stderr);

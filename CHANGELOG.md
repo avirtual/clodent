@@ -10,6 +10,7 @@ clodent was named clay up to 0.2.0.
 - `permissions.allow` in settings and `--allowedTools` now allow matching tool calls without asking: an allow rule never overrides a deny or ask rule, `--read-only` or a hook's decision, a Bash command is allowed only when every command in it matches an allow rule or is read-only, and edits under `.git`, `.clodent` or `.claude` and to hook scripts or settings files still ask.
 - A deny or ask rule now also matches a `Write` or `Edit` through a symlink that points to a path that does not exist yet, and a hook script that does not exist yet is protected from allowed Bash commands.
 - `claude-fable-5-2` and `claude-mythos-5-2` are priced (input 8.00, output 40.00, cache read 0.20, cache write 5m 10.00 and 1h 16.00 USD per million tokens).
+- `--cache-ttl 1h` / `cacheTtl: "1h"` now caches the latest turn for an hour too, so a seat idle for more than 5 minutes no longer rewrites the previous turn's tool calls and results; `5m` requests are unchanged.
 
 ## 0.7.0 — 2026-11-10
 

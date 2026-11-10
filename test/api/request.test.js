@@ -296,7 +296,6 @@ test('a scripted 3-turn session with tool rounds never sends more than four brea
 
 const FIXTURE_5M = readFileSync(new URL('./fixtures/request-5m-body.json', import.meta.url), 'utf8').trimEnd();
 const ONE_HOUR = { type: 'ephemeral', ttl: '1h' };
-const FIVE_MIN = { type: 'ephemeral' };
 
 function cacheMarks(value, path = '$', out = []) {
   if (Array.isArray(value)) {
@@ -327,42 +326,42 @@ test('an unknown cacheTtl throws', () => {
   assert.throws(() => buildRequest(base({ cacheTtl: '2h' }), deps), /invalid cacheTtl "2h": expected one of 5m, 1h/);
 });
 
-test('1h turn 1: system and last tool carry ttl 1h, the tail stays 5m', () => {
+test('1h turn 1: system, last tool and tail carry ttl 1h', () => {
   const { body } = buildRequest(base({ messages: [userText('one')], cacheTtl: '1h' }), deps);
   assert.deepEqual(cacheMarks(body), [
     ['$.system[0]', ONE_HOUR],
     ['$.tools[1]', ONE_HOUR],
-    ['$.messages[0].content[0]', FIVE_MIN],
+    ['$.messages[0].content[0]', ONE_HOUR],
   ]);
 });
 
-test('1h turn 2 requests 1 and 2: system, last tool and settled pin carry ttl 1h, the tail stays 5m', () => {
+test('1h turn 2 requests 1 and 2: system, last tool, settled pin and tail carry ttl 1h', () => {
   const messages = [...structuredClone(TURN_ONE), userText('two')];
   assert.deepEqual(cacheMarks(buildRequest(base({ messages, cacheTtl: '1h' }), deps).body), [
     ['$.system[0]', ONE_HOUR],
     ['$.tools[1]', ONE_HOUR],
     ['$.messages[0].content[0]', ONE_HOUR],
-    ['$.messages[4].content[0]', FIVE_MIN],
+    ['$.messages[4].content[0]', ONE_HOUR],
   ]);
   messages.push(toolUse('t2'), toolResult('t2'));
   assert.deepEqual(cacheMarks(buildRequest(base({ messages, cacheTtl: '1h' }), deps).body), [
     ['$.system[0]', ONE_HOUR],
     ['$.tools[1]', ONE_HOUR],
     ['$.messages[4].content[0]', ONE_HOUR],
-    ['$.messages[6].content[0]', FIVE_MIN],
+    ['$.messages[6].content[0]', ONE_HOUR],
   ]);
 });
 
-test('1h with no tools: system and settled pin carry ttl 1h, the tail stays 5m', () => {
+test('1h with no tools: system, settled pin and tail carry ttl 1h', () => {
   const { body } = buildRequest(base({ tools: [], messages: [...structuredClone(TURN_ONE), userText('two')], cacheTtl: '1h' }), deps);
   assert.deepEqual(cacheMarks(body), [
     ['$.system[0]', ONE_HOUR],
     ['$.messages[0].content[0]', ONE_HOUR],
-    ['$.messages[4].content[0]', FIVE_MIN],
+    ['$.messages[4].content[0]', ONE_HOUR],
   ]);
 });
 
-test('1h: no request in a scripted 3-turn session sends a 1h marker after a 5m one', () => {
+test('1h: every marker in every request of a scripted 3-turn session carries ttl 1h', () => {
   const messages = [];
   let requests = 0;
   for (const [turn, rounds] of [['one', 1], ['two', 2], ['three', 0]]) {
@@ -370,10 +369,10 @@ test('1h: no request in a scripted 3-turn session sends a 1h marker after a 5m o
     for (let round = 0; round <= rounds; round++) {
       if (round > 0) messages.push(toolUse(`${turn}${round}`), toolResult(`${turn}${round}`));
       const { body } = buildRequest(base({ messages, cacheTtl: '1h' }), deps);
-      const ttls = ['tools', 'system', 'messages'].flatMap((key) => cacheMarks(body[key])).map(([, mark]) => mark.ttl ?? '5m');
-      const where = `${ttls.join(' ')} at ${messages.length} messages`;
-      assert.equal(ttls.slice(ttls.indexOf('5m') + 1).includes('1h'), false, where);
-      assert.deepEqual([ttls.filter((ttl) => ttl === '5m').length, ttls.at(-1)], [1, '5m'], where);
+      const marks = cacheMarks(body).map(([, mark]) => mark);
+      const where = `at ${messages.length} messages`;
+      assert.ok(marks.length >= 3, where);
+      assert.deepEqual(marks, marks.map(() => ONE_HOUR), where);
       requests++;
     }
     messages.push(answer(`done ${turn}`));

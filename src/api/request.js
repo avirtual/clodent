@@ -55,7 +55,7 @@ function toBlocks(message) {
   if (typeof message.content === 'string') message.content = [{ type: 'text', text: message.content }];
 }
 
-function copyMessages(messages, pinTtl) {
+function copyMessages(messages, ttl) {
   const copies = messages.map((message) => ({
     ...message,
     content: Array.isArray(message.content)
@@ -66,7 +66,7 @@ function copyMessages(messages, pinTtl) {
   if (anchor >= 0) {
     const pinned = copies[anchor];
     toBlocks(pinned);
-    pinned.content[pinned.content.length - 1] = markEphemeral(pinned.content.at(-1), pinTtl);
+    pinned.content[pinned.content.length - 1] = markEphemeral(pinned.content.at(-1), ttl);
   }
   const last = copies.at(-1);
   if (!last) return copies;
@@ -74,7 +74,7 @@ function copyMessages(messages, pinTtl) {
   if (!Array.isArray(last.content)) return copies;
   for (let i = last.content.length - 1; i >= 0; i--) {
     if (!SKIP_FOR_CACHE.has(last.content[i].type)) {
-      last.content[i] = markEphemeral(last.content[i]);
+      last.content[i] = markEphemeral(last.content[i], ttl);
       break;
     }
   }
