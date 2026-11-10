@@ -34,7 +34,7 @@ export const uncertainDecision = (list, mode, kind = 'strong') => (list === 'den
 const LINK_HOPS = 40;
 
 async function linkTarget(head, rest, fs) {
-  const target = (await fs.readlink(head)).replace(/\/+/g, '/').replace(/(.)\/$/, '$1');
+  const target = (await fs.readlink(head)).replace(/\/+/g, '/').replace(/(?!^)\/$/, '');
   const base = isAbsolute(target) ? target : `${await fs.realpath(dirname(head))}/${target}`;
   return [base, ...rest].join('/');
 }
@@ -904,7 +904,7 @@ export function createGuard({ deny = [], ask = [], allow = [] } = {}, deps = {})
   const rootPaths = (root) => (root ? [...spellings(root.lexical), ...spellings(root.real)] : []);
 
   const withReal = async (list) => [...new Set([...list, ...(await Promise.all(list.map((file) => realpathDeep(file, fs))))])];
-  const directory = (file) => stat(file).then((entry) => entry.isDirectory(), () => null);
+  const directory = (file) => stat(file).then((entry) => entry.isDirectory(), () => lstat(file).then(() => false, () => null));
 
   async function protectionOf(protect, protectExisting) {
     if (allow.length === 0) return { rules: [], files: [] };
@@ -976,7 +976,7 @@ export function createGuard({ deny = [], ask = [], allow = [] } = {}, deps = {})
     return rule ? { decision: 'allow', rule } : null;
   }
 
-  // an allow rule needs both paths and every command, so whatever is uncertain falls back to asking.
+  // An allow rule needs both paths and every command, so whatever is uncertain falls back to asking.
   function allowedBy(tool, input, cwd, root, ruleForms, shielded, files) {
     const bare = allow.find((rule) => rule.kind === 'tool' && rule.tool === tool);
     if (tool === 'Bash') {

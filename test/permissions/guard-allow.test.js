@@ -142,7 +142,7 @@ test('protected paths ask even when an allow rule matches: .git, .clodent and .c
 
 test('a hook script named with a / is protected before it exists; a bare word only when it exists as a file', async () => {
   const kinds = { '/work/hook.js': false, '/work/tools': true };
-  const stat = async (path) => (Object.hasOwn(kinds, path) ? { isDirectory: () => kinds[path], isSymbolicLink: () => false } : missing());
+  const stat = async (path) => (Object.hasOwn(kinds, path) ? { isDirectory: () => kinds[path] } : missing());
   const realpath = async (path) => (Object.hasOwn(kinds, path) || path === '/work' ? path : missing());
   const protect = ['/work/hooks/later.sh', '/work/tools'];
   const guard = guardOf({ allow: ['Bash'] }, { protect, protectExisting: ['/work/node', '/work/hook.js'], stat, realpath });
@@ -158,6 +158,12 @@ test('a hook word that names a symlink to a directory is dropped, as a directory
     const guard = guardOf({ allow: ['Bash'] }, { ...words, stat, lstat, realpath });
     assert.equal(await bash(guard, 'rm -rf src/build'), 'allow Bash', JSON.stringify(words));
   }
+});
+
+test('a bare hook word that is a dangling symlink stays protected', async () => {
+  const lstat = async (path) => (path === '/work/pre.sh' ? { isDirectory: () => false, isSymbolicLink: () => true } : missing());
+  const guard = guardOf({ allow: ['Bash'] }, { protectExisting: ['/work/pre.sh'], lstat });
+  assert.equal(await bash(guard, 'cp x pre.sh'), null);
 });
 
 test('a deny or ask rule wins over an allow rule on the same call; an uncertain deny still asks', async () => {
