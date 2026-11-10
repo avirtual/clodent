@@ -19,10 +19,24 @@ const CHANGELOG = [
   '',
 ].join('\n');
 
-async function check(argv, { version = '0.7.0', changelog = CHANGELOG } = {}) {
+const readmeFor = (version) => [
+  '# clodent',
+  '',
+  '```sh',
+  `clodent --version   # clodent ${version}`,
+  '```',
+  '',
+  '## Contract',
+  '',
+  `This section is the contract a host integrates against. It describes clodent ${version}.`,
+  '',
+].join('\n');
+
+async function check(argv, { version = '0.7.0', changelog = CHANGELOG, readme = readmeFor(version) } = {}) {
   const files = {
     'package.json': JSON.stringify({ name: 'clodent', version }),
     'CHANGELOG.md': changelog,
+    'README.md': readme,
   };
   let stdout = '';
   let stderr = '';
@@ -70,6 +84,28 @@ test('a heading for a longer version with the same prefix does not match', async
   const r = await check(['v0.7.0'], { changelog });
   assert.equal(r.code, 1);
   assert.equal(r.stderr, 'check-release-tag: CHANGELOG.md has no "## 0.7.0" heading\n');
+});
+
+test('a README with the --version line and the Contract sentence for the version passes', async () => {
+  const r = await check(['v0.7.0']);
+  assert.equal(r.code, 0);
+  assert.equal(r.stdout, 'check-release-tag: v0.7.0 matches package.json, CHANGELOG.md and README.md\n');
+});
+
+test('a README whose --version line names another version fails', async () => {
+  const readme = readmeFor('0.7.0').replace('# clodent 0.7.0', '# clodent 0.6.1');
+  const r = await check(['v0.7.0'], { readme });
+  assert.equal(r.code, 1);
+  assert.equal(r.stdout, '');
+  assert.equal(r.stderr, 'check-release-tag: README.md has no line "clodent --version   # clodent 0.7.0"\n');
+});
+
+test('a README whose Contract sentence names another version fails', async () => {
+  const readme = readmeFor('0.7.0').replace('It describes clodent 0.7.0.', 'It describes clodent 0.6.1.');
+  const r = await check(['v0.7.0'], { readme });
+  assert.equal(r.code, 1);
+  assert.equal(r.stdout, '');
+  assert.equal(r.stderr, 'check-release-tag: README.md has no sentence "It describes clodent 0.7.0."\n');
 });
 
 test('a missing tag argument fails', async () => {

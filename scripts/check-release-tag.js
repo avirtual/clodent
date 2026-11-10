@@ -13,9 +13,11 @@ export async function main(argv, deps) {
 
   let version;
   let changelog;
+  let readme;
   try {
     version = JSON.parse(await deps.readFile('package.json')).version;
     changelog = await deps.readFile('CHANGELOG.md');
+    readme = await deps.readFile('README.md');
   } catch (err) {
     return fail(err.message);
   }
@@ -29,7 +31,14 @@ export async function main(argv, deps) {
     .some((line) => line === heading || line.startsWith(`${heading} `));
   if (!found) return fail(`CHANGELOG.md has no "${heading}" heading`);
 
-  deps.stdout.write(`check-release-tag: ${tag} matches package.json and CHANGELOG.md\n`);
+  const versionLine = `clodent --version   # clodent ${version}`;
+  if (!readme.split(/\r?\n/).includes(versionLine)) {
+    return fail(`README.md has no line "${versionLine}"`);
+  }
+  const describes = `It describes clodent ${version}.`;
+  if (!readme.includes(describes)) return fail(`README.md has no sentence "${describes}"`);
+
+  deps.stdout.write(`check-release-tag: ${tag} matches package.json, CHANGELOG.md and README.md\n`);
   return 0;
 }
 
