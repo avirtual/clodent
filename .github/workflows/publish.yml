@@ -1,0 +1,44 @@
+name: publish
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Ensure npm >= 11.5.1 (trusted publishing)
+        run: |
+          current="$(npm --version)"
+          if [ "$(printf '%s\n' 11.5.1 "$current" | sort -V | head -n 1)" != 11.5.1 ]; then
+            npm install -g npm@latest
+          fi
+          npm --version
+
+      - name: Check release tag
+        if: github.event_name == 'push'
+        run: node scripts/check-release-tag.js "$GITHUB_REF_NAME"
+
+      - name: Test
+        run: node scripts/run-tests.js
+
+      - name: Publish
+        if: github.event_name == 'push'
+        run: npm publish --access public
+
+      - name: Publish (dry run)
+        if: github.event_name == 'workflow_dispatch'
+        run: npm publish --access public --dry-run

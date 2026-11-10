@@ -4,6 +4,8 @@ clodent was named clay up to 0.2.0.
 
 ## Unreleased
 
+- Releases are published to npm from GitHub Actions with npm trusted publishing, so each version carries a provenance attestation.
+
 ## 0.7.0 — 2026-11-10
 
 - README documents how Clodex delivers skills to a clodent seat (a `# Clodex skills` block in the appended system prompt, read with `Read`).
