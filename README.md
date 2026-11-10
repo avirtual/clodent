@@ -63,6 +63,22 @@ ANTHROPIC_API_KEY=sk-ant-... node scripts/live-smoke.js [--model <id>] [--pad <n
 
 An opt-in check against the real Messages API; the suite only runs it without a key or over the fake fetch, never against the API. It reads the key from `ANTHROPIC_API_KEY` and, without it, prints `live-smoke: ANTHROPIC_API_KEY not set` to stderr and exits 2. With the key it sends one streamed request (model `claude-haiku-5-5` unless `--model` is given, a short system prompt, one trivial tool, the user text `Reply with exactly: pong`), streams the reply text to stdout, then prints `[1] stop_reason: <reason>` and `[1] usage: <raw usage JSON>`. It sends the same request again and prints the same lines prefixed `[2]`, so a cache read shows once the prefix is long enough to be cached. `--pad <n>` appends n filler words to the system prompt (default 0); with a pad, a request 2 whose `cache_read_input_tokens` is not above 0 prints `live-smoke: no cache read on request 2` to stderr and exits 1. `--pad 6000` makes the prefix long enough to cache. It exits 0 when both replies carry text, 1 when either is empty, a request fails (the failure is printed to stderr as `live-smoke: request <n> failed: <status> <type>: <message>`) or the pad check fails, and 2 on an unknown argument or a `--pad` that is not a non-negative integer.
 
+### Publishing
+
+```sh
+git tag vX.Y.Z master && git push origin vX.Y.Z
+```
+
+Releases are published to npm by `.github/workflows/publish.yml` with npm trusted publishing (OIDC): no npm token and no 2FA prompt, and npm attaches a provenance attestation to each version. Tag `vX.Y.Z` on master and push the tag. The workflow then runs, on Node 24 with npm 11.5.1 or later:
+
+1. `node scripts/check-release-tag.js vX.Y.Z`, which exits 1 with one stderr line unless the tag is exactly `v` + the package.json `version` and CHANGELOG.md has a heading line `## X.Y.Z` (alone or followed by a space, as in `## X.Y.Z — <date>`);
+2. `node scripts/run-tests.js`;
+3. `npm publish --access public`.
+
+Running the workflow by hand (`workflow_dispatch`) skips the tag check and runs `npm publish --access public --dry-run`, so nothing is published. npm refuses even a dry run of a version it already has, so the dry run fails until package.json's `version` is ahead of the one on npm.
+
+One-time setup on npmjs.com: package `clodent` → Settings → Trusted Publisher → GitHub Actions, user `avirtual`, repository `clodent`, workflow `publish.yml`, no environment.
+
 ## Contract
 
 This section is the contract a host integrates against. It describes clodent 0.7.0.
