@@ -19,7 +19,7 @@ function hookCommands(settings) {
   return [...commands, settings?.statusLine?.command].filter((command) => typeof command === 'string');
 }
 
-export function hookPaths(settings, { cwd, env = {}, home }) {
+export function hookPaths(settings, { cwd, env = {}, home }, keep = () => true) {
   const vars = { ...toolEnv({ ...env, ...settings?.env }, settings?.envDeny), CLODENT_PROJECT_DIR: cwd, PWD: cwd };
   const expand = (word) => {
     const match = LEADING_VAR.exec(word);
@@ -28,8 +28,7 @@ export function hookPaths(settings, { cwd, env = {}, home }) {
     return (name ? (vars[name] ?? '') : (vars.HOME ?? home)) + word.slice(match[0].length);
   };
   const words = hookCommands(settings).flatMap((command) => [...shellWords(command), ...rawWords(command)].map(expand));
-  const paths = (named) => [...new Set(words.filter((word) => word.includes('/') === named).map((word) => resolve(cwd, word)))];
-  return { named: paths(true), bare: paths(false) };
+  return [...new Set(words.filter(keep).map((word) => resolve(cwd, word)))];
 }
 
 const within = (path, dir) => path === dir || path.startsWith(dir.endsWith(sep) ? dir : dir + sep);
