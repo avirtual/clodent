@@ -25,6 +25,7 @@ test('no arguments yields the defaults', () => {
     appendSystemPrompt: [],
     appendSystemPromptFile: [],
     disallowedTools: [],
+    allowedTools: [],
   });
 });
 
@@ -64,6 +65,8 @@ const REPEATABLE = [
   ['--append-system-prompt-file', 'appendSystemPromptFile'],
   ['--disallowedTools', 'disallowedTools'],
   ['--disallowed-tools', 'disallowedTools'],
+  ['--allowedTools', 'allowedTools'],
+  ['--allowed-tools', 'allowedTools'],
 ];
 
 for (const [flag, key] of REPEATABLE) {
@@ -180,11 +183,11 @@ test('permission flags that resolve to different modes cannot be combined; flags
 test('the accepted-and-ignored flags parse, take their value, and keep none of it', () => {
   const opts = ok([
     '--plugin-dir', 'a', '--plugin-dir=b', '--agents', '{"x":{}}', '--mcp-config', 'm.json', '--mcp-config', 'n.json',
-    '--strict-mcp-config', '--allowedTools', 'Read Bash(git:*)', '--allowed-tools', 'Edit', '--dangerously-bypass-hook-trust', '-p', 'go',
+    '--strict-mcp-config', '--dangerously-bypass-hook-trust', '-p', 'go',
   ]);
   assert.deepEqual(
-    [opts.pluginDir, opts.agents, opts.mcpConfig, opts.strictMcpConfig, opts.allowedTools, opts.bypassHookTrust, opts.print],
-    [true, true, true, true, true, true, 'go'],
+    [opts.pluginDir, opts.agents, opts.mcpConfig, opts.strictMcpConfig, opts.bypassHookTrust, opts.print],
+    [true, true, true, true, true, 'go'],
   );
   assert.equal(err(['--agents', 'a', '--agents', 'b']), '--agents given more than once');
   assert.equal(err(['--strict-mcp-config=1']), '--strict-mcp-config takes no value');

@@ -35,9 +35,9 @@ test('the accepted-and-ignored flags warn once each on stderr: in -p right after
   const { home, cwd } = await setup(t);
   const argv = [
     '--plugin-dir', 'a', '--plugin-dir', 'b', '--agents', '{"r":{}}', '--mcp-config', 'm.json', '--mcp-config', 'n.json',
-    '--strict-mcp-config', '--allowed-tools', 'Read', '--allowedTools', 'Bash(git:*)', '--dangerously-bypass-hook-trust',
+    '--strict-mcp-config', '--dangerously-bypass-hook-trust',
   ];
-  const names = ['allowedTools', 'plugin-dir', 'agents', 'mcp-config', 'strict-mcp-config', 'dangerously-bypass-hook-trust'];
+  const names = ['plugin-dir', 'agents', 'mcp-config', 'strict-mcp-config', 'dangerously-bypass-hook-trust'];
   const warned = names.map((name) => `clodent: ignoring --${name}: not supported\n`).join('');
   const res = await runMain(['-p', 'go', ...argv], { home, cwd, responses: [textReply('ok')] });
   assert.equal(res.code, 0, res.stderr);

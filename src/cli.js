@@ -142,15 +142,25 @@ async function prepare(opts, deps) {
     return { code: 2 };
   };
   const { settings } = loaded;
-  let disallowed;
-  try {
-    disallowed = flagRules(opts.disallowedTools, { cwd, home: rulesHome });
-  } catch (err) {
-    if (!(err instanceof RuleError)) throw err;
-    return fail(`--disallowedTools: ${err.message}`);
-  }
-  const builtins = builtinDenies([join(home(deps), 'settings.json'), ...files], rulesHome);
-  const permissions = { deny: [...(settings.permissions?.deny ?? []), ...disallowed, ...builtins], ask: settings.permissions?.ask ?? [] };
+  const fromFlag = (key) => {
+    try {
+      return { rules: flagRules(opts[key], { cwd, home: rulesHome }) };
+    } catch (err) {
+      if (!(err instanceof RuleError)) throw err;
+      return { error: `--${key}: ${err.message}` };
+    }
+  };
+  const disallowed = fromFlag('disallowedTools');
+  if (disallowed.error) return fail(disallowed.error);
+  const allowed = fromFlag('allowedTools');
+  if (allowed.error) return fail(allowed.error);
+  const settingsFiles = [join(home(deps), 'settings.json'), ...files];
+  const builtins = builtinDenies(settingsFiles, rulesHome);
+  const permissions = {
+    deny: [...(settings.permissions?.deny ?? []), ...disallowed.rules, ...builtins],
+    ask: settings.permissions?.ask ?? [],
+    allow: [...(settings.permissions?.allow ?? []), ...allowed.rules],
+  };
   const env = { ...deps.env, ...settings.env };
   if (opts.print === '' && opts.inputFormat !== 'stream-json') return fail('-p needs a non-empty prompt');
   if (!env.ANTHROPIC_API_KEY) return fail('ANTHROPIC_API_KEY is not set');
@@ -159,6 +169,7 @@ async function prepare(opts, deps) {
   const { id: model, contextWindow } = modelChoice(opts.model ?? settings.model ?? DEFAULT_MODEL);
   const addDirs = extraDirs(opts, settings, cwd);
   const scope = { dirs: addDirs, protect: hookPaths(settings, { cwd, env, home: rulesHome }) };
+  const guarded = { protect: [...scope.protect, ...settingsFiles], home: rulesHome };
   let prompt;
   try {
     prompt = systemPrompt(opts, model, addDirs, deps, permissions);
@@ -185,6 +196,7 @@ async function prepare(opts, deps) {
     contextWindow,
     addDirs,
     scope,
+    guarded,
     system: prompt.text,
     instructionFiles: prompt.instructionFiles,
     readMaxTokens: readCap.tokens,
@@ -202,7 +214,7 @@ function createRuntime(prep, opts, deps, render) {
     { settings, env, cwd, version: version() },
     { ...procDeps, warn: (message) => render({ type: 'warning', message }) },
   );
-  const guard = createGuard(permissions, { env: toolEnv(env, settings.envDeny ?? []) });
+  const guard = createGuard(permissions, { env: toolEnv(env, settings.envDeny ?? []), ...prep.guarded });
   const builtins = createTools({ ...procDeps, envDeny: settings.envDeny ?? [], readMaxTokens: prep.readMaxTokens });
   const tools = builtins.filter((tool) => !guard.removes(tool.name));
   const current = { model: prep.model, contextWindow: prep.contextWindow, system: prep.system, instructionFiles: prep.instructionFiles };

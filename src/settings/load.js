@@ -130,6 +130,7 @@ function mergeGuard(acc, source, where, warn) {
     if (!isObject(source.permissions)) throw new RuleError('permissions is not an object');
     acc.deny.push(...parseRules(source.permissions.deny, 'permissions.deny', where));
     acc.ask.push(...parseRules(source.permissions.ask, 'permissions.ask', where));
+    acc.allow.push(...parseRules(source.permissions.allow, 'permissions.allow', where));
   }
   const sandbox = sandboxGuard(source.sandbox, where, warn);
   acc.deny.push(...sandbox.deny);
@@ -193,7 +194,7 @@ export async function loadSettings({ clodentHome, files = [], cwd = process.cwd(
   const sources = [];
   if (clodentHome) sources.push({ path: join(clodentHome, 'settings.json'), optional: true });
   for (const path of files) sources.push({ path, optional: false });
-  const acc = { hooks: new Map(), statusLine: null, env: new Map(), extraDirs: new Set(), effortLevel: null, cacheTtl: null, model: null, compactReloadFiles: null, hookContextMaxBytes: null, deny: [], ask: [], envDeny: new Set() };
+  const acc = { hooks: new Map(), statusLine: null, env: new Map(), extraDirs: new Set(), effortLevel: null, cacheTtl: null, model: null, compactReloadFiles: null, hookContextMaxBytes: null, deny: [], ask: [], allow: [], envDeny: new Set() };
   const warnings = [];
   for (const { path, optional } of sources) {
     const source = await readSource(path, optional, readFile);
@@ -220,7 +221,7 @@ export async function loadSettings({ clodentHome, files = [], cwd = process.cwd(
   if (acc.model) settings.model = acc.model;
   if (acc.compactReloadFiles !== null) settings.compactReloadFiles = acc.compactReloadFiles;
   if (acc.hookContextMaxBytes !== null) settings.hookContextMaxBytes = acc.hookContextMaxBytes;
-  if (acc.deny.length > 0 || acc.ask.length > 0) settings.permissions = { deny: acc.deny, ask: acc.ask };
+  if (acc.deny.length > 0 || acc.ask.length > 0 || acc.allow.length > 0) settings.permissions = { deny: acc.deny, ask: acc.ask, allow: acc.allow };
   if (acc.envDeny.size > 0) settings.envDeny = [...acc.envDeny];
   return { settings, warnings };
 }

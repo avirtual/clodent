@@ -1,5 +1,5 @@
 import { homedir as osHomedir } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, sep } from 'node:path';
 import { isClodexToolName } from '../tools/clodex.js';
 
 export const CLODENT_TOOLS = Object.freeze(['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob']);
@@ -13,6 +13,8 @@ const PATH_RULES = {
   Grep: { tools: ['Grep'], bash: null },
   Glob: { tools: ['Glob'], bash: null },
 };
+
+const PROTECTED_PARTS = Object.freeze(['.git', '.clodent', '.claude']);
 
 const RUN = `[^\\s'"]*`;
 const MENTION_END = '(?=$|[\\s\'"`;|&<>)/])';
@@ -127,6 +129,18 @@ export function parseRule(text, where) {
 function pathRule(text, tool, pattern, home) {
   const { tools, bash } = PATH_RULES[tool];
   return { text, kind: 'path', tool, tools, bash, pattern, home, regex: pathRegExp(pattern), mention: mentionRegExp(pattern, home) };
+}
+
+const pathKey = (path) => path.normalize('NFC').toLowerCase();
+
+export function isProtected(path, files = []) {
+  if (path.split(sep).some((part) => PROTECTED_PARTS.includes(part.toLowerCase()))) return true;
+  return files.some((file) => pathKey(file) === pathKey(path));
+}
+
+export function protectedRules(files, home) {
+  const patterns = [...PROTECTED_PARTS.map((part) => `/**/${part}`), ...files];
+  return patterns.map((pattern) => pathRule(`Edit(/${pattern})`, 'Edit', pattern, home));
 }
 
 const PROC_ENVIRON = ['/proc/*/environ', '/proc/*/task/*/environ'];

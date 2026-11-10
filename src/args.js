@@ -33,7 +33,7 @@ export const FLAGS = [
   { long: 'system-prompt-file', key: 'systemPromptFile', arg: 'path', help: 'replace the base system prompt with this file' },
   { long: 'append-system-prompt', key: 'appendSystemPrompt', arg: 'text', allowEmpty: true, repeat: true, help: 'append this text to the system prompt (repeatable)' },
   { long: 'append-system-prompt-file', key: 'appendSystemPromptFile', arg: 'path', repeat: true, help: "append this file's contents to the system prompt (repeatable)" },
-  { long: 'allowedTools', alias: 'allowed-tools', key: 'allowedTools', arg: 'list', repeat: true, ignored: true, help: 'accepted and ignored' },
+  { long: 'allowedTools', alias: 'allowed-tools', key: 'allowedTools', arg: 'list', repeat: true, help: 'run these tools or permission rules without asking, separated by commas or spaces (repeatable)' },
   { long: 'plugin-dir', key: 'pluginDir', arg: 'dir', repeat: true, ignored: true, help: 'accepted and ignored' },
   { long: 'agents', key: 'agents', arg: 'json', ignored: true, help: 'accepted and ignored' },
   { long: 'mcp-config', key: 'mcpConfig', arg: 'path', repeat: true, ignored: true, help: 'accepted and ignored' },
@@ -129,7 +129,7 @@ function formatError(opts, seen) {
 }
 
 export function parseArgs(argv) {
-  const opts = { permission: 'ask', settings: [], addDirs: [], appendSystemPrompt: [], appendSystemPromptFile: [], disallowedTools: [] };
+  const opts = { permission: 'ask', settings: [], addDirs: [], appendSystemPrompt: [], appendSystemPromptFile: [], disallowedTools: [], allowedTools: [] };
   const seen = new Set();
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
