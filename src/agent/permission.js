@@ -1,5 +1,6 @@
 import { resolve, sep } from 'node:path';
 import { rawWords, shellWords } from '../permissions/guard.js';
+import { isProtected } from '../permissions/rules.js';
 import { classifyBash } from '../tools/bash-readonly.js';
 import { toolEnv } from '../tools/env.js';
 
@@ -7,7 +8,6 @@ const ALLOW = Object.freeze({ allow: true });
 export const ASK_DENIAL = 'permission required: run clodent without -p to approve it, or pass --yolo';
 
 const MODES = new Set(['ask', 'read-only', 'accept-edits']);
-const PROTECTED_PARTS = new Set(['.git', '.clodent', '.claude']);
 const LEADING_VAR = /^(?:~(?=\/|$)|\$(HOME|CLODENT_PROJECT_DIR|CLAUDE_PROJECT_DIR|PWD)(?![A-Za-z0-9_])|\$\{(HOME|CLODENT_PROJECT_DIR|CLAUDE_PROJECT_DIR|PWD)\})/;
 
 export function asksInMode(mode) {
@@ -31,16 +31,13 @@ export function hookPaths(settings, { cwd, env = {}, home }) {
   return [...new Set(words.map((word) => resolve(cwd, word)))];
 }
 
-const pathKey = (path) => path.normalize('NFC').toLowerCase();
-
 const within = (path, dir) => path === dir || path.startsWith(dir.endsWith(sep) ? dir : dir + sep);
 
 function editsFreely(input, cwd, scope) {
   const file = input?.file_path;
   if (typeof file !== 'string' || typeof cwd !== 'string') return false;
   const path = resolve(cwd, file);
-  if (path.split(sep).some((part) => PROTECTED_PARTS.has(part.toLowerCase()))) return false;
-  if ((scope?.protect ?? []).some((hook) => pathKey(hook) === pathKey(path))) return false;
+  if (isProtected(path, scope?.protect)) return false;
   return [cwd, ...(scope?.dirs ?? [])].some((dir) => within(path, resolve(cwd, dir)));
 }
 

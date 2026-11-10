@@ -1,10 +1,14 @@
 import { lstat as fsLstat, readdir as fsReaddir, realpath as fsRealpath } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve } from 'node:path';
-import { classifyBash, searchesTree } from '../tools/bash-readonly.js';
-import { CLODENT_TOOLS, mentionRegExp, pathRegExp, splitPattern } from './rules.js';
+import { classifyBash, redirectsOutput, searchesTree } from '../tools/bash-readonly.js';
+import { CLODENT_TOOLS, isProtected, mentionRegExp, pathRegExp, protectedRules, ruleHome, splitPattern } from './rules.js';
 
 const PATH_FIELDS = { Read: 'file_path', Edit: 'file_path', Write: 'file_path', Grep: 'path', Glob: 'path' };
 const LISTING_TOOLS = new Set(['Grep', 'Glob']);
+const ALLOWED_TOOLS = { Read: ['Read', 'Grep', 'Glob'], Edit: ['Edit', 'Write'], Write: ['Write'], Grep: ['Grep'], Glob: ['Glob'] };
+const SUBSTITUTION = /`|[$<>](?:\\\n)*\(/;
+const DIR_CHANGES = new Set(['cd', 'pushd', 'popd']);
+const ABSENT = new Set(['ENOENT', 'ENOTDIR']);
 const DATA_VOLUME = '/System/Volumes/Data';
 
 export const OPEN_GUARD = Object.freeze({
@@ -27,13 +31,14 @@ export function denialReason(rule, uncertain = false) {
 
 export const uncertainDecision = (list, mode, kind = 'strong') => (list === 'deny' && mode === 'yolo' && kind === 'strong' ? 'deny' : 'ask');
 
-async function realpathDeep(path, realpath) {
+async function realpathDeep(path, realpath, missed = []) {
   const rest = [];
   let head = path;
   for (;;) {
     try {
       return join(await realpath(head), ...rest);
     } catch {
+      missed.push(head);
       const parent = dirname(head);
       if (parent === head) return path;
       rest.unshift(basename(head));
@@ -805,6 +810,21 @@ function looseMatch(rules, reaches, forms, readOnly, strong) {
   return null;
 }
 
+function bashAllowed(rules, command, cwd) {
+  const pieces = simpleCommands(command);
+  const raw = rawCommands(command);
+  if (SUBSTITUTION.test(command) || pieces.length === 0 || pieces.length !== raw.length) return null;
+  if (pieces.some((piece, i) => piece.replace(RAW_UNQUOTE, '').trim() !== raw[i])) return null;
+  const dir = shellWords(command).some((word) => DIR_CHANGES.has(word)) ? '/' : cwd;
+  let granted = null;
+  for (const piece of pieces) {
+    const rule = rules.find((one) => one.kind === 'bash' && one.test(piece));
+    if (!(rule && !redirectsOutput(piece)) && !classifyBash(piece, dir).readOnly) return null;
+    granted ??= rule ?? null;
+  }
+  return granted;
+}
+
 const prefixOf = (pattern) => splitPattern(pattern).prefix.split('/').filter((segment) => segment !== '');
 const formOf = (regex, mention, pattern) => ({ regex, mention, word: new RegExp(regex.source, 'i'), prefix: prefixOf(pattern) });
 const patternForm = (pattern, home) => formOf(pathRegExp(pattern), mentionRegExp(pattern, home), pattern);
@@ -830,7 +850,7 @@ async function resolveForms(rules, realpath, platform) {
   return forms;
 }
 
-export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
+export function createGuard({ deny = [], ask = [], allow = [] } = {}, deps = {}) {
   const realpath = deps.realpath ?? fsRealpath;
   const lstat = deps.lstat ?? fsLstat;
   const platform = deps.platform ?? process.platform;
@@ -839,8 +859,10 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
     ['deny', deny],
     ['ask', ask],
   ];
+  let shields;
   let forms;
-  const formsOf = () => (forms ??= resolveForms([...deny, ...ask], realpath, platform));
+  const shieldsOf = () => (shields ??= protectionOf(deps.protect ?? []));
+  const formsOf = () => (forms ??= shieldsOf().then(({ rules }) => resolveForms([...deny, ...ask, ...allow, ...rules], realpath, platform)));
   const spellings = (path) =>
     platform === 'darwin' && path.startsWith(`${DATA_VOLUME}/`) ? [path, path.slice(DATA_VOLUME.length)] : [path];
 
@@ -848,26 +870,37 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
     const value = input?.[PATH_FIELDS[tool]] ?? (LISTING_TOOLS.has(tool) ? '.' : undefined);
     if (typeof value !== 'string') return null;
     const lexical = resolve(cwd, value);
-    return { lexical, real: await realpathDeep(lexical, realpath) };
+    const missed = [];
+    const real = await realpathDeep(lexical, realpath, missed);
+    const present = (path) => lstat(path).then(() => true, (err) => !ABSENT.has(err?.code));
+    return { lexical, real, unresolved: allow.length > 0 && (await Promise.all(missed.map(present))).some(Boolean) };
   }
 
   const rootPaths = (root) => (root ? [...spellings(root.lexical), ...spellings(root.real)] : []);
 
-  async function reachesOf(command, cwd) {
+  async function protectionOf(protect) {
+    if (allow.length === 0) return { rules: [], files: [] };
+    const files = [...new Set([...protect, ...(await Promise.all(protect.map((file) => realpathDeep(file, realpath))))])];
+    const kept = await Promise.all(files.map((file) => lstat(file).then((entry) => !entry.isDirectory(), () => false)));
+    return { rules: protectedRules(files.filter((file, i) => kept[i]), deps.home ?? ruleHome(deps.env)), files };
+  }
+
+  async function reachesOf(command, cwd, guarded) {
     const reaches = new Map();
     const listed = new Map();
     const list = (dir) => {
       if (!listed.has(dir)) listed.set(dir, (async () => readdir(dir))().then((names) => names.map(String), () => []));
       return listed.get(dir);
     };
-    for (const rule of [...deny, ...ask]) {
+    for (const rule of guarded) {
       if (rule.kind !== 'path' || rule.bash === null || reaches.has(rule.home)) continue;
       reaches.set(rule.home, await reachOf(command, cwd, { home: rule.home, env: deps.env, list }));
     }
     return reaches;
   }
 
-  function verdict(tool, input, cwd, paths, ruleForms, reaches, mode) {
+  function verdict(tool, input, cwd, root, ruleForms, reaches, mode, shield) {
+    const paths = rootPaths(root);
     const bare = (rules) => rules.find((rule) => rule.kind === 'tool' && rule.tool === tool);
     let match;
     let readOnly;
@@ -883,17 +916,41 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
     } else {
       match = bare;
     }
-    for (const [decision, rules] of lists) {
+    const hit = (rules) => {
       const rule = match(rules);
-      if (rule) return { decision, rule };
+      if (rule) return { rule };
       const raw = unsure(rules);
-      if (raw) return { decision: uncertainDecision(decision, mode), rule: raw, uncertain: true };
+      if (raw) return { kind: 'strong', rule: raw, uncertain: true };
       for (const kind of reaches ? ['strong', 'weak'] : []) {
         const loose = looseMatch(rules, reaches, ruleForms, readOnly, kind === 'strong');
-        if (loose) return { decision: uncertainDecision(decision, mode, kind), ...loose };
+        if (loose) return { kind, ...loose };
       }
+      return null;
+    };
+    for (const [decision, rules] of lists) {
+      const found = hit(rules);
+      if (!found) continue;
+      const { kind, ...rest } = found;
+      return { decision: kind ? uncertainDecision(decision, mode, kind) : decision, ...rest };
     }
-    return null;
+    const rule = allow.length > 0 ? allowedBy(tool, input, cwd, root, ruleForms, () => hit(shield.rules), shield.files) : null;
+    return rule ? { decision: 'allow', rule } : null;
+  }
+
+  // A deny or ask rule matches when either the lexical or the real path does, or when a command only may name it;
+  // an allow rule needs both paths and every command, so whatever is uncertain falls back to asking.
+  function allowedBy(tool, input, cwd, root, ruleForms, shielded, files) {
+    const bare = allow.find((rule) => rule.kind === 'tool' && rule.tool === tool);
+    if (tool === 'Bash') {
+      const command = input?.command;
+      if (typeof command !== 'string') return null;
+      const rule = bare ?? bashAllowed(allow, command, cwd);
+      return rule && !shielded() ? rule : null;
+    }
+    if (!Object.hasOwn(PATH_FIELDS, tool)) return bare ?? null;
+    if (!root || root.unresolved || rootPaths(root).some((path) => isProtected(path, files))) return null;
+    const both = (rule) => [root.lexical, root.real].every((path) => matchesPaths(rule, spellings(path), ruleForms));
+    return bare ?? allow.find((rule) => rule.kind === 'path' && ALLOWED_TOOLS[rule.tool].includes(tool) && both(rule)) ?? null;
   }
 
   function listingFilter(root, rules, ruleForms) {
@@ -915,10 +972,11 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
 
   async function screen(tool, input, cwd, mode) {
     const ruleForms = await formsOf();
+    const shield = await shieldsOf();
     const root = await rootOf(tool, input, cwd);
     const paths = rootPaths(root);
-    const reaches = tool === 'Bash' && typeof input?.command === 'string' ? await reachesOf(input.command, cwd) : null;
-    const ruled = verdict(tool, input, cwd, paths, ruleForms, reaches, mode);
+    const reaches = tool === 'Bash' && typeof input?.command === 'string' ? await reachesOf(input.command, cwd, [...deny, ...ask, ...shield.rules]) : null;
+    const ruled = verdict(tool, input, cwd, root, ruleForms, reaches, mode, shield);
     if (!LISTING_TOOLS.has(tool)) return { ruled, hidden: null, approved: null };
     const rules = (mode === 'yolo' ? deny : [...deny, ...ask]).filter((rule) => rule.kind === 'path' && rule.tools.includes(tool));
     const hidden = listingFilter(root, rules, ruleForms);
@@ -928,7 +986,7 @@ export function createGuard({ deny = [], ask = [] } = {}, deps = {}) {
   }
 
   return {
-    active: deny.length > 0 || ask.length > 0,
+    active: deny.length > 0 || ask.length > 0 || allow.length > 0,
     removes: (tool) => removedBy(deny, tool),
     check: async (tool, input, cwd) => (await screen(tool, input, cwd)).ruled,
     screen,
