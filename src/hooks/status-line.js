@@ -1,7 +1,7 @@
 import { CRED_ENV } from '../tools/clodex.js';
 import { toolEnv } from '../tools/env.js';
 import { commandLabel, failureOf, runCommand } from './command.js';
-import { contextWindowFor } from './context-window.js';
+import { CONTEXT_WINDOW } from './context-window.js';
 
 export const STATUS_LINE_TIMEOUT_MS = 5000;
 
@@ -15,7 +15,7 @@ export function usedPercentage(usedTokens, windowSize) {
 }
 
 export function statusLineInput(state, ctx) {
-  const size = contextWindowFor(state.modelId);
+  const size = state.contextWindow ?? CONTEXT_WINDOW.default;
   const used = state.usedTokens ?? 0;
   return {
     session_id: state.sessionId,

@@ -415,7 +415,7 @@ test('three mid-stream overloaded errors in a row emit the API message and end n
   const h = harness([{ body: 'error-mid-stream.sse' }, { body: 'error-mid-stream.sse' }, { body: 'error-mid-stream.sse' }]);
   assert.deepEqual(await h.agent.runTurn('go'), { stopReason: 'error', ok: false });
   assert.deepEqual(h.sleeps, [2000, 4000]);
-  assert.deepEqual(h.of('error'), [{ type: 'error', message: 'Overloaded', errorType: 'overloaded_error', status: null }]);
+  assert.deepEqual(h.of('error'), [{ type: 'error', message: 'Overloaded', errorType: 'overloaded_error', status: null, apiError: { status: null, type: 'overloaded_error', message: 'Overloaded', request_id: null }, contextWindowExceeded: false }]);
   assert.equal(h.of('turn_end').length, 1);
 });
 
@@ -426,10 +426,10 @@ test('a mid-stream api_error retries; other mid-stream and HTTP errors do not', 
   const bad = harness([{ body: head + sseError('invalid_request_error', 'bad thing') }]);
   assert.equal((await bad.agent.runTurn('go')).ok, false);
   assert.deepEqual(bad.sleeps, []);
-  assert.deepEqual(bad.of('error')[0], { type: 'error', message: 'bad thing', errorType: 'invalid_request_error', status: null });
+  assert.deepEqual(bad.of('error')[0], { type: 'error', message: 'bad thing', errorType: 'invalid_request_error', status: null, apiError: { status: null, type: 'invalid_request_error', message: 'bad thing', request_id: null }, contextWindowExceeded: false });
   const http = harness([{ status: 400, body: JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'credit balance is too low' } }) }]);
   assert.equal((await http.agent.runTurn('go')).ok, false);
-  assert.deepEqual(http.of('error')[0], { type: 'error', message: 'credit balance is too low', errorType: 'invalid_request_error', status: 400 });
+  assert.deepEqual(http.of('error')[0], { type: 'error', message: 'credit balance is too low', errorType: 'invalid_request_error', status: 400, apiError: { status: 400, type: 'invalid_request_error', message: 'credit balance is too low', request_id: null }, contextWindowExceeded: false });
   assert.deepEqual(http.agent.messages(), [{ role: 'user', content: [{ type: 'text', text: 'go' }] }]);
 });
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FLAGS, givenFlags, parseArgs } from '../src/args.js';
+import { FLAGS, givenFlags, modelChoice, parseArgs } from '../src/args.js';
 
 const UUID = '123e4567-e89b-42d3-a456-426614174000';
 
@@ -37,9 +37,7 @@ const VALUE_FLAGS = [
   ['--effort', 'effort', 'high', 'high'],
   ['--effort', 'effort', 'xhigh', 'xhigh'],
   ['--effort', 'effort', 'max', 'max'],
-  ['--model', 'model', 'claude-haiku-5-5[1m]', 'claude-haiku-5-5'],
-  ['--model', 'model', 'claude-opus-5-5[1m][2m]', 'claude-opus-5-5[1m]'],
-  ['--model', 'model', '[1m]', '[1m]'],
+  ['--model', 'model', 'claude-haiku-5-5[1m]', 'claude-haiku-5-5[1m]'],
   ['--cache-ttl', 'cacheTtl', '5m', '5m'],
   ['--cache-ttl', 'cacheTtl', '1h', '1h'],
   ['--budget', 'budgetUsd', '2.5', 2.5],
@@ -75,6 +73,19 @@ for (const [flag, key] of REPEATABLE) {
     assert.deepEqual(ok([flag, 'a', `${flag}=b`, flag, 'c'])[key], ['a', 'b', 'c']);
   });
 }
+
+test('modelChoice drops one trailing [suffix] from the id and gives 1000000 only for a dropped [1m]', () => {
+  const rows = [
+    ['claude-haiku-5-5[1m]', 'claude-haiku-5-5', 1000000],
+    ['claude-sonnet-5-5[1M]', 'claude-sonnet-5-5', 1000000],
+    ['claude-opus-5-5[1m][2m]', 'claude-opus-5-5[1m]', 200000],
+    ['claude-opus-5-5[2m][1m]', 'claude-opus-5-5[2m]', 1000000],
+    ['claude-opus-5-5[2m]', 'claude-opus-5-5', 200000],
+    ['claude-opus-5-5', 'claude-opus-5-5', 200000],
+    ['[1m]', '[1m]', 200000],
+  ];
+  for (const [raw, id, contextWindow] of rows) assert.deepEqual(modelChoice(raw), { id, contextWindow }, raw);
+});
 
 test('the = form keeps everything after the first = and allows an empty value', () => {
   assert.equal(ok(['--print=a=b']).print, 'a=b');

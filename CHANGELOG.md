@@ -4,7 +4,14 @@ clodent was named clay up to 0.2.0.
 
 ## Unreleased
 
+## 0.7.0 — 2026-11-10
+
 - README documents how Clodex delivers skills to a clodent seat (a `# Clodex skills` block in the appended system prompt, read with `Read`).
+- A model given with a `[1m]` suffix (`--model`, the settings `model`, `/model`) reports a 1,000,000-token context window in the statusLine `context_window_size` and `used_percentage` and in the new stream `init` field `context_window_size`; any other model reports 200,000. The suffix is still dropped from the request.
+- A turn that ends in an API error writes `api_error` (`status`, `type`, `message`, `request_id`) on its stream `result`, plus `context_window_exceeded: true` when the API answered "prompt is too long"; the REPL and print mode then print a line pointing at `/compact` or `/clear`, or at a new session.
+- `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS` caps the `Read` tool: a result over that many tokens (UTF-8 bytes / 4) is an error asking for `offset` and `limit`, and the `/compact` reload skips such a file; an invalid value warns once at startup.
+- The stream `init` record lists the included AGENTS.md files as `instruction_files`, and clodent warns once at startup when a `CLAUDE.md` sits where it looks for AGENTS.md and no AGENTS.md was loaded.
+- Every stream `result` carries `unpriced_models`, the session's model ids with no price, once there is one.
 
 ## 0.6.1 — 2026-11-06
 

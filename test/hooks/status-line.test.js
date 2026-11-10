@@ -5,9 +5,8 @@ import { EventEmitter } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { createStatusLine, usedPercentage } from '../../src/hooks/status-line.js';
+import { createStatusLine, statusLineInput, usedPercentage } from '../../src/hooks/status-line.js';
 import { CONTEXT_WINDOW, contextWindowFor } from '../../src/hooks/context-window.js';
-import { PRICES } from '../../src/cost/prices.js';
 import { cleanEnv, useTempDir } from '../tools/tmp-dir.js';
 import { script, settingsWith } from './scripts.js';
 
@@ -33,12 +32,18 @@ async function statusLineIn(t, body) {
   return { dir, command, line, warnings, runs };
 }
 
-test('every context window row is 200000 and every priced model has one', () => {
-  assert.equal(CONTEXT_WINDOW.default, 200000);
-  for (const id of Object.keys(PRICES)) assert.equal(CONTEXT_WINDOW[id], 200000, id);
-  assert.equal(contextWindowFor('claude-opus-5-5'), 200000);
-  assert.equal(contextWindowFor('claude-unknown'), 200000);
-  assert.equal(contextWindowFor('constructor'), 200000);
+test('only a dropped [1m] suffix, in any case, gives the 1000000 window; anything else is 200000', () => {
+  assert.deepEqual(CONTEXT_WINDOW, { default: 200000, large: 1000000 });
+  assert.equal(contextWindowFor('[1m]'), 1000000);
+  assert.equal(contextWindowFor('[1M]'), 1000000);
+  for (const suffix of [undefined, null, '[2m]', '[1m ]', '[]', '1m', 'constructor']) assert.equal(contextWindowFor(suffix), 200000, String(suffix));
+});
+
+test('statusLine context_window_size and used_percentage follow the session window', () => {
+  const big = statusLineInput({ ...state(1), usedTokens: 250000, contextWindow: 1000000 }, { cwd: '/w', version: '0' });
+  assert.deepEqual([big.context_window.context_window_size, big.context_window.used_percentage], [1000000, 25]);
+  const small = statusLineInput({ ...state(1), usedTokens: 250000, contextWindow: 200000 }, { cwd: '/w', version: '0' });
+  assert.deepEqual([small.context_window.context_window_size, small.context_window.used_percentage], [200000, 100]);
 });
 
 test('usedPercentage is 0 to 100 with at most one decimal', () => {

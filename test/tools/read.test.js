@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createRead } from '../../src/tools/read.js';
+import { createRead, readTokenCap } from '../../src/tools/read.js';
 import { ctxFor, useTempDir } from './tmp-dir.js';
 
 const read = createRead();
@@ -97,4 +97,27 @@ test('a non-string file_path is an error, not a throw', async (t) => {
   const dir = await useTempDir(t);
   const result = await read.run({ file_path: 42 }, ctxFor(dir));
   assert.deepEqual(result, { content: 'file_path must be a string', isError: true });
+});
+
+test('with a token cap, a result over ceil(bytes / 4) tokens is an error and one at the cap is returned', async (t) => {
+  const dir = await useTempDir(t);
+  await writeFile(join(dir, 'f.txt'), 'one\ntwo\n');
+  const over = await createRead({ readMaxTokens: 5 }).run({ file_path: join(dir, 'f.txt') }, ctxFor(dir));
+  assert.deepEqual(over, {
+    content: 'File content (~6 tokens) exceeds the Read limit of 5 tokens (CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS); read part of it with offset and limit',
+    isError: true,
+  });
+  const under = await createRead({ readMaxTokens: 6 }).run({ file_path: join(dir, 'f.txt') }, ctxFor(dir));
+  assert.deepEqual(under, { content: '     1\tone\n     2\ttwo', isError: false });
+});
+
+test('readTokenCap takes a positive integer; any other value warns and leaves the cap off; unset is off', () => {
+  assert.deepEqual(readTokenCap({ CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS: '25000' }), { tokens: 25000, warning: null });
+  assert.deepEqual(readTokenCap({}), { tokens: null, warning: null });
+  for (const raw of ['0', '-1', '1.5', '1e3', ' 5', 'abc', '', '99999999999999999999']) {
+    assert.deepEqual(readTokenCap({ CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS: raw }), {
+      tokens: null,
+      warning: `ignoring CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS=${raw}: not a positive integer`,
+    }, raw);
+  }
 });

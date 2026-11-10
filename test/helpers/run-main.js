@@ -10,7 +10,7 @@ const SESSION_LINE = /^\[clodent:session\] ([0-9a-f-]{36})$/;
 export function testEnv(extra = {}) {
   const env = cleanEnv();
   for (const key of Object.keys(env)) {
-    if (key.startsWith('ANTHROPIC_') || key.startsWith('CLODENT_')) delete env[key];
+    if (key.startsWith('ANTHROPIC_') || key.startsWith('CLODENT_') || key === 'CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS') delete env[key];
   }
   return { ...env, ...extra };
 }

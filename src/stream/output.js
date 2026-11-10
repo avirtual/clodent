@@ -30,7 +30,7 @@ function assistantMessage(message) {
 }
 
 export function createStreamOutput(ctx, deps) {
-  const { out, now, totalUsd } = deps;
+  const { out, now, totalUsd, unpriced } = deps;
   const uuid = deps.uuid ?? randomUUID;
   let started = { model: null, cwd: null, tools: [], permission: null };
   let turn = null;
@@ -44,7 +44,8 @@ export function createStreamOutput(ctx, deps) {
     line({ type, message: body, parent_tool_use_id: null, session_id: sessionId(), uuid: uuid() });
   }
 
-  function result({ isError, text, subtype = isError ? 'error_during_execution' : 'success', stopReason = null, durationMs = 0, apiMs = 0, requests = 0, tokens = NO_TOKENS }) {
+  function result({ isError, text, subtype = isError ? 'error_during_execution' : 'success', stopReason = null, durationMs = 0, apiMs = 0, requests = 0, tokens = NO_TOKENS, apiError = null, tooLong = false }) {
+    const models = unpriced();
     line({
       type: 'result',
       subtype,
@@ -58,6 +59,9 @@ export function createStreamOutput(ctx, deps) {
       total_cost_usd: totalUsd(),
       usage: apiUsage(tokens),
       permission_denials: [],
+      ...(apiError ? { api_error: apiError } : {}),
+      ...(tooLong ? { context_window_exceeded: true } : {}),
+      ...(models.length > 0 ? { unpriced_models: models } : {}),
       uuid: uuid(),
     });
   }
@@ -87,8 +91,11 @@ export function createStreamOutput(ctx, deps) {
     interrupted() {
       message('user', { role: 'user', content: [{ type: 'text', text: INTERRUPT_TEXT }] });
     },
-    error({ message: text }) {
-      if (turn) turn.error = text;
+    error({ message: text, apiError, contextWindowExceeded }) {
+      if (!turn) return;
+      turn.error = text;
+      turn.apiError = apiError ?? null;
+      turn.tooLong = contextWindowExceeded === true;
     },
     compacted({ trigger, preTokens, postTokens }) {
       line({
@@ -122,12 +129,14 @@ export function createStreamOutput(ctx, deps) {
         apiMs: Math.round(current.apiMs),
         requests: current.responses,
         tokens: spent.tokens,
+        apiError: stopReason === 'error' ? current.apiError : null,
+        tooLong: stopReason === 'error' && current.tooLong,
       });
     },
   };
 
   function fresh() {
-    return { startedAt: now(), apiMs: 0, responses: 0, finalText: '', streamed: '', error: null };
+    return { startedAt: now(), apiMs: 0, responses: 0, finalText: '', streamed: '', error: null, apiError: null, tooLong: false };
   }
 
   return {
@@ -146,6 +155,8 @@ export function createStreamOutput(ctx, deps) {
         slash_commands: [...COMMAND_NAMES],
         apiKeySource: 'ANTHROPIC_API_KEY',
         clodent_version: ctx.version,
+        context_window_size: ctx.contextWindow(),
+        instruction_files: ctx.instructionFiles(),
         uuid: uuid(),
       });
       for (const record of held ?? []) line(record);

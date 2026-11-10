@@ -23,6 +23,11 @@ function messageText(message) {
     .join('');
 }
 
+export const TOO_LONG_HINTS = Object.freeze({
+  repl: "clodent: the conversation is larger than the model's context window; use /compact or /clear",
+  print: "clodent: the conversation is larger than the model's context window; start a new session",
+});
+
 export function createRenderer({ out, err, mode }) {
   const repl = mode === 'repl';
   const info = repl ? out : err;
@@ -86,8 +91,9 @@ export function createRenderer({ out, err, mode }) {
     warning({ message }) {
       line(`clodent: ${message}`, 'yellow');
     },
-    error({ message }) {
+    error({ message, contextWindowExceeded }) {
       line(`clodent: ${message}`, 'red');
+      if (contextWindowExceeded) line(repl ? TOO_LONG_HINTS.repl : TOO_LONG_HINTS.print, 'red');
     },
     budget_stop({ result }) {
       line(formatBudgetStop(result), 'yellow');

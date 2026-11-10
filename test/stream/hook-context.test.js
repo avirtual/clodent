@@ -72,7 +72,7 @@ test('a 100 KiB Stop context is not cut, so result stays the last stdout record'
 
 test('a warning without hookContext writes nothing on stdout', () => {
   const lines = [];
-  const output = createStreamOutput({ version: '0', sessionId: () => 'sid' }, { out: { write: (text) => lines.push(text) }, now: () => 0, uuid: () => 'u', totalUsd: () => 0 });
+  const output = createStreamOutput({ version: '0', sessionId: () => 'sid', contextWindow: () => 200000, instructionFiles: () => [] }, { out: { write: (text) => lines.push(text) }, now: () => 0, uuid: () => 'u', totalUsd: () => 0, unpriced: () => [] });
   output.init();
   output.event({ type: 'warning', message: 'plain' });
   output.event({ type: 'warning', message: 'cut', hookContext: { event: 'PostToolUse', scope: 'event', bytes: 300000, limit: 262144 } });

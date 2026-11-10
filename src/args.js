@@ -1,9 +1,10 @@
 import { CACHE_TTLS, EFFORTS } from './api/request.js';
+import { contextWindowFor } from './hooks/context-window.js';
 
 export const DEFAULT_MODEL = 'claude-opus-5-5';
 export const PERMISSION_MODE_NAMES = Object.freeze({ default: 'ask', plan: 'read-only', acceptEdits: 'accept-edits', bypassPermissions: 'yolo' });
 
-const MODEL_SUFFIX = /^(.+)\[[^[\]]*\]$/;
+const MODEL_SUFFIX = /^(.+)(\[[^[\]]*\])$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FORMATS = ['text', 'stream-json'];
 const DECIMAL = /^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
@@ -14,7 +15,7 @@ export const FLAGS = [
   { long: 'output-format', key: 'outputFormat', arg: 'format', check: checkFormat('--output-format'), help: 'with -p: text (the final answer) or stream-json (JSON lines on stdout)' },
   { long: 'verbose', key: 'verbose', value: true, help: 'accepted; no effect' },
   { long: 'permission-prompt-tool', key: 'permissionPromptTool', arg: 'name', check: checkPromptTool, help: 'stdio: ask permission over stdin and stdout (needs --input-format stream-json)' },
-  { long: 'model', key: 'model', arg: 'id', check: checkModel, help: `model id (default ${DEFAULT_MODEL}); a trailing [suffix] such as [1m] is dropped` },
+  { long: 'model', key: 'model', arg: 'id', help: `model id (default ${DEFAULT_MODEL}); a trailing [suffix] is dropped, and [1m] sets the reported context window to 1000000 (else 200000)` },
   { long: 'effort', key: 'effort', arg: 'level', check: checkEffort, help: 'reasoning effort: low, medium, high, xhigh or max' },
   { long: 'cache-ttl', key: 'cacheTtl', arg: 'ttl', check: checkCacheTtl, help: 'prompt-cache lifetime for the system prompt, tools and settled history: 5m (default) or 1h' },
   { long: 'budget', key: 'budgetUsd', arg: 'usd', check: checkBudget, help: 'stop before the session spends more than this many US dollars' },
@@ -46,12 +47,9 @@ const BY_LONG = new Map(FLAGS.flatMap((flag) => [flag.long, ...(flag.alias ? [fl
 const BY_SHORT = new Map(FLAGS.filter((flag) => flag.short).map((flag) => [`-${flag.short}`, flag]));
 const PERMISSION_FLAGS = FLAGS.filter((flag) => flag.mode !== undefined || flag.key === 'permissionMode');
 
-export function stripModelSuffix(id) {
-  return id.match(MODEL_SUFFIX)?.[1] ?? id;
-}
-
-function checkModel(raw) {
-  return { value: stripModelSuffix(raw) };
+export function modelChoice(raw) {
+  const match = raw.match(MODEL_SUFFIX);
+  return { id: match?.[1] ?? raw, contextWindow: contextWindowFor(match?.[2]) };
 }
 
 function checkPermissionMode(raw) {

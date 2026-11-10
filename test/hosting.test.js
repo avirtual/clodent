@@ -124,7 +124,7 @@ test('acceptEdits in the REPL runs a Write without asking and asks for a Bash co
   await exit(repl);
 });
 
-test('a [1m] model suffix is dropped for the wire, the price, the prompt, SessionStart and the statusLine; settings model too', GUARD, async (t) => {
+test('a [1m] model suffix is dropped for the wire, the price, the prompt, SessionStart and the statusLine, and sets the 1000000 window; settings model too', GUARD, async (t) => {
   const { home, cwd, dir, log, logger } = await setup(t);
   const status = join(dir, 'status.jsonl');
   const settings = writeSettings(dir, { hooks: { SessionStart: [hookGroup('', logger)] }, statusLine: { type: 'command', command: `cat >> ${JSON.stringify(status)}` } });
@@ -139,7 +139,7 @@ test('a [1m] model suffix is dropped for the wire, the price, the prompt, Sessio
   assert.equal(readJsonl(log)[0].model, 'claude-haiku-5-5');
   const [line] = readJsonl(status);
   assert.deepEqual(line.model, { id: 'claude-haiku-5-5', display_name: 'claude-haiku-5-5' });
-  assert.deepEqual([line.context_window.total_input_tokens, line.workspace.current_dir, line.context_window.context_window_size], [123, cwd, 200000]);
+  assert.deepEqual([line.context_window.total_input_tokens, line.workspace.current_dir, line.context_window.context_window_size], [123, cwd, 1000000]);
   assert.ok(line.cost.total_cost_usd > 0);
   const fromSettings = writeSettings(dir, { model: 'claude-haiku-5-5[1m]' }, 'model.json');
   const viaSettings = await runMain(['-p', 'go', '--settings', fromSettings], { home, cwd, responses: [textReply('ok')] });
@@ -246,4 +246,80 @@ test('in the REPL default mode a PreToolUse allow runs a Write without asking, a
   await repl.prompts(2);
   assert.equal(readFileSync(join(cwd, 'asked.txt'), 'utf8'), 'a');
   await exit(repl);
+});
+
+const TOO_LONG_BODY = readFileSync(new URL('./api/fixtures/prompt-too-long.json', import.meta.url), 'utf8').trim();
+const tooLongReply = () => ({ status: 400, headers: { 'content-type': 'application/json', 'request-id': 'req_1' }, body: TOO_LONG_BODY });
+const CLAUDE_MD_LINE = 'clodent: CLAUDE.md found but not loaded; clodent reads AGENTS.md (see README System prompt)\n';
+const READ_CAP = 'CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS';
+
+test('--resume takes the window from the current launch model, not the resumed one', GUARD, async (t) => {
+  const { home, cwd, dir } = await setup(t);
+  const status = join(dir, 'status.jsonl');
+  const settings = writeSettings(dir, { statusLine: { type: 'command', command: `cat >> ${JSON.stringify(status)}` } });
+  const first = await runMain(['-p', 'go', '--model', 'claude-haiku-5-5[1m]', '--settings', settings], { home, cwd, responses: [textReply('ok')] });
+  assert.equal(first.code, 0, first.stderr);
+  const again = await runMain(['-p', 'more', '--resume', first.id, '--model', 'claude-haiku-5-5', '--settings', settings], { home, cwd, responses: [textReply('ok')] });
+  assert.equal(again.code, 0, again.stderr);
+  assert.deepEqual(readJsonl(status).map((line) => line.context_window.context_window_size), [1000000, 200000]);
+});
+
+test('a prompt-too-long error prints the context-window line after the error line: start a new session in -p', GUARD, async (t) => {
+  const { home, cwd } = await setup(t);
+  const res = await runMain(['-p', 'go'], { home, cwd, responses: [tooLongReply()] });
+  assert.equal(res.code, 1);
+  assert.equal(res.calls.length, 1);
+  assert.match(res.stderr, /^clodent: prompt is too long: 1057655 tokens > 1000000 maximum\nclodent: the conversation is larger than the model's context window; start a new session\n/m);
+});
+
+test('a prompt-too-long error in the REPL points at /compact or /clear', GUARD, async (t) => {
+  const { home, cwd } = await setup(t);
+  const repl = startRepl([], { home, cwd, replies: [tooLongReply()] });
+  await repl.prompts(1);
+  repl.stdin.type('hi\r');
+  await repl.prompts(2);
+  assert.match(repl.out.text, /clodent: prompt is too long: 1057655 tokens > 1000000 maximum(?:\x1b\[[0-9;]*m)*\n(?:\x1b\[[0-9;]*m)*clodent: the conversation is larger than the model's context window; use \/compact or \/clear/);
+  await exit(repl);
+});
+
+test('a CLAUDE.md with no AGENTS.md warns once at startup, before boot-ready; with an AGENTS.md beside it, no warning', GUARD, async (t) => {
+  const { home, cwd } = await setup(t);
+  writeFileSync(join(cwd, 'CLAUDE.md'), 'claude rules');
+  const res = await runMain(['-p', 'go'], { home, cwd, responses: [textReply('ok')] });
+  assert.equal(res.code, 0, res.stderr);
+  assert.equal(count(res.stderr, CLAUDE_MD_LINE), 1, res.stderr);
+  assert.equal(res.calls[0].body.system[0].text.includes('claude rules'), false);
+  const repl = startRepl([], { home, cwd });
+  await repl.prompts(1);
+  const warning = CLAUDE_MD_LINE.trimEnd();
+  assert.equal(count(repl.out.text, warning), 1, repl.out.text);
+  assert.ok(repl.out.text.indexOf(warning) < repl.out.text.indexOf(PASTE_ON), repl.out.text);
+  await exit(repl);
+  writeFileSync(join(cwd, 'AGENTS.md'), 'agents rules');
+  const both = await runMain(['-p', 'go'], { home, cwd, responses: [textReply('ok')] });
+  assert.equal(both.code, 0, both.stderr);
+  assert.equal(both.stderr.includes('CLAUDE.md'), false, both.stderr);
+});
+
+test('an invalid CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS warns once at startup and leaves Read uncapped', GUARD, async (t) => {
+  const { home, cwd } = await setup(t);
+  writeFileSync(join(cwd, 'big.txt'), 'x'.repeat(400));
+  const res = await runMain(['-p', 'go'], { home, cwd, env: { [READ_CAP]: '12k' }, responses: [toolsReply([['Read', { file_path: 'big.txt' }]]), textReply('ok')] });
+  assert.equal(res.code, 0, res.stderr);
+  assert.equal(count(res.stderr, `clodent: ignoring ${READ_CAP}=12k: not a positive integer\n`), 1, res.stderr);
+  assert.match(results(res)[0], /^ {5}1\tx{400}$/);
+});
+
+test('the settings env CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS beats the process env', GUARD, async (t) => {
+  const { home, cwd, dir } = await setup(t);
+  writeFileSync(join(cwd, 'big.txt'), 'x'.repeat(400));
+  const read = () => [toolsReply([['Read', { file_path: 'big.txt' }]]), textReply('ok')];
+  const tight = writeSettings(dir, { env: { [READ_CAP]: '50' } }, 'tight.json');
+  const capped = await runMain(['-p', 'go', '--settings', tight], { home, cwd, env: { [READ_CAP]: '100000' }, responses: read() });
+  assert.equal(capped.code, 0, capped.stderr);
+  assert.equal(results(capped)[0], `File content (~102 tokens) exceeds the Read limit of 50 tokens (${READ_CAP}); read part of it with offset and limit`);
+  const loose = writeSettings(dir, { env: { [READ_CAP]: '100000' } }, 'loose.json');
+  const uncapped = await runMain(['-p', 'go', '--settings', loose], { home, cwd, env: { [READ_CAP]: '50' }, responses: read() });
+  assert.equal(uncapped.code, 0, uncapped.stderr);
+  assert.match(results(uncapped)[0], /^ {5}1\tx{400}$/);
 });

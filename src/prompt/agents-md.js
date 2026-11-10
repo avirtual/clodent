@@ -23,6 +23,14 @@ export function findGitRoot(cwd, deps) {
   }
 }
 
+function isFile(path, deps) {
+  try {
+    return deps.stat(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
 function readIfFile(path, deps) {
   try {
     if (!deps.stat(path).isFile()) return null;
@@ -53,8 +61,9 @@ function dirsRootToCwd(cwd, gitRoot) {
 
 export function discoverAgentsMd(cwd, deps) {
   const gitRoot = findGitRoot(cwd, deps);
+  const dirs = dirsRootToCwd(cwd, gitRoot);
   const found = [];
-  for (const dir of dirsRootToCwd(cwd, gitRoot)) {
+  for (const dir of dirs) {
     const path = join(dir, 'AGENTS.md');
     const text = readIfFile(path, deps);
     if (text !== null && text.trim() !== '') found.push({ path, text });
@@ -65,5 +74,6 @@ export function discoverAgentsMd(cwd, deps) {
     remaining -= capped.bytes;
     if (capped.truncated) found[i].text = [capped.text.trimEnd(), TRUNCATED_MARKER].filter(Boolean).join('\n');
   }
-  return { gitRoot, files: found };
+  const claudeMdOnly = found.length === 0 && dirs.some((dir) => isFile(join(dir, 'CLAUDE.md'), deps));
+  return { gitRoot, files: found, claudeMdOnly };
 }
