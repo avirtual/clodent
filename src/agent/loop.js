@@ -43,7 +43,7 @@ function resultBlock({ id, content, isError }) {
 }
 
 export function createAgent(config, deps) {
-  const { effort, permission, baseUrl, sessionId, cacheTtl } = config;
+  const { effort, permission, baseUrl, sessionId, cacheTtl, messageCacheTtl } = config;
   let { model, system } = config;
   const builtins = config.tools ?? [];
   const toolset = config.toolset ?? null;
@@ -129,7 +129,7 @@ export function createAgent(config, deps) {
   async function request(signal, partial, { messages = history, toolChoice, quiet = false } = {}) {
     const sentModel = model;
     for (const message of syncTools()) emit({ type: 'warning', message });
-    const req = buildRequest({ model, system, tools: definitions, messages, effort, baseUrl, toolChoice, sessionId, cacheTtl }, { env: deps.env });
+    const req = buildRequest({ model, system, tools: definitions, messages, effort, baseUrl, toolChoice, sessionId, cacheTtl, messageCacheTtl }, { env: deps.env });
     const streamDeps = { fetch: deps.fetch, sleep: deps.sleep, random: deps.random, now, signal };
     const stream = quiet ? () => {} : emit;
     let reported = null;

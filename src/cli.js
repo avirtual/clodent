@@ -234,6 +234,7 @@ function createRuntime(prep, opts, deps, render) {
         model: current.model,
         effort: opts.effort ?? settings.effortLevel,
         cacheTtl: opts.cacheTtl ?? settings.cacheTtl,
+        messageCacheTtl: opts.messageCacheTtl ?? settings.messageCacheTtl,
         compactReloadFiles: settings.compactReloadFiles ?? DEFAULT_RELOAD_FILES,
         system: current.system,
         baseUrl,

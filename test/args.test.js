@@ -41,6 +41,8 @@ const VALUE_FLAGS = [
   ['--model', 'model', 'claude-haiku-5-5[1m]', 'claude-haiku-5-5[1m]'],
   ['--cache-ttl', 'cacheTtl', '5m', '5m'],
   ['--cache-ttl', 'cacheTtl', '1h', '1h'],
+  ['--message-cache-ttl', 'messageCacheTtl', '5m', '5m'],
+  ['--message-cache-ttl', 'messageCacheTtl', '1h', '1h'],
   ['--budget', 'budgetUsd', '2.5', 2.5],
   ['--budget', 'budgetUsd', '0.01', 0.01],
   ['--budget', 'budgetUsd', '3', 3],
@@ -209,6 +211,15 @@ test('--cache-ttl rejects anything but 5m or 1h, and is absent unless given', ()
   assert.equal(Object.hasOwn(ok([]), 'cacheTtl'), false);
 });
 
+test('--message-cache-ttl rejects anything but 5m or 1h, and is absent unless given', () => {
+  for (const raw of ['1H', '5M', '60m', '2h', '1d', ' 1h', '300']) {
+    assert.equal(err([`--message-cache-ttl=${raw}`]), `--message-cache-ttl must be 5m or 1h, got "${raw}"`);
+  }
+  assert.equal(err(['--message-cache-ttl']), '--message-cache-ttl needs a value');
+  assert.equal(err(['--message-cache-ttl', '1h', '--message-cache-ttl', '5m']), '--message-cache-ttl given more than once');
+  assert.equal(Object.hasOwn(ok([]), 'messageCacheTtl'), false);
+});
+
 test('--session-id rejects anything not shaped like a UUID', () => {
   for (const raw of ['abc', `${UUID}0`, UUID.replaceAll('-', ''), `{${UUID}}`, UUID.replace('1', 'g')]) {
     assert.match(err(['--session-id', raw]), /^--session-id must be a UUID/);
@@ -282,7 +293,7 @@ test('givenFlags names every flag present, in table order', () => {
     if (f.long === 'effort') return ['--effort', 'low'];
     if (f.long === 'permission-mode') return ['--permission-mode', 'bypassPermissions'];
     if (f.long === 'budget') return ['--budget', '1'];
-    if (f.long === 'cache-ttl') return ['--cache-ttl', '1h'];
+    if (f.long === 'cache-ttl' || f.long === 'message-cache-ttl') return [`--${f.long}`, '1h'];
     if (f.long === 'session-id') return ['--session-id', UUID];
     if (f.long === 'print') return ['-p'];
     if (f.long === 'input-format' || f.long === 'output-format') return [`--${f.long}`, 'stream-json'];
