@@ -44,6 +44,7 @@ test('Bash(exact) allows only the exact trimmed command', async () => {
   assert.equal(await bash(guard, 'npm test'), 'allow Bash(npm test)');
   assert.equal(await bash(guard, '  npm test '), 'allow Bash(npm test)');
   for (const command of ['npm test --foo', 'npm testx', 'FOO=1 npm test']) assert.equal(await bash(guard, command), null, command);
+  assert.equal(await bash(guardOf({ allow: ['Bash(npm test:*)'] }), 'npm test 2>&1'), null);
 });
 
 test('Bash allow: the read-only commands next to an allowed one are judged as if any cd could reach /', async () => {
