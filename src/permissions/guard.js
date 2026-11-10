@@ -1,4 +1,4 @@
-import { lstat as fsLstat, readdir as fsReaddir, readlink as fsReadlink, realpath as fsRealpath } from 'node:fs/promises';
+import { lstat as fsLstat, readdir as fsReaddir, readlink as fsReadlink, realpath as fsRealpath, stat as fsStat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { classifyBash, redirectsOutput, searchesTree } from '../tools/bash-readonly.js';
 import { CLODENT_TOOLS, isProtected, mentionRegExp, pathRegExp, protectedRules, ruleHome, splitPattern } from './rules.js';
@@ -34,7 +34,7 @@ export const uncertainDecision = (list, mode, kind = 'strong') => (list === 'den
 const LINK_HOPS = 40;
 
 async function linkTarget(head, rest, fs) {
-  const target = await fs.readlink(head);
+  const target = (await fs.readlink(head)).replace(/\/+/g, '/').replace(/(.)\/$/, '$1');
   const base = isAbsolute(target) ? target : `${await fs.realpath(dirname(head))}/${target}`;
   return [base, ...rest].join('/');
 }
@@ -49,10 +49,7 @@ async function deepestReal(path, fs, trace) {
       trace.unresolved = true;
       if (entry.isSymbolicLink()) return { link: await linkTarget(head, rest, fs) };
     } catch (err) {
-      if (!ABSENT.has(err?.code)) {
-        trace.unresolved = trace.uncertain = true;
-        return {};
-      }
+      if (!ABSENT.has(err?.code)) trace.unresolved = trace.uncertain = true;
     }
     const parent = dirname(head);
     if (parent === head) return {};
@@ -880,6 +877,7 @@ async function resolveForms(rules, fs, platform) {
 export function createGuard({ deny = [], ask = [], allow = [] } = {}, deps = {}) {
   const realpath = deps.realpath ?? fsRealpath;
   const lstat = deps.lstat ?? fsLstat;
+  const stat = deps.stat ?? fsStat;
   const fs = { realpath, lstat, readlink: deps.readlink ?? fsReadlink };
   const platform = deps.platform ?? process.platform;
   const readdir = deps.readdir ?? fsReaddir;
@@ -906,7 +904,7 @@ export function createGuard({ deny = [], ask = [], allow = [] } = {}, deps = {})
   const rootPaths = (root) => (root ? [...spellings(root.lexical), ...spellings(root.real)] : []);
 
   const withReal = async (list) => [...new Set([...list, ...(await Promise.all(list.map((file) => realpathDeep(file, fs))))])];
-  const directory = (file) => lstat(file).then((entry) => entry.isDirectory(), () => null);
+  const directory = (file) => stat(file).then((entry) => entry.isDirectory(), () => null);
 
   async function protectionOf(protect, protectExisting) {
     if (allow.length === 0) return { rules: [], files: [] };
@@ -952,7 +950,7 @@ export function createGuard({ deny = [], ask = [], allow = [] } = {}, deps = {})
       match = (rules) => bare(rules) ?? pathMatch(rules, tool, paths, ruleForms);
       unsure = (rules) => {
         const rule = root?.uncertain ? rules.find((one) => one.kind === 'path' && one.tools.includes(tool)) : undefined;
-        return rule && { rule, reason: `${root.lexical} may resolve to a path ${rule.text} guards: its symlinks could not be followed` };
+        return rule && { rule, reason: `${root.lexical} may resolve to a path ${rule.text} guards: it could not be resolved` };
       };
     } else {
       match = bare;
@@ -978,7 +976,6 @@ export function createGuard({ deny = [], ask = [], allow = [] } = {}, deps = {})
     return rule ? { decision: 'allow', rule } : null;
   }
 
-  // A deny or ask rule matches when either the lexical or the real path does, or when a command only may name it;
   // an allow rule needs both paths and every command, so whatever is uncertain falls back to asking.
   function allowedBy(tool, input, cwd, root, ruleForms, shielded, files) {
     const bare = allow.find((rule) => rule.kind === 'tool' && rule.tool === tool);
