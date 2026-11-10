@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { main } from '../scripts/check-release-tag.js';
+
+const SCRIPT = fileURLToPath(new URL('../scripts/check-release-tag.js', import.meta.url));
 
 const CHANGELOG = [
   '# Changelog',
@@ -72,4 +76,11 @@ test('a missing tag argument fails', async () => {
   const r = await check([]);
   assert.equal(r.code, 1);
   assert.match(r.stderr, /^check-release-tag: missing tag; usage: node scripts\/check-release-tag\.js <tag>\n$/);
+});
+
+test('run as a command with no tag, it exits 1 with the usage line on stderr', () => {
+  const run = spawnSync(process.execPath, [SCRIPT], { encoding: 'utf8' });
+  assert.equal(run.status, 1);
+  assert.equal(run.stderr, 'check-release-tag: missing tag; usage: node scripts/check-release-tag.js <tag>\n');
+  assert.equal(run.stdout, '');
 });

@@ -60,6 +60,25 @@ test('under an allow rule, writes to a hook script, .git and through a symlink o
   assert.equal(existsSync(join(user, 'out.txt')), false);
 });
 
+test('under an allow rule, a Bash write to a hook script that does not exist yet asks; a bare hook word such as node is not protected', GUARD, async (t) => {
+  const { home, cwd, dir } = await setup(t);
+  await plant(cwd, { 'hooks/readme.txt': 'r' });
+  const settings = writeSettings(dir, {
+    hooks: { PreCompact: [hookGroup('', `node ${join(cwd, 'hooks/later.js')}`)] },
+    permissions: { allow: ['Bash'] },
+  });
+  const uses = [
+    ['Bash', { command: 'echo evil > hooks/later.js' }],
+    ['Bash', { command: 'touch node' }],
+  ];
+  const res = await runMain(['-p', 'go', '--settings', settings], { home, cwd, responses: [toolsReply(uses), textReply('done')] });
+  assert.equal(res.code, 0, res.stderr);
+  const [script, bare] = results(res);
+  assert.equal(script, ASK_DENIAL);
+  assert.notEqual(bare, ASK_DENIAL);
+  assert.deepEqual(['hooks/later.js', 'node'].map((name) => existsSync(join(cwd, name))), [false, true]);
+});
+
 test('a malformed --allowedTools or permissions.allow entry exits 2 with its message before any request', GUARD, async (t) => {
   const { home, cwd, dir } = await setup(t);
   const exits = async (argv, stderr) => {
