@@ -11,7 +11,7 @@ const missing = async () => {
 
 function guardOf({ deny = [], ask = [], allow = [] }, deps = {}) {
   const lists = { deny: parseRules(deny, 'permissions.deny', WHERE), ask: parseRules(ask, 'permissions.ask', WHERE), allow: parseRules(allow, 'permissions.allow', WHERE) };
-  return createGuard(lists, { realpath: missing, lstat: missing, readdir: missing, platform: 'linux', home: HOME, ...deps });
+  return createGuard(lists, { realpath: missing, lstat: missing, stat: missing, readlink: missing, readdir: missing, platform: 'linux', home: HOME, ...deps });
 }
 
 async function verdictOf(guard, tool, input) {
@@ -111,7 +111,7 @@ test('a path that exists but does not resolve, as a dangling or looping link or 
   }
 });
 
-test('Bash allow: a command only a Bash rule admits asks when it redirects output anywhere but /dev/null or another fd, or has a > the read-only lexer cannot read', async () => {
+test('Bash allow: a command only a Bash rule admits asks when it redirects output anywhere but /dev/null, or has a > the read-only lexer cannot read', async () => {
   const guard = guardOf({ allow: ['Bash(git status:*)', 'Bash(git log:*)'] });
   for (const command of ['git status > /dev/null', 'git status 2>/dev/null', 'git status < in', 'git status <<< x']) {
     assert.equal(await bash(guard, command), 'allow Bash(git status:*)', command);
@@ -124,9 +124,9 @@ test('Bash allow: a command only a Bash rule admits asks when it redirects outpu
 test('protected paths ask even when an allow rule matches: .git, .clodent and .claude parts, hook scripts and settings files', async () => {
   const files = ['/work/hooks/pre.sh', '/Users/u/.config/seat-settings.json'];
   const exists = (path) => files.includes(path);
-  const lstat = async (path) => (exists(path) ? { isDirectory: () => false } : missing());
+  const stat = async (path) => (exists(path) ? { isDirectory: () => false } : missing());
   const realpath = async (path) => (exists(path) ? path : missing());
-  const guard = guardOf({ allow: ['Edit', 'Write', 'Bash'] }, { protect: files, protectExisting: ['/work/node'], lstat, realpath });
+  const guard = guardOf({ allow: ['Edit', 'Write', 'Bash'] }, { protect: files, protectExisting: ['/work/node'], stat, realpath });
   for (const file of ['.git/config', 'sub/.GIT/hooks/pre-commit', '.clodent/settings.json', '.claude/settings.json', 'hooks/pre.sh', '/Users/u/.config/seat-settings.json']) {
     for (const tool of ['Edit', 'Write']) assert.equal(await verdictOf(guard, tool, { file_path: file }), null, `${tool} ${file}`);
   }
@@ -142,12 +142,22 @@ test('protected paths ask even when an allow rule matches: .git, .clodent and .c
 
 test('a hook script named with a / is protected before it exists; a bare word only when it exists as a file', async () => {
   const kinds = { '/work/hook.js': false, '/work/tools': true };
-  const lstat = async (path) => (Object.hasOwn(kinds, path) ? { isDirectory: () => kinds[path], isSymbolicLink: () => false } : missing());
+  const stat = async (path) => (Object.hasOwn(kinds, path) ? { isDirectory: () => kinds[path], isSymbolicLink: () => false } : missing());
   const realpath = async (path) => (Object.hasOwn(kinds, path) || path === '/work' ? path : missing());
   const protect = ['/work/hooks/later.sh', '/work/tools'];
-  const guard = guardOf({ allow: ['Bash'] }, { protect, protectExisting: ['/work/node', '/work/hook.js'], lstat, realpath });
+  const guard = guardOf({ allow: ['Bash'] }, { protect, protectExisting: ['/work/node', '/work/hook.js'], stat, realpath });
   for (const command of ['cp x hooks/later.sh', 'cp x hook.js']) assert.equal(await bash(guard, command), null, command);
   for (const command of ['node --test test/a.test.js', 'rm -rf tools/build']) assert.equal(await bash(guard, command), 'allow Bash', command);
+});
+
+test('a hook word that names a symlink to a directory is dropped, as a directory is', async () => {
+  const stat = async (path) => (path === '/work/src' || path === '/work/real' ? { isDirectory: () => true } : missing());
+  const lstat = async (path) => (path === '/work/src' ? { isDirectory: () => false, isSymbolicLink: () => true } : stat(path));
+  const realpath = async (path) => (path === '/work/src' ? '/work/real' : path === '/work' || path === '/work/real' ? path : missing());
+  for (const words of [{ protect: ['/work/src'] }, { protectExisting: ['/work/src'] }]) {
+    const guard = guardOf({ allow: ['Bash'] }, { ...words, stat, lstat, realpath });
+    assert.equal(await bash(guard, 'rm -rf src/build'), 'allow Bash', JSON.stringify(words));
+  }
 });
 
 test('a deny or ask rule wins over an allow rule on the same call; an uncertain deny still asks', async () => {
