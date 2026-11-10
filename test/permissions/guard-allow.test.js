@@ -161,9 +161,18 @@ test('a hook word that names a symlink to a directory is dropped, as a directory
 });
 
 test('a bare hook word that is a dangling symlink stays protected', async () => {
-  const lstat = async (path) => (path === '/work/pre.sh' ? { isDirectory: () => false, isSymbolicLink: () => true } : missing());
+  const lstat = async (path) => (path === '/work/pre.sh' ? { isSymbolicLink: () => true } : missing());
   const guard = guardOf({ allow: ['Bash'] }, { protectExisting: ['/work/pre.sh'], lstat });
   assert.equal(await bash(guard, 'cp x pre.sh'), null);
+});
+
+test('a bare hook word that is a symlink to a missing file protects the link target too, through the rule\'s realpath form', async () => {
+  const lstat = async (path) => (path === '/work/pre.sh' ? { isSymbolicLink: () => true } : missing());
+  const readlink = async (path) => (path === '/work/pre.sh' ? 'scripts/pre.sh' : missing());
+  const realpath = async (path) => (path === '/work' || path === '/work/scripts' ? path : missing());
+  const guard = guardOf({ allow: ['Bash'] }, { protectExisting: ['/work/pre.sh'], lstat, readlink, realpath });
+  assert.equal(await bash(guard, 'cp evil.js scripts/pre.sh'), null);
+  assert.equal(await bash(guard, 'cp evil.js scripts/other.sh'), 'allow Bash');
 });
 
 test('a deny or ask rule wins over an allow rule on the same call; an uncertain deny still asks', async () => {

@@ -17,7 +17,7 @@ export const FLAGS = [
   { long: 'permission-prompt-tool', key: 'permissionPromptTool', arg: 'name', check: checkPromptTool, help: 'stdio: ask permission over stdin and stdout (needs --input-format stream-json)' },
   { long: 'model', key: 'model', arg: 'id', help: `model id (default ${DEFAULT_MODEL}); a trailing [suffix] is dropped, and [1m] sets the reported context window to 1000000 (else 200000)` },
   { long: 'effort', key: 'effort', arg: 'level', check: checkEffort, help: 'reasoning effort: low, medium, high, xhigh or max' },
-  { long: 'cache-ttl', key: 'cacheTtl', arg: 'ttl', check: checkCacheTtl, help: 'prompt-cache lifetime for every cache breakpoint: 5m (default) or 1h' },
+  { long: 'cache-ttl', key: 'cacheTtl', arg: 'ttl', check: checkCacheTtl, help: 'prompt-cache lifetime: 5m (default) or 1h' },
   { long: 'message-cache-ttl', key: 'messageCacheTtl', arg: 'ttl', check: checkMessageCacheTtl, help: 'prompt-cache lifetime for the conversation breakpoints: 5m or 1h (default: --cache-ttl)' },
   { long: 'budget', key: 'budgetUsd', arg: 'usd', check: checkBudget, help: 'stop before the session spends more than this many US dollars' },
   { long: 'yolo', key: 'yolo', value: true, mode: 'yolo', help: 'run every tool without asking' },

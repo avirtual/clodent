@@ -2,7 +2,7 @@
 
 clodent was named clay up to 0.2.0.
 
-## Unreleased
+## 0.8.1 — 2026-11-10
 
 - `--message-cache-ttl 5m` / settings `messageCacheTtl: "5m"` keeps the system prompt and tools cached for an hour under `--cache-ttl 1h` while the conversation is cached for 5 minutes, for seats whose context is cleared after an idle pause.
 

@@ -1,6 +1,6 @@
 {
   "name": "clodent",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "A terminal coding agent that talks to the Anthropic Messages API directly; zero dependencies.",
   "license": "Apache-2.0",
   "type": "module",
