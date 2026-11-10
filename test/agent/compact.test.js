@@ -149,7 +149,7 @@ test('a summary that fails after message_start charges its partial as the compac
   const h = harness([reply('one'), { body: head + sseError('invalid_request_error', 'bad thing') }, reply('two')]);
   await h.agent.runTurn('first');
   const { turn, ...outcome } = await h.agent.compact(MANUAL);
-  assert.deepEqual(outcome, { ok: false, reason: 'bad thing' });
+  assert.deepEqual(outcome, { ok: false, reason: 'bad thing', apiError: { status: null, type: 'invalid_request_error', message: 'bad thing', request_id: null } });
   assert.deepEqual([turn.requests, turn.tokens], [1, { in: 70, cacheRead: 0, cacheWrite: 0, out: 0 }]);
   assert.equal(h.ledger.session().requests, 2);
   await h.agent.runTurn('again');

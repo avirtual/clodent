@@ -91,3 +91,24 @@ test('init carries the window /model decided and the AGENTS.md files, again on e
     ],
   );
 });
+
+test('a /compact whose summary request is also too long ends in a failed result carrying api_error and context_window_exceeded', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  const tooLong = () => ({ status: 400, headers: { 'content-type': 'application/json', 'request-id': 'req_compact' }, body: TOO_LONG_BODY });
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID], { home, cwd, replies: [textReply('one'), tooLong(), tooLong()] });
+  s.send(userLine('first'));
+  await s.until('result');
+  s.send(userLine('huge'));
+  await s.until('result', 2);
+  s.send(userLine('/compact'));
+  await s.until('result', 3);
+  s.close();
+  assert.equal(await s.done, 0);
+  const compact = results(s)[2];
+  const message = 'prompt is too long: 1057655 tokens > 1000000 maximum';
+  assert.equal(compact.is_error, true);
+  assert.equal(compact.result, `clodent: compact failed: ${message}\nclodent: the conversation is too large to summarise; use /clear`);
+  assert.deepEqual(compact.api_error, { status: 400, type: 'invalid_request_error', message, request_id: 'req_compact' });
+  assert.equal(compact.context_window_exceeded, true);
+  assert.equal(JSON.stringify(s.fetch.calls[2].body.messages).includes('huge'), false);
+});

@@ -141,8 +141,10 @@ test('a [1m] model suffix is dropped for the wire, the price, the prompt, Sessio
   assert.deepEqual(line.model, { id: 'claude-haiku-5-5', display_name: 'claude-haiku-5-5' });
   assert.deepEqual([line.context_window.total_input_tokens, line.workspace.current_dir, line.context_window.context_window_size], [123, cwd, 1000000]);
   assert.ok(line.cost.total_cost_usd > 0);
-  const fromSettings = writeSettings(dir, { model: 'claude-haiku-5-5[1m]' }, 'model.json');
+  const settingsStatus = join(dir, 'settings-status.jsonl');
+  const fromSettings = writeSettings(dir, { model: 'claude-haiku-5-5[1m]', statusLine: { type: 'command', command: `cat >> ${JSON.stringify(settingsStatus)}` } }, 'model.json');
   const viaSettings = await runMain(['-p', 'go', '--settings', fromSettings], { home, cwd, responses: [textReply('ok')] });
+  assert.equal(readJsonl(settingsStatus)[0].context_window.context_window_size, 1000000);
   assert.equal(viaSettings.calls[0].body.model, 'claude-haiku-5-5');
 });
 
@@ -279,6 +281,22 @@ test('a prompt-too-long error in the REPL points at /compact or /clear', GUARD, 
   repl.stdin.type('hi\r');
   await repl.prompts(2);
   assert.match(repl.out.text, /clodent: prompt is too long: 1057655 tokens > 1000000 maximum(?:\x1b\[[0-9;]*m)*\n(?:\x1b\[[0-9;]*m)*clodent: the conversation is larger than the model's context window; use \/compact or \/clear/);
+  await exit(repl);
+});
+
+test('a /compact whose summary request is also too long prints the failure, then the line pointing at /clear', GUARD, async (t) => {
+  const { home, cwd } = await setup(t);
+  const repl = startRepl([], { home, cwd, replies: [textReply('one'), tooLongReply(), tooLongReply()] });
+  await repl.prompts(1);
+  repl.stdin.type('first\r');
+  await repl.prompts(2);
+  repl.stdin.type('huge\r');
+  await repl.prompts(3);
+  repl.stdin.type('/compact\r');
+  await repl.prompts(4);
+  assert.ok(repl.out.text.includes('clodent: compact failed: prompt is too long: 1057655 tokens > 1000000 maximum\nclodent: the conversation is too large to summarise; use /clear\n'), repl.out.text);
+  assert.deepEqual(repl.fetch.calls[2].body.messages.map((message) => message.role), ['user', 'assistant', 'user']);
+  assert.equal(JSON.stringify(repl.fetch.calls[2].body.messages).includes('huge'), false);
   await exit(repl);
 });
 
