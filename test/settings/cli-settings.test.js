@@ -108,6 +108,26 @@ test('cacheTtl: the default is 5m, settings 1h reaches the wire, --cache-ttl bea
   assert.deepEqual(ttls(warned.calls[0].body), [short, short, short]);
 });
 
+test('messageCacheTtl: settings 5m splits --cache-ttl 1h, --message-cache-ttl beats settings, 5m clamps it, and a bad settings value warns', async (t) => {
+  const { home, cwd, dir } = await setup(t);
+  const ttls = (body) => [body.system[0].cache_control, body.tools.at(-1).cache_control, body.messages.at(-1).content.at(-1).cache_control];
+  const short = { type: 'ephemeral' };
+  const long = { type: 'ephemeral', ttl: '1h' };
+  const settings = writeSettings(dir, { messageCacheTtl: '5m' });
+  const split = await runMain(['-p', 'hi', '--settings', settings, '--cache-ttl', '1h'], { home, cwd, responses: [textReply('ok')] });
+  assert.equal(split.code, 0, split.stderr);
+  assert.deepEqual(ttls(split.calls[0].body), [long, long, short]);
+  const flagWins = await runMain(['-p', 'hi', '--settings', settings, '--cache-ttl', '1h', '--message-cache-ttl', '1h'], { home, cwd, responses: [textReply('ok')] });
+  assert.deepEqual(ttls(flagWins.calls[0].body), [long, long, long]);
+  const clamped = await runMain(['-p', 'hi', '--message-cache-ttl', '1h'], { home, cwd, responses: [textReply('ok')] });
+  assert.deepEqual(ttls(clamped.calls[0].body), [short, short, short]);
+  const bad = writeSettings(dir, { messageCacheTtl: '1d' }, 'bad.json');
+  const warned = await runMain(['-p', 'hi', '--settings', bad, '--cache-ttl', '1h'], { home, cwd, responses: [textReply('ok')] });
+  assert.equal(warned.code, 0, warned.stderr);
+  assert.ok(warned.stderr.includes(`clodent: settings ${bad}: messageCacheTtl "1d" is not 5m or 1h; ignored\n`), warned.stderr);
+  assert.deepEqual(ttls(warned.calls[0].body), [long, long, long]);
+});
+
 test('$CLODENT_HOME/settings.json loads first, --settings paths resolve against cwd, and warnings follow the session line', async (t) => {
   const { home, cwd } = await setup(t);
   writeFileSync(join(home, 'settings.json'), JSON.stringify({ model: 'claude-haiku-5-5', effortLevel: 'ultra' }));

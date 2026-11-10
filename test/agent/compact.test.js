@@ -24,7 +24,7 @@ function strip(value) {
   return JSON.parse(JSON.stringify(value, (key, v) => (key === 'cache_control' ? undefined : v)));
 }
 
-function harness(responses, { history, interrupted, budgetUsd, context = {}, onFire, onFetch, onEvent, cacheTtl } = {}) {
+function harness(responses, { history, interrupted, budgetUsd, context = {}, onFire, onFetch, onEvent, cacheTtl, messageCacheTtl } = {}) {
   const events = [];
   const fired = [];
   const inner = createFakeFetch(responses);
@@ -42,7 +42,7 @@ function harness(responses, { history, interrupted, budgetUsd, context = {}, onF
     },
   };
   const agent = createAgent(
-    { model: 'claude-opus-5-5', system: 'sys', tools: [TOOL], permission: 'yolo', history, interrupted, cacheTtl },
+    { model: 'claude-opus-5-5', system: 'sys', tools: [TOOL], permission: 'yolo', history, interrupted, cacheTtl, messageCacheTtl },
     {
       fetch,
       env: { ANTHROPIC_API_KEY: 'k' },
@@ -211,6 +211,25 @@ test('with cacheTtl 1h the compact summary request marks system, tool, settled p
     [long, long, long, long],
   );
   assert.equal(JSON.stringify(summary).match(/"cache_control"/g).length, 4);
+});
+
+test('with cacheTtl 1h and messageCacheTtl 5m the compact summary request marks system and tool 1h, settled pin and tail 5m, and a /model switch keeps the split', async () => {
+  const h = harness([reply('one'), reply('the summary'), reply('two')], { cacheTtl: '1h', messageCacheTtl: '5m' });
+  await h.agent.runTurn('first');
+  assert.equal((await h.agent.compact(MANUAL)).ok, true);
+  h.agent.setModel('claude-haiku-5-5', 'sys two');
+  await h.agent.runTurn('second');
+  const [, summary, after] = h.bodies();
+  const short = { type: 'ephemeral' };
+  const long = { type: 'ephemeral', ttl: '1h' };
+  assert.deepEqual(
+    [summary.system[0].cache_control, summary.tools[0].cache_control, summary.messages[0].content.at(-1).cache_control, summary.messages[2].content.at(-1).cache_control],
+    [long, long, short, short],
+  );
+  assert.deepEqual(
+    [after.model, after.system[0].cache_control, after.tools[0].cache_control, after.messages.at(-1).content.at(-1).cache_control],
+    ['claude-haiku-5-5', long, long, short],
+  );
 });
 
 test('after a prompt-too-long turn, the summary request leaves out what was added since the last response, and the compact succeeds', async () => {

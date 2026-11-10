@@ -18,6 +18,7 @@ export const FLAGS = [
   { long: 'model', key: 'model', arg: 'id', help: `model id (default ${DEFAULT_MODEL}); a trailing [suffix] is dropped, and [1m] sets the reported context window to 1000000 (else 200000)` },
   { long: 'effort', key: 'effort', arg: 'level', check: checkEffort, help: 'reasoning effort: low, medium, high, xhigh or max' },
   { long: 'cache-ttl', key: 'cacheTtl', arg: 'ttl', check: checkCacheTtl, help: 'prompt-cache lifetime for every cache breakpoint: 5m (default) or 1h' },
+  { long: 'message-cache-ttl', key: 'messageCacheTtl', arg: 'ttl', check: checkMessageCacheTtl, help: 'prompt-cache lifetime for the conversation breakpoints: 5m or 1h (default: --cache-ttl)' },
   { long: 'budget', key: 'budgetUsd', arg: 'usd', check: checkBudget, help: 'stop before the session spends more than this many US dollars' },
   { long: 'yolo', key: 'yolo', value: true, mode: 'yolo', help: 'run every tool without asking' },
   { long: 'read-only', key: 'readOnly', value: true, mode: 'read-only', help: 'refuse write tools and any Bash command that is not read-only' },
@@ -74,6 +75,11 @@ function checkEffort(raw) {
 function checkCacheTtl(raw) {
   if (CACHE_TTLS.includes(raw)) return { value: raw };
   return { error: `--cache-ttl must be 5m or 1h, got "${raw}"` };
+}
+
+function checkMessageCacheTtl(raw) {
+  if (CACHE_TTLS.includes(raw)) return { value: raw };
+  return { error: `--message-cache-ttl must be 5m or 1h, got "${raw}"` };
 }
 
 function checkBudget(raw) {

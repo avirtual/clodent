@@ -183,6 +183,10 @@ function mergeSource(acc, source, warn) {
     if (CACHE_TTLS.includes(source.cacheTtl)) acc.cacheTtl = source.cacheTtl;
     else warn(`cacheTtl ${JSON.stringify(source.cacheTtl)} is not 5m or 1h; ignored`);
   }
+  if (source.messageCacheTtl !== undefined) {
+    if (CACHE_TTLS.includes(source.messageCacheTtl)) acc.messageCacheTtl = source.messageCacheTtl;
+    else warn(`messageCacheTtl ${JSON.stringify(source.messageCacheTtl)} is not 5m or 1h; ignored`);
+  }
   if (source.model !== undefined) {
     if (typeof source.model === 'string' && source.model !== '') acc.model = source.model;
     else warn('model is not a non-empty string; ignored');
@@ -194,7 +198,7 @@ export async function loadSettings({ clodentHome, files = [], cwd = process.cwd(
   const sources = [];
   if (clodentHome) sources.push({ path: join(clodentHome, 'settings.json'), optional: true });
   for (const path of files) sources.push({ path, optional: false });
-  const acc = { hooks: new Map(), statusLine: null, env: new Map(), extraDirs: new Set(), effortLevel: null, cacheTtl: null, model: null, compactReloadFiles: null, hookContextMaxBytes: null, deny: [], ask: [], allow: [], envDeny: new Set() };
+  const acc = { hooks: new Map(), statusLine: null, env: new Map(), extraDirs: new Set(), effortLevel: null, cacheTtl: null, messageCacheTtl: null, model: null, compactReloadFiles: null, hookContextMaxBytes: null, deny: [], ask: [], allow: [], envDeny: new Set() };
   const warnings = [];
   for (const { path, optional } of sources) {
     const source = await readSource(path, optional, readFile);
@@ -218,6 +222,7 @@ export async function loadSettings({ clodentHome, files = [], cwd = process.cwd(
   };
   if (acc.effortLevel) settings.effortLevel = acc.effortLevel;
   if (acc.cacheTtl) settings.cacheTtl = acc.cacheTtl;
+  if (acc.messageCacheTtl) settings.messageCacheTtl = acc.messageCacheTtl;
   if (acc.model) settings.model = acc.model;
   if (acc.compactReloadFiles !== null) settings.compactReloadFiles = acc.compactReloadFiles;
   if (acc.hookContextMaxBytes !== null) settings.hookContextMaxBytes = acc.hookContextMaxBytes;

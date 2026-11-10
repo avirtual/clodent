@@ -93,7 +93,7 @@ function copyTools(tools, ttl) {
 }
 
 export function buildRequest(
-  { model, system, tools = [], messages, effort, maxTokens = DEFAULT_MAX_TOKENS, baseUrl, toolChoice, sessionId, cacheTtl = DEFAULT_CACHE_TTL },
+  { model, system, tools = [], messages, effort, maxTokens = DEFAULT_MAX_TOKENS, baseUrl, toolChoice, sessionId, cacheTtl = DEFAULT_CACHE_TTL, messageCacheTtl = cacheTtl },
   deps,
 ) {
   if (effort !== undefined && effort !== null && !EFFORTS.includes(effort)) {
@@ -102,6 +102,10 @@ export function buildRequest(
   if (!CACHE_TTLS.includes(cacheTtl)) {
     throw new Error(`invalid cacheTtl ${JSON.stringify(cacheTtl)}: expected one of ${CACHE_TTLS.join(', ')}`);
   }
+  if (!CACHE_TTLS.includes(messageCacheTtl)) {
+    throw new Error(`invalid messageCacheTtl ${JSON.stringify(messageCacheTtl)}: expected one of ${CACHE_TTLS.join(', ')}`);
+  }
+  const messageTtl = cacheTtl === '5m' ? '5m' : messageCacheTtl;
   if (typeof system !== 'string' || system === '') {
     throw new Error('system must be a non-empty string');
   }
@@ -116,7 +120,7 @@ export function buildRequest(
   };
   if (tools.length > 0) body.tools = copyTools(tools, cacheTtl);
   if (toolChoice !== undefined && toolChoice !== null) body.tool_choice = toolChoice;
-  body.messages = copyMessages(messages, cacheTtl);
+  body.messages = copyMessages(messages, messageTtl);
   body.thinking = { type: 'adaptive' };
   if (effort !== undefined && effort !== null) body.output_config = { effort };
   if (sessionId !== undefined && sessionId !== null) body.metadata = { user_id: JSON.stringify({ session_id: sessionId }) };

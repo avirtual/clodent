@@ -160,6 +160,25 @@ test('cacheTtl: the last valid value wins, anything but 5m or 1h warns and is ig
   assert.equal(Object.hasOwn((await loadSettings({ files: ['/3.json'] }, fs)).settings, 'cacheTtl'), false);
 });
 
+test('messageCacheTtl: the last valid value wins, anything but 5m or 1h warns and is ignored, absent by default', async () => {
+  const fs = fakeFs({
+    [HOME_FILE]: { messageCacheTtl: '1h' },
+    '/1.json': { messageCacheTtl: '5m' },
+    '/2.json': { messageCacheTtl: '1h' },
+    '/3.json': { messageCacheTtl: '2h' },
+    '/4.json': { messageCacheTtl: 60 },
+  });
+  const { settings, warnings } = await loadSettings({ clodentHome: HOME, files: ['/1.json', '/2.json', '/3.json', '/4.json'] }, fs);
+  assert.equal(settings.messageCacheTtl, '1h');
+  assert.equal(Object.hasOwn(settings, 'cacheTtl'), false);
+  assert.deepEqual(warnings, [
+    'settings /3.json: messageCacheTtl "2h" is not 5m or 1h; ignored',
+    'settings /4.json: messageCacheTtl 60 is not 5m or 1h; ignored',
+  ]);
+  assert.equal((await loadSettings({ clodentHome: HOME, files: ['/1.json'] }, fs)).settings.messageCacheTtl, '5m');
+  assert.equal(Object.hasOwn((await loadSettings({ files: ['/3.json'] }, fs)).settings, 'messageCacheTtl'), false);
+});
+
 test('settings model keeps its [suffix] for the launch to split into id and window', async () => {
   const { settings } = await loadSettings({ files: ['/1.json'] }, fakeFs({ '/1.json': { model: 'claude-opus-5-5[1m]' } }));
   assert.equal(settings.model, 'claude-opus-5-5[1m]');

@@ -363,21 +363,53 @@ test('1h with no tools: system, settled pin and tail carry ttl 1h', () => {
 
 test('1h: every marker in every request of a scripted 3-turn session carries ttl 1h', () => {
   const messages = [];
-  let requests = 0;
+  const counts = [];
   for (const [turn, rounds] of [['one', 1], ['two', 2], ['three', 0]]) {
     messages.push(userText(turn));
     for (let round = 0; round <= rounds; round++) {
       if (round > 0) messages.push(toolUse(`${turn}${round}`), toolResult(`${turn}${round}`));
       const { body } = buildRequest(base({ messages, cacheTtl: '1h' }), deps);
-      const marks = cacheMarks(body).map(([, mark]) => mark);
+      const marks = cacheMarks(body);
       const where = `at ${messages.length} messages`;
-      assert.ok(marks.length >= 3, where);
-      assert.deepEqual(marks, marks.map(() => ONE_HOUR), where);
-      requests++;
+      assert.equal(marks.at(-1)[0], `$.messages[${messages.length - 1}].content[0]`, where);
+      assert.deepEqual(marks.map(([, mark]) => mark), marks.map(() => ONE_HOUR), where);
+      counts.push(marks.length);
     }
     messages.push(answer(`done ${turn}`));
   }
-  assert.equal(requests, 6);
+  assert.deepEqual(counts, [3, 3, 4, 4, 4, 4]);
+});
+
+const FIVE_MINUTES = { type: 'ephemeral' };
+
+test('cacheTtl 1h with messageCacheTtl 5m: system and last tool carry ttl 1h, the settled pin and tail carry no ttl', () => {
+  const messages = [...structuredClone(TURN_ONE), userText('two')];
+  assert.deepEqual(cacheMarks(buildRequest(base({ messages, cacheTtl: '1h', messageCacheTtl: '5m' }), deps).body), [
+    ['$.system[0]', ONE_HOUR],
+    ['$.tools[1]', ONE_HOUR],
+    ['$.messages[0].content[0]', FIVE_MINUTES],
+    ['$.messages[4].content[0]', FIVE_MINUTES],
+  ]);
+});
+
+test('cacheTtl 5m clamps messageCacheTtl 1h: all four markers are 5m and the bytes match the 5m fixture', () => {
+  const messages = [...structuredClone(TURN_ONE), userText('two')];
+  for (const cacheTtl of [undefined, '5m']) {
+    assert.deepEqual(cacheMarks(buildRequest(base({ messages, cacheTtl, messageCacheTtl: '1h' }), deps).body), [
+      ['$.system[0]', FIVE_MINUTES],
+      ['$.tools[1]', FIVE_MINUTES],
+      ['$.messages[0].content[0]', FIVE_MINUTES],
+      ['$.messages[4].content[0]', FIVE_MINUTES],
+    ]);
+    const input = { ...fixtureInput([TOOLS[1], TOOLS[0]], cacheTtl), messageCacheTtl: '1h' };
+    assert.equal(JSON.stringify(buildRequest(input, deps).body), FIXTURE_5M);
+  }
+});
+
+test('an unknown messageCacheTtl throws under either cacheTtl', () => {
+  for (const cacheTtl of ['5m', '1h']) {
+    assert.throws(() => buildRequest(base({ cacheTtl, messageCacheTtl: '2h' }), deps), /invalid messageCacheTtl "2h": expected one of 5m, 1h/);
+  }
 });
 
 test('tools go out sorted by name in code-unit order with the marker on the last, and the caller list keeps its order', () => {
