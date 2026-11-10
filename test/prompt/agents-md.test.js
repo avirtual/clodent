@@ -116,3 +116,15 @@ test('the total is capped at 96 KiB, spending the budget on the most specific fi
   const kept = files.reduce((sum, f) => sum + Buffer.byteLength(f.text.replace(`\n${TRUNCATED_MARKER}`, '').replace(TRUNCATED_MARKER, '')), 0);
   assert.equal(kept, TOTAL_CAP_BYTES);
 });
+
+test('claudeMdOnly: a CLAUDE.md file in a directory discovery reads, with no AGENTS.md loaded', () => {
+  const only = (entries, cwd) => discoverAgentsMd(cwd, fakeFs(entries)).claudeMdOnly;
+  assert.equal(only({ '/repo/.git': DIR, '/repo/CLAUDE.md': 'rules' }, '/repo/pkg'), true);
+  assert.equal(only({ '/repo/.git': DIR, '/repo/pkg/CLAUDE.md': '' }, '/repo/pkg'), true);
+  assert.equal(only({ '/repo/.git': DIR, '/repo/AGENTS.md': ' \n', '/repo/CLAUDE.md': 'rules' }, '/repo'), true);
+  assert.equal(only({ '/repo/.git': DIR, '/repo/AGENTS.md': 'a', '/repo/pkg/CLAUDE.md': 'rules' }, '/repo/pkg'), false);
+  assert.equal(only({ '/CLAUDE.md': 'above', '/repo/.git': DIR }, '/repo'), false);
+  assert.equal(only({ '/repo/.git': DIR, '/repo/CLAUDE.md': DIR }, '/repo'), false);
+  assert.equal(only({ '/a/b/CLAUDE.md': 'rules' }, '/a/b'), true);
+  assert.equal(only({ '/a/CLAUDE.md': 'rules' }, '/a/b'), false);
+});

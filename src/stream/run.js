@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { INTERRUPTED_RESULT, USER_DENIAL } from '../agent/loop.js';
-import { stripModelSuffix } from '../args.js';
 import { CLOSED_DENIAL } from '../repl/repl.js';
 import { parseCommand, runCommand } from '../repl/slash.js';
 import { lineSplitter, parseLine } from './input.js';
@@ -89,9 +88,9 @@ export async function runStream(ctx, deps) {
       output.controlResponse({ subtype: 'error', request_id: requestId, error: 'set_model needs a model id' });
       return;
     }
-    const id = stripModelSuffix(raw);
     try {
-      agent.setModel(id, runtime.setModel(id));
+      const next = runtime.setModel(raw);
+      agent.setModel(next.model, next.system);
     } catch (err) {
       output.controlResponse({ subtype: 'error', request_id: requestId, error: err?.message ?? String(err) });
       return;
@@ -204,8 +203,9 @@ export async function runStream(ctx, deps) {
     print: (line) => printed.push(line),
     ledger: runtime.ledger,
     model: () => runtime.model(),
-    setModel(id) {
-      agent.setModel(id, runtime.setModel(id));
+    setModel(raw) {
+      const next = runtime.setModel(raw);
+      agent.setModel(next.model, next.system);
     },
     clear: clearSession,
     compact: compactSession,

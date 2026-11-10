@@ -2,7 +2,6 @@ import { readFile as fsReadFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { MAX_RELOAD_FILES } from '../agent/compact.js';
 import { CACHE_TTLS, EFFORTS } from '../api/request.js';
-import { stripModelSuffix } from '../args.js';
 import { HOOK_CONTEXT_DEFAULTS, HOOK_CONTEXT_MAX_BYTES, HOOK_CONTEXT_MIN_BYTES } from '../hooks/context-cap.js';
 import { HOOK_EVENTS } from '../hooks/run.js';
 import { parseRules, RuleError, ruleHome } from '../permissions/rules.js';
@@ -184,7 +183,7 @@ function mergeSource(acc, source, warn) {
     else warn(`cacheTtl ${JSON.stringify(source.cacheTtl)} is not 5m or 1h; ignored`);
   }
   if (source.model !== undefined) {
-    if (typeof source.model === 'string' && source.model !== '') acc.model = stripModelSuffix(source.model);
+    if (typeof source.model === 'string' && source.model !== '') acc.model = source.model;
     else warn('model is not a non-empty string; ignored');
   }
 }

@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { DEFAULT_RELOAD_FILES } from './agent/compact.js';
 import { createAgent } from './agent/loop.js';
 import { hookPaths } from './agent/permission.js';
-import { DEFAULT_MODEL, FLAGS, givenFlags, parseArgs } from './args.js';
+import { DEFAULT_MODEL, FLAGS, givenFlags, modelChoice, parseArgs } from './args.js';
 import { createLedger } from './cost/ledger.js';
 import { createHookFirer } from './hooks/fire.js';
 import { createStatusLine } from './hooks/status-line.js';
@@ -13,7 +13,7 @@ import { flagRules } from './permissions/flag-rules.js';
 import { createGuard, sentTools } from './permissions/guard.js';
 import { builtinDenies, RuleError, ruleHome } from './permissions/rules.js';
 import { killPendingGroups } from './proc/run.js';
-import { buildSystemPrompt } from './prompt/system.js';
+import { buildPrompt } from './prompt/system.js';
 import { createRenderer } from './render/terminal.js';
 import { runRepl } from './repl/repl.js';
 import { createStreamOutput } from './stream/output.js';
@@ -26,9 +26,11 @@ import { createRecorder } from './session/recorder.js';
 import { toolEnv } from './tools/env.js';
 import { createClodexToolset } from './tools/clodex.js';
 import { createTools } from './tools/index.js';
+import { readTokenCap } from './tools/read.js';
 
 export const NOT_YET = new Set([]);
 export const SIGNAL_EXIT = Object.freeze({ SIGINT: 130, SIGTERM: 143, SIGHUP: 129 });
+export const CLAUDE_MD_WARNING = 'CLAUDE.md found but not loaded; clodent reads AGENTS.md (see README System prompt)';
 
 function version() {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
@@ -79,7 +81,7 @@ function statusState(usage = {}, base, ledger) {
 }
 
 function systemPrompt(opts, model, addDirs, deps, permissions) {
-  return buildSystemPrompt(
+  return buildPrompt(
     {
       cwd: deps.cwd,
       model,
@@ -154,12 +156,12 @@ async function prepare(opts, deps) {
   if (!env.ANTHROPIC_API_KEY) return fail('ANTHROPIC_API_KEY is not set');
   const base = baseUrlFrom(env);
   if (!base.ok) return fail(base.error ?? 'invalid ANTHROPIC_BASE_URL');
-  const model = opts.model ?? settings.model ?? DEFAULT_MODEL;
+  const { id: model, contextWindow } = modelChoice(opts.model ?? settings.model ?? DEFAULT_MODEL);
   const addDirs = extraDirs(opts, settings, cwd);
   const scope = { dirs: addDirs, protect: hookPaths(settings, { cwd, env, home: rulesHome }) };
-  let system;
+  let prompt;
   try {
-    system = systemPrompt(opts, model, addDirs, deps, permissions);
+    prompt = systemPrompt(opts, model, addDirs, deps, permissions);
   } catch (err) {
     return fail(err.message);
   }
@@ -170,8 +172,25 @@ async function prepare(opts, deps) {
     session = { ok: false, error: err.message };
   }
   if (!session.ok) return fail(session.error);
+  const readCap = readTokenCap(env);
   const warnings = [...loaded.warnings, ...session.warnings];
-  return { settings, permissions, env, baseUrl: base.baseUrl, model, addDirs, scope, system, session, warnings };
+  if (readCap.warning) warnings.push(readCap.warning);
+  if (prompt.claudeMdOnly) warnings.push(CLAUDE_MD_WARNING);
+  return {
+    settings,
+    permissions,
+    env,
+    baseUrl: base.baseUrl,
+    model,
+    contextWindow,
+    addDirs,
+    scope,
+    system: prompt.text,
+    instructionFiles: prompt.instructionFiles,
+    readMaxTokens: readCap.tokens,
+    session,
+    warnings,
+  };
 }
 
 function createRuntime(prep, opts, deps, render) {
@@ -184,11 +203,11 @@ function createRuntime(prep, opts, deps, render) {
     { ...procDeps, warn: (message) => render({ type: 'warning', message }) },
   );
   const guard = createGuard(permissions, { env: toolEnv(env, settings.envDeny ?? []) });
-  const builtins = createTools({ ...procDeps, envDeny: settings.envDeny ?? [] });
+  const builtins = createTools({ ...procDeps, envDeny: settings.envDeny ?? [], readMaxTokens: prep.readMaxTokens });
   const tools = builtins.filter((tool) => !guard.removes(tool.name));
-  const current = { model: prep.model, system: prep.system };
+  const current = { model: prep.model, contextWindow: prep.contextWindow, system: prep.system, instructionFiles: prep.instructionFiles };
   const statusOf = (session, usage) =>
-    statusState(usage, { modelId: current.model, sessionId: session.sessionId, transcriptPath: session.transcriptPath }, ledger);
+    statusState(usage, { modelId: current.model, contextWindow: current.contextWindow, sessionId: session.sessionId, transcriptPath: session.transcriptPath }, ledger);
 
   function open(session, { ask, drain } = {}) {
     const record = createRecorder(session.transcript, { now: deps.now });
@@ -239,10 +258,13 @@ function createRuntime(prep, opts, deps, render) {
     statusLine,
     open,
     model: () => current.model,
-    setModel(model) {
-      const system = systemPrompt(opts, model, addDirs, deps, permissions);
-      Object.assign(current, { model, system });
-      return system;
+    contextWindow: () => current.contextWindow,
+    instructionFiles: () => current.instructionFiles,
+    setModel(raw) {
+      const { id: model, contextWindow } = modelChoice(raw);
+      const prompt = systemPrompt(opts, model, addDirs, deps, permissions);
+      Object.assign(current, { model, contextWindow, system: prompt.text, instructionFiles: prompt.instructionFiles });
+      return { model, system: prompt.text };
     },
     freshSession() {
       try {
@@ -276,8 +298,8 @@ function streamRuntime(prep, opts, deps) {
   const toStderr = createRenderer({ out: { write() {} }, err: plain, mode: 'print' });
   let current = prep.session;
   const output = createStreamOutput(
-    { version: version(), sessionId: () => current.sessionId },
-    { out: deps.stdout, now: deps.now, uuid: deps.uuid, totalUsd: () => runtime.ledger.session().usd },
+    { version: version(), sessionId: () => current.sessionId, contextWindow: () => runtime.contextWindow(), instructionFiles: () => runtime.instructionFiles() },
+    { out: deps.stdout, now: deps.now, uuid: deps.uuid, totalUsd: () => runtime.ledger.session().usd, unpriced: () => runtime.ledger.session().unpriced },
   );
   const runtime = createRuntime(prep, opts, deps, (event) => {
     toStderr(event);

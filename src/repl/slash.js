@@ -1,5 +1,4 @@
 import { NOTHING_TO_COMPACT } from '../agent/compact.js';
-import { stripModelSuffix } from '../args.js';
 import { formatTotal } from '../cost/format.js';
 import { isTyped } from './editor.js';
 
@@ -41,7 +40,7 @@ const COMMANDS = {
     }
     if (args.length === 1) {
       try {
-        ctx.setModel(stripModelSuffix(args[0]));
+        ctx.setModel(args[0]);
       } catch (err) {
         ctx.print(`clodent: ${err?.message ?? err}`);
       }

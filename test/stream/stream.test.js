@@ -50,7 +50,7 @@ test('stdout holds only JSON lines; the session, tool, cost and total lines go t
   assert.match(s.err.text, /^\[clodent:cost\] session total /m);
 });
 
-test('init carries the session, the stripped model, the tools sent and the Claude permission mode', GUARD, async (t) => {
+test('init carries the session, the stripped model, the [1m] window, the tools sent and the Claude permission mode', GUARD, async (t) => {
   const { home, cwd } = await dirs(t);
   const s = startStream([...STREAM_ARGV, '--session-id', UUID, '--model', 'claude-haiku-5-5[1m]', '--permission-mode', 'acceptEdits', '--disallowedTools', 'Glob'], { home, cwd });
   s.close();
@@ -71,6 +71,8 @@ test('init carries the session, the stripped model, the tools sent and the Claud
     slash_commands: ['compact', 'clear', 'cost', 'model', 'help', 'quit', 'exit'],
     apiKeySource: 'ANTHROPIC_API_KEY',
     clodent_version: version,
+    context_window_size: 1000000,
+    instruction_files: [],
   });
 });
 

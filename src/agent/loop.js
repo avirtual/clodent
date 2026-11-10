@@ -1,4 +1,4 @@
-import { ApiError } from '../api/errors.js';
+import { ApiError, apiErrorFields, isPromptTooLong } from '../api/errors.js';
 import { buildRequest } from '../api/request.js';
 import { streamMessage } from '../api/stream.js';
 import { emptyOutcome, hookContextBlock, NO_HOOKS } from '../hooks/fire.js';
@@ -313,6 +313,8 @@ export function createAgent(config, deps) {
         message: err?.message ?? String(err),
         errorType: err?.type ?? err?.name ?? 'error',
         status: err?.status ?? null,
+        apiError: apiErrorFields(err),
+        contextWindowExceeded: isPromptTooLong(err),
       });
       return finish('error', false, stopSignal);
     }

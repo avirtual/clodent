@@ -220,8 +220,9 @@ export async function runRepl(ctx, deps) {
     print,
     ledger: runtime.ledger,
     model: () => runtime.model(),
-    setModel(id) {
-      agent.setModel(id, runtime.setModel(id));
+    setModel(raw) {
+      const next = runtime.setModel(raw);
+      agent.setModel(next.model, next.system);
     },
     clear: clearSession,
     compact(instructions) {

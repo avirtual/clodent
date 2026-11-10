@@ -13,6 +13,15 @@ export class ApiError extends Error {
   }
 }
 
+export function isPromptTooLong(err) {
+  return err instanceof ApiError && err.status === 400 && err.type === 'invalid_request_error' && String(err.message).startsWith('prompt is too long');
+}
+
+export function apiErrorFields(err) {
+  if (!(err instanceof ApiError)) return null;
+  return { status: err.status, type: err.type, message: err.message, request_id: err.requestId };
+}
+
 export class StreamFault extends Error {
   constructor(message) {
     super(message);

@@ -160,9 +160,9 @@ test('cacheTtl: the last valid value wins, anything but 5m or 1h warns and is ig
   assert.equal(Object.hasOwn((await loadSettings({ files: ['/3.json'] }, fs)).settings, 'cacheTtl'), false);
 });
 
-test('settings model drops one trailing [suffix]', async () => {
+test('settings model keeps its [suffix] for the launch to split into id and window', async () => {
   const { settings } = await loadSettings({ files: ['/1.json'] }, fakeFs({ '/1.json': { model: 'claude-opus-5-5[1m]' } }));
-  assert.equal(settings.model, 'claude-opus-5-5');
+  assert.equal(settings.model, 'claude-opus-5-5[1m]');
 });
 
 test('unknown keys are ignored silently', async () => {

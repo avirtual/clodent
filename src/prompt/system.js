@@ -39,7 +39,7 @@ function instructions(files) {
   return ['# Instructions (AGENTS.md)', ...sections].join('\n\n');
 }
 
-export function buildSystemPrompt(input, deps) {
+export function buildPrompt(input, deps) {
   const { cwd, systemPrompt, systemPromptFile } = input;
   const addDirs = input.addDirs ?? [];
   let base = basePrompt(input.tools);
@@ -48,7 +48,7 @@ export function buildSystemPrompt(input, deps) {
   const appendFiles = (input.appendSystemPromptFile ?? []).map((file) =>
     readPromptFile('--append-system-prompt-file', file, cwd, deps),
   );
-  const { gitRoot, files } = discoverAgentsMd(cwd, deps);
+  const { gitRoot, files, claudeMdOnly } = discoverAgentsMd(cwd, deps);
   const parts = [
     base,
     environment({ cwd, model: input.model, addDirs }, gitRoot, deps),
@@ -56,8 +56,13 @@ export function buildSystemPrompt(input, deps) {
     ...(input.appendSystemPrompt ?? []),
     ...appendFiles,
   ];
-  return parts
+  const text = parts
     .map((part) => part.trimEnd())
     .filter((part) => part !== '')
     .join('\n\n');
+  return { text, instructionFiles: files.map((file) => file.path), claudeMdOnly };
+}
+
+export function buildSystemPrompt(input, deps) {
+  return buildPrompt(input, deps).text;
 }

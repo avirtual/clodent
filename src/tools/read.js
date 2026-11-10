@@ -4,6 +4,22 @@ import { checkInput, describeFsError, fail, isBinary, ok, oneLine, positiveInt }
 
 export const DEFAULT_LIMIT = 2000;
 export const MAX_LINE_CHARS = 2000;
+export const READ_TOKENS_ENV = 'CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS';
+
+export function readTokenCap(env) {
+  const raw = env[READ_TOKENS_ENV];
+  if (raw === undefined) return { tokens: null, warning: null };
+  const tokens = /^[0-9]+$/.test(raw) ? Number(raw) : 0;
+  if (tokens >= 1 && Number.isSafeInteger(tokens)) return { tokens, warning: null };
+  return { tokens: null, warning: `ignoring ${READ_TOKENS_ENV}=${raw}: not a positive integer` };
+}
+
+function overCap(text, maxTokens) {
+  if (maxTokens === null) return null;
+  const estimate = Math.ceil(Buffer.byteLength(text, 'utf8') / 4);
+  if (estimate <= maxTokens) return null;
+  return `File content (~${estimate} tokens) exceeds the Read limit of ${maxTokens} tokens (${READ_TOKENS_ENV}); read part of it with offset and limit`;
+}
 
 function cutLine(line) {
   if (line.length <= MAX_LINE_CHARS) return line;
@@ -12,7 +28,8 @@ function cutLine(line) {
   return `${line.slice(0, end)}…`;
 }
 
-export function createRead() {
+export function createRead(deps = {}) {
+  const maxTokens = deps.readMaxTokens ?? null;
   return {
     name: 'Read',
     kind: 'read',
@@ -56,7 +73,9 @@ export function createRead() {
         return fail(`offset ${offset} is past the end of ${path} (${lines.length} lines)`);
       }
       const shown = lines.slice(offset - 1, offset - 1 + limit);
-      return ok(shown.map((line, i) => `${String(offset + i).padStart(6)}\t${cutLine(line)}`).join('\n'));
+      const text = shown.map((line, i) => `${String(offset + i).padStart(6)}\t${cutLine(line)}`).join('\n');
+      const tooBig = overCap(text, maxTokens);
+      return tooBig ? fail(tooBig) : ok(text);
     },
   };
 }
