@@ -1,4 +1,4 @@
-import { ApiError, apiErrorFields, isPromptTooLong } from '../api/errors.js';
+import { ApiError, apiErrorFields, isPromptTooLong, RETRYABLE_STATUSES } from '../api/errors.js';
 import { buildRequest } from '../api/request.js';
 import { streamMessage } from '../api/stream.js';
 import { emptyOutcome, hookContextBlock, NO_HOOKS } from '../hooks/fire.js';
@@ -327,7 +327,7 @@ export function createAgent(config, deps) {
       }
       const status = err?.status ?? null;
       const tooLong = isPromptTooLong(err);
-      if (status !== null) overflowed = tooLong;
+      if (status !== null && !RETRYABLE_STATUSES.has(status)) overflowed = tooLong;
       emit({
         type: 'error',
         message: err?.message ?? String(err),

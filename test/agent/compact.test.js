@@ -267,19 +267,20 @@ test('with no prompt-too-long as the last error, the summary request sends the w
   }
 });
 
-test('an error without an HTTP status after a prompt-too-long turn keeps the cut, and its error event does not claim the window', async () => {
+test('an error without an HTTP status or with a retried one after a prompt-too-long turn keeps the cut, and its error event does not claim the window', async () => {
   const cases = [
-    ['network error', Array.from({ length: MAX_ATTEMPTS }, () => ({ error: new TypeError('fetch failed') }))],
-    ['error event mid-stream', [{ body: sseError('invalid_request_error', 'bad stream') }]],
+    ['network error', null, Array.from({ length: MAX_ATTEMPTS }, () => ({ error: new TypeError('fetch failed') }))],
+    ['error event mid-stream', null, [{ body: sseError('invalid_request_error', 'bad stream') }]],
+    ['529 on every attempt', 529, Array.from({ length: MAX_ATTEMPTS }, () => ({ status: 529, body: 'busy' }))],
   ];
-  for (const [label, failures] of cases) {
+  for (const [label, status, failures] of cases) {
     const h = harness([reply('one'), tooLong(), ...failures, reply('the summary')]);
     await h.agent.runTurn('first');
     const accepted = h.agent.messages();
     await h.agent.runTurn('huge');
     await h.agent.runTurn('more');
     const error = h.events.findLast((event) => event.type === 'error');
-    assert.deepEqual([error.status, error.contextWindowExceeded], [null, false], label);
+    assert.deepEqual([error.status, error.contextWindowExceeded], [status, false], label);
     assert.equal((await h.agent.compact(MANUAL)).ok, true, label);
     assert.deepEqual(strip(h.bodies().at(-1).messages), [...accepted, { role: 'user', content: [text(COMPACT_PROMPT)] }], label);
   }
