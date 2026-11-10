@@ -470,9 +470,8 @@ function checkRedirect(op, target) {
 
 export function redirectsOutput(command) {
   const tokens = lex(command);
-  return tokens.some(
-    (token, k) => token.type === 'error' || (token.type === 'redir' && !(tokens[k + 1]?.type === 'word' && harmlessRedirect(token.op, tokens[k + 1]))),
-  );
+  if (tokens.some((token) => token.type === 'error')) return command.includes('>');
+  return tokens.some((token, k) => token.type === 'redir' && !(tokens[k + 1]?.type === 'word' && harmlessRedirect(token.op, tokens[k + 1])));
 }
 
 function checkSegment(items, state) {

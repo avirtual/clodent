@@ -111,12 +111,12 @@ test('a path that exists but does not resolve, as a dangling or looping link or 
   }
 });
 
-test('Bash allow: a command only a Bash rule admits asks when it redirects output anywhere but /dev/null or another fd', async () => {
+test('Bash allow: a command only a Bash rule admits asks when it redirects output anywhere but /dev/null or another fd, or has a > the read-only lexer cannot read', async () => {
   const guard = guardOf({ allow: ['Bash(git status:*)', 'Bash(git log:*)'] });
-  for (const command of ['git status > /dev/null', 'git status 2>/dev/null', 'git status < in']) {
+  for (const command of ['git status > /dev/null', 'git status 2>/dev/null', 'git status < in', 'git status $FLAGS']) {
     assert.equal(await bash(guard, command), 'allow Bash(git status:*)', command);
   }
-  for (const command of ['git status > x', 'git status >> x', 'git log > ~/.bashrc', 'git status > $OUT', 'git status && git log > x']) {
+  for (const command of ['git status > x', 'git status >> x', 'git log > ~/.bashrc', 'git status > $OUT', 'git status $FLAGS > x', 'git status && git log > x']) {
     assert.equal(await bash(guard, command), null, command);
   }
 });
