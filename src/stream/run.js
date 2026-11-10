@@ -25,6 +25,7 @@ export async function runStream(ctx, deps) {
   let printed = [];
   let failed = false;
   let spent;
+  let failure = {};
 
   function poke() {
     const resolve = wake;
@@ -196,6 +197,7 @@ export async function runStream(ctx, deps) {
     output.status(null, { compact_result: outcome.ok ? 'success' : 'failed' });
     failed = !outcome.ok;
     spent = outcome.turn?.tokens;
+    failure = { apiError: outcome.apiError, tooLong: outcome.contextWindowExceeded };
     return outcome;
   }
 
@@ -215,11 +217,12 @@ export async function runStream(ctx, deps) {
     printed = [];
     failed = false;
     spent = undefined;
+    failure = {};
     output.beginCommand();
     const verdict = await runCommand(command, commandCtx);
     pendingInterrupt = false;
     if (verdict === 'exit') return 'exit';
-    output.endCommand({ isError: failed || verdict === 'unknown', text: printed.join('\n'), requests: command.name === 'compact' ? 1 : 0, tokens: spent });
+    output.endCommand({ isError: failed || verdict === 'unknown', text: printed.join('\n'), requests: command.name === 'compact' ? 1 : 0, tokens: spent, ...failure });
   }
 
   async function run({ text, empty, command }) {

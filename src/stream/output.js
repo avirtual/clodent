@@ -181,10 +181,10 @@ export function createStreamOutput(ctx, deps) {
       held = [];
       line({ type: 'conversation_reset', new_conversation_id: newId, trigger: 'clear', session_id: sessionId(), uuid: uuid() });
     },
-    endCommand({ isError, text, requests = 0, tokens = NO_TOKENS }) {
+    endCommand({ isError, text, requests = 0, tokens = NO_TOKENS, apiError = null, tooLong = false }) {
       const current = command;
       command = null;
-      result({ isError, text, subtype: 'success', durationMs: Math.round(now() - current.startedAt), requests, tokens });
+      result({ isError, text, subtype: 'success', durationMs: Math.round(now() - current.startedAt), requests, tokens, apiError, tooLong });
     },
     controlRequest(requestId, request) {
       line({ type: 'control_request', request_id: requestId, request });
