@@ -28,7 +28,8 @@ export function hookPaths(settings, { cwd, env = {}, home }) {
     return (name ? (vars[name] ?? '') : (vars.HOME ?? home)) + word.slice(match[0].length);
   };
   const words = hookCommands(settings).flatMap((command) => [...shellWords(command), ...rawWords(command)].map(expand));
-  return [...new Set(words.map((word) => resolve(cwd, word)))];
+  const paths = (named) => [...new Set(words.filter((word) => word.includes('/') === named).map((word) => resolve(cwd, word)))];
+  return { named: paths(true), bare: paths(false) };
 }
 
 const within = (path, dir) => path === dir || path.startsWith(dir.endsWith(sep) ? dir : dir + sep);

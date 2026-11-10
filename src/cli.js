@@ -168,8 +168,9 @@ async function prepare(opts, deps) {
   if (!base.ok) return fail(base.error ?? 'invalid ANTHROPIC_BASE_URL');
   const { id: model, contextWindow } = modelChoice(opts.model ?? settings.model ?? DEFAULT_MODEL);
   const addDirs = extraDirs(opts, settings, cwd);
-  const scope = { dirs: addDirs, protect: hookPaths(settings, { cwd, env, home: rulesHome }) };
-  const guarded = { protect: [...scope.protect, ...settingsFiles], home: rulesHome };
+  const hooks = hookPaths(settings, { cwd, env, home: rulesHome });
+  const scope = { dirs: addDirs, protect: [...hooks.named, ...hooks.bare] };
+  const guarded = { protect: [...hooks.named, ...settingsFiles], protectExisting: hooks.bare, home: rulesHome };
   let prompt;
   try {
     prompt = systemPrompt(opts, model, addDirs, deps, permissions);

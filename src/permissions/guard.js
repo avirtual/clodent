@@ -1,5 +1,5 @@
-import { lstat as fsLstat, readdir as fsReaddir, realpath as fsRealpath } from 'node:fs/promises';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { lstat as fsLstat, readdir as fsReaddir, readlink as fsReadlink, realpath as fsRealpath } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { classifyBash, redirectsOutput, searchesTree } from '../tools/bash-readonly.js';
 import { CLODENT_TOOLS, isProtected, mentionRegExp, pathRegExp, protectedRules, ruleHome, splitPattern } from './rules.js';
 
@@ -31,19 +31,46 @@ export function denialReason(rule, uncertain = false) {
 
 export const uncertainDecision = (list, mode, kind = 'strong') => (list === 'deny' && mode === 'yolo' && kind === 'strong' ? 'deny' : 'ask');
 
-async function realpathDeep(path, realpath, missed = []) {
+const LINK_HOPS = 40;
+
+async function linkTarget(head, rest, fs) {
+  const target = await fs.readlink(head);
+  const base = isAbsolute(target) ? target : `${await fs.realpath(dirname(head))}/${target}`;
+  return [base, ...rest].join('/');
+}
+
+async function deepestReal(path, fs, trace) {
   const rest = [];
-  let head = path;
-  for (;;) {
+  for (let head = path; ; ) {
+    const real = await fs.realpath(head).catch(() => null);
+    if (real !== null) return { real: join(real, ...rest) };
     try {
-      return join(await realpath(head), ...rest);
-    } catch {
-      missed.push(head);
-      const parent = dirname(head);
-      if (parent === head) return path;
-      rest.unshift(basename(head));
-      head = parent;
+      const entry = await fs.lstat(head);
+      trace.unresolved = true;
+      if (entry.isSymbolicLink()) return { link: await linkTarget(head, rest, fs) };
+    } catch (err) {
+      if (!ABSENT.has(err?.code)) {
+        trace.unresolved = trace.uncertain = true;
+        return {};
+      }
     }
+    const parent = dirname(head);
+    if (parent === head) return {};
+    rest.unshift(basename(head));
+    head = parent;
+  }
+}
+
+async function realpathDeep(path, fs, trace = {}) {
+  let current = path;
+  for (let hops = 0; ; hops += 1) {
+    const { real, link } = await deepestReal(current, fs, trace);
+    if (link === undefined) return real ?? current;
+    if (hops === LINK_HOPS) {
+      trace.unresolved = trace.uncertain = true;
+      return current;
+    }
+    current = link;
   }
 }
 
@@ -829,7 +856,7 @@ const prefixOf = (pattern) => splitPattern(pattern).prefix.split('/').filter((se
 const formOf = (regex, mention, pattern) => ({ regex, mention, word: new RegExp(regex.source, 'i'), prefix: prefixOf(pattern) });
 const patternForm = (pattern, home) => formOf(pathRegExp(pattern), mentionRegExp(pattern, home), pattern);
 
-async function resolveForms(rules, realpath, platform) {
+async function resolveForms(rules, fs, platform) {
   const reals = new Map();
   const forms = new Map();
   await Promise.all(
@@ -837,7 +864,7 @@ async function resolveForms(rules, realpath, platform) {
       .filter((rule) => rule.kind === 'path')
       .map(async (rule) => {
         const { prefix, rest } = splitPattern(rule.pattern);
-        if (!reals.has(prefix)) reals.set(prefix, realpathDeep(prefix, realpath));
+        if (!reals.has(prefix)) reals.set(prefix, realpathDeep(prefix, fs));
         const real = await reals.get(prefix);
         const list = [formOf(rule.regex, rule.mention, rule.pattern)];
         if (real !== prefix) list.push(patternForm(rest === '' ? real : join(real, rest), rule.home));
@@ -853,6 +880,7 @@ async function resolveForms(rules, realpath, platform) {
 export function createGuard({ deny = [], ask = [], allow = [] } = {}, deps = {}) {
   const realpath = deps.realpath ?? fsRealpath;
   const lstat = deps.lstat ?? fsLstat;
+  const fs = { realpath, lstat, readlink: deps.readlink ?? fsReadlink };
   const platform = deps.platform ?? process.platform;
   const readdir = deps.readdir ?? fsReaddir;
   const lists = [
@@ -861,8 +889,8 @@ export function createGuard({ deny = [], ask = [], allow = [] } = {}, deps = {})
   ];
   let shields;
   let forms;
-  const shieldsOf = () => (shields ??= protectionOf(deps.protect ?? []));
-  const formsOf = () => (forms ??= shieldsOf().then(({ rules }) => resolveForms([...deny, ...ask, ...allow, ...rules], realpath, platform)));
+  const shieldsOf = () => (shields ??= protectionOf(deps.protect ?? [], deps.protectExisting ?? []));
+  const formsOf = () => (forms ??= shieldsOf().then(({ rules }) => resolveForms([...deny, ...ask, ...allow, ...rules], fs, platform)));
   const spellings = (path) =>
     platform === 'darwin' && path.startsWith(`${DATA_VOLUME}/`) ? [path, path.slice(DATA_VOLUME.length)] : [path];
 
@@ -870,19 +898,25 @@ export function createGuard({ deny = [], ask = [], allow = [] } = {}, deps = {})
     const value = input?.[PATH_FIELDS[tool]] ?? (LISTING_TOOLS.has(tool) ? '.' : undefined);
     if (typeof value !== 'string') return null;
     const lexical = resolve(cwd, value);
-    const missed = [];
-    const real = await realpathDeep(lexical, realpath, missed);
-    const present = (path) => lstat(path).then(() => true, (err) => !ABSENT.has(err?.code));
-    return { lexical, real, unresolved: allow.length > 0 && (await Promise.all(missed.map(present))).some(Boolean) };
+    const trace = {};
+    const real = await realpathDeep(lexical, fs, trace);
+    return { lexical, real, unresolved: trace.unresolved === true, uncertain: trace.uncertain === true };
   }
 
   const rootPaths = (root) => (root ? [...spellings(root.lexical), ...spellings(root.real)] : []);
 
-  async function protectionOf(protect) {
+  const withReal = async (list) => [...new Set([...list, ...(await Promise.all(list.map((file) => realpathDeep(file, fs))))])];
+  const directory = (file) => lstat(file).then((entry) => entry.isDirectory(), () => null);
+
+  async function protectionOf(protect, protectExisting) {
     if (allow.length === 0) return { rules: [], files: [] };
-    const files = [...new Set([...protect, ...(await Promise.all(protect.map((file) => realpathDeep(file, realpath))))])];
-    const kept = await Promise.all(files.map((file) => lstat(file).then((entry) => !entry.isDirectory(), () => false)));
-    return { rules: protectedRules(files.filter((file, i) => kept[i]), deps.home ?? ruleHome(deps.env)), files };
+    const [named, existing] = await Promise.all([withReal(protect), withReal(protectExisting)]);
+    const kept = await Promise.all([
+      ...named.map(async (file) => (await directory(file)) !== true),
+      ...existing.map(async (file) => (await directory(file)) === false),
+    ]);
+    const files = [...named, ...existing];
+    return { rules: protectedRules([...new Set(files.filter((file, i) => kept[i]))], deps.home ?? ruleHome(deps.env)), files: [...new Set(files)] };
   }
 
   async function reachesOf(command, cwd, guarded) {
@@ -910,9 +944,16 @@ export function createGuard({ deny = [], ask = [], allow = [] } = {}, deps = {})
       let classified;
       readOnly = () => (classified ??= classifyBash(command, cwd)).readOnly;
       match = (rules) => bare(rules) ?? (typeof command === 'string' ? bashMatch(rules, command, cwd, readOnly, ruleForms, reaches) : undefined);
-      unsure = (rules) => (typeof command === 'string' ? bashMatch(rules, command, cwd, readOnly, ruleForms, null, RAW) : undefined);
+      unsure = (rules) => {
+        const rule = typeof command === 'string' ? bashMatch(rules, command, cwd, readOnly, ruleForms, null, RAW) : undefined;
+        return rule && { rule, uncertain: true };
+      };
     } else if (Object.hasOwn(PATH_FIELDS, tool)) {
       match = (rules) => bare(rules) ?? pathMatch(rules, tool, paths, ruleForms);
+      unsure = (rules) => {
+        const rule = root?.uncertain ? rules.find((one) => one.kind === 'path' && one.tools.includes(tool)) : undefined;
+        return rule && { rule, reason: `${root.lexical} may resolve to a path ${rule.text} guards: its symlinks could not be followed` };
+      };
     } else {
       match = bare;
     }
@@ -920,7 +961,7 @@ export function createGuard({ deny = [], ask = [], allow = [] } = {}, deps = {})
       const rule = match(rules);
       if (rule) return { rule };
       const raw = unsure(rules);
-      if (raw) return { kind: 'strong', rule: raw, uncertain: true };
+      if (raw) return { kind: 'strong', ...raw };
       for (const kind of reaches ? ['strong', 'weak'] : []) {
         const loose = looseMatch(rules, reaches, ruleForms, readOnly, kind === 'strong');
         if (loose) return { kind, ...loose };
@@ -966,7 +1007,7 @@ export function createGuard({ deny = [], ask = [], allow = [] } = {}, deps = {})
       } catch {
         return false;
       }
-      return entry.isSymbolicLink() && denied(await realpathDeep(path, realpath));
+      return entry.isSymbolicLink() && denied(await realpathDeep(path, fs));
     };
   }
 

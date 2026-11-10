@@ -122,11 +122,11 @@ test('Bash allow: a command only a Bash rule admits asks when it redirects outpu
 });
 
 test('protected paths ask even when an allow rule matches: .git, .clodent and .claude parts, hook scripts and settings files', async () => {
-  const files = ['/work/hooks/pre.sh', '/Users/u/.config/seat-settings.json', '/work/node'];
-  const exists = (path) => files.includes(path) && path !== '/work/node';
+  const files = ['/work/hooks/pre.sh', '/Users/u/.config/seat-settings.json'];
+  const exists = (path) => files.includes(path);
   const lstat = async (path) => (exists(path) ? { isDirectory: () => false } : missing());
   const realpath = async (path) => (exists(path) ? path : missing());
-  const guard = guardOf({ allow: ['Edit', 'Write', 'Bash'] }, { protect: files, lstat, realpath });
+  const guard = guardOf({ allow: ['Edit', 'Write', 'Bash'] }, { protect: files, protectExisting: ['/work/node'], lstat, realpath });
   for (const file of ['.git/config', 'sub/.GIT/hooks/pre-commit', '.clodent/settings.json', '.claude/settings.json', 'hooks/pre.sh', '/Users/u/.config/seat-settings.json']) {
     for (const tool of ['Edit', 'Write']) assert.equal(await verdictOf(guard, tool, { file_path: file }), null, `${tool} ${file}`);
   }
@@ -138,6 +138,16 @@ test('protected paths ask even when an allow rule matches: .git, .clodent and .c
   for (const command of ['rm -rf build', 'node --test test/a.test.js', 'git commit -m "x"', 'git status $(rm x)']) {
     assert.equal(await bash(guard, command), 'allow Bash', command);
   }
+});
+
+test('a hook script named with a / is protected before it exists; a bare word only when it exists as a file', async () => {
+  const kinds = { '/work/hook.js': false, '/work/tools': true };
+  const lstat = async (path) => (Object.hasOwn(kinds, path) ? { isDirectory: () => kinds[path], isSymbolicLink: () => false } : missing());
+  const realpath = async (path) => (Object.hasOwn(kinds, path) || path === '/work' ? path : missing());
+  const protect = ['/work/hooks/later.sh', '/work/tools'];
+  const guard = guardOf({ allow: ['Bash'] }, { protect, protectExisting: ['/work/node', '/work/hook.js'], lstat, realpath });
+  for (const command of ['cp x hooks/later.sh', 'cp x hook.js']) assert.equal(await bash(guard, command), null, command);
+  for (const command of ['node --test test/a.test.js', 'rm -rf tools/build']) assert.equal(await bash(guard, command), 'allow Bash', command);
 });
 
 test('a deny or ask rule wins over an allow rule on the same call; an uncertain deny still asks', async () => {
