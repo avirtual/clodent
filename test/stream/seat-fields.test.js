@@ -112,3 +112,20 @@ test('a /compact whose summary request is also too long ends in a failed result 
   assert.equal(compact.context_window_exceeded, true);
   assert.equal(JSON.stringify(s.fetch.calls[2].body.messages).includes('huge'), false);
 });
+
+test('a /compact after a first prompt that was too long ends in a failed result with context_window_exceeded and no api_error, sending nothing', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  const s = startStream([...STREAM_ARGV, '--session-id', UUID], { home, cwd, replies: [{ status: 400, headers: { 'content-type': 'application/json' }, body: TOO_LONG_BODY }] });
+  s.send(userLine('huge'));
+  await s.until('result');
+  s.send(userLine('/compact'));
+  await s.until('result', 2);
+  s.close();
+  assert.equal(await s.done, 0);
+  const compact = results(s)[1];
+  assert.equal(compact.is_error, true);
+  assert.equal(compact.result, 'clodent: nothing to compact\nclodent: the conversation is too large to summarise; use /clear');
+  assert.equal(compact.context_window_exceeded, true);
+  assert.equal('api_error' in compact, false);
+  assert.equal(s.fetch.calls.length, 1);
+});

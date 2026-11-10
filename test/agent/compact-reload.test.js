@@ -25,6 +25,8 @@ const text = (value) => ({ type: 'text', text: value });
 const reply = (value, usage) => ({ body: sse({ blocks: [{ type: 'text', text: value }], usage }) });
 const use = (name, input, id) => ({ type: 'tool_use', id, name, input });
 const fileBlock = (path, output) => text(`Contents of ${path} at compact time (Read tool output):\n\n${output}`);
+const TOO_LONG_BODY = readFileSync(new URL('../api/fixtures/prompt-too-long.json', import.meta.url), 'utf8').trim();
+const tooLong = () => ({ status: 400, body: TOO_LONG_BODY });
 const pick = (summary, { history = [], count = 5, cwd = '/w' } = {}) => reloadPaths(summary, history, { cwd, count });
 
 function harness(responses, { cwd, permissions, compactReloadFiles = 5, permission = 'yolo', history = HISTORY, tools = [createRead()], context = {}, ask, pre = () => ({}) } = {}) {
@@ -407,4 +409,18 @@ test('an interrupt while files are read stops the remaining reads, and the compa
   assert.deepEqual(h.compacted().reloaded.map((file) => file.path), [join(cwd, 'a.txt')]);
   assert.deepEqual(h.compacted().skipped, [{ path: join(cwd, 'b.txt'), reason: 'interrupted' }]);
   assert.equal(h.agent.messages()[0].content.length, 2);
+});
+
+test('after a tool round that overflowed, the fallback picks only the files the summary request saw, not the Read whose result overflowed', async (t) => {
+  const cwd = await useTempDir(t);
+  await plant(cwd, { 'small.txt': 'small', 'big.txt': 'big' });
+  const small = join(cwd, 'small.txt');
+  const big = join(cwd, 'big.txt');
+  const readOf = (path, id) => ({ body: sse({ blocks: [use('Read', { file_path: path }, id)], stopReason: 'tool_use' }) });
+  const h = harness([readOf(small, 'toolu_1'), reply('done'), readOf(big, 'toolu_2'), tooLong(), reply('A summary with no list.')], { cwd, history: [] });
+  await h.agent.runTurn('first');
+  await h.agent.runTurn('go');
+  assert.equal(h.events.findLast((event) => event.type === 'error').contextWindowExceeded, true);
+  assert.equal((await h.agent.compact(MANUAL)).ok, true);
+  assert.deepEqual(h.compacted().reloaded.map((file) => file.path), [small]);
 });

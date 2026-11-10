@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { COMPACT_PROMPT, SUMMARY_PREFIX } from '../../src/agent/compact.js';
 import { createAgent, INTERRUPTED_RESULT } from '../../src/agent/loop.js';
+import { MAX_ATTEMPTS } from '../../src/api/stream.js';
 import { createLedger } from '../../src/cost/ledger.js';
 import { emptyOutcome } from '../../src/hooks/fire.js';
 import { createFakeFetch } from '../helpers/fake-fetch.js';
@@ -266,11 +267,29 @@ test('with no prompt-too-long as the last error, the summary request sends the w
   }
 });
 
-test('when a prompt-too-long turn was the first, nothing is left to summarise: nothing to compact, no hook, no request', async () => {
+test('an error without an HTTP status after a prompt-too-long turn keeps the cut, and its error event does not claim the window', async () => {
+  const cases = [
+    ['network error', Array.from({ length: MAX_ATTEMPTS }, () => ({ error: new TypeError('fetch failed') }))],
+    ['error event mid-stream', [{ body: sseError('invalid_request_error', 'bad stream') }]],
+  ];
+  for (const [label, failures] of cases) {
+    const h = harness([reply('one'), tooLong(), ...failures, reply('the summary')]);
+    await h.agent.runTurn('first');
+    const accepted = h.agent.messages();
+    await h.agent.runTurn('huge');
+    await h.agent.runTurn('more');
+    const error = h.events.findLast((event) => event.type === 'error');
+    assert.deepEqual([error.status, error.contextWindowExceeded], [null, false], label);
+    assert.equal((await h.agent.compact(MANUAL)).ok, true, label);
+    assert.deepEqual(strip(h.bodies().at(-1).messages), [...accepted, { role: 'user', content: [text(COMPACT_PROMPT)] }], label);
+  }
+});
+
+test('when a prompt-too-long turn was the first, nothing is left to summarise: nothing to compact with contextWindowExceeded, no hook, no request', async () => {
   const h = harness([tooLong()]);
   await h.agent.runTurn('huge');
   const before = h.agent.messages();
-  assert.deepEqual(await h.agent.compact(MANUAL), { ok: false, reason: 'nothing to compact' });
+  assert.deepEqual(await h.agent.compact(MANUAL), { ok: false, reason: 'nothing to compact', contextWindowExceeded: true });
   assert.equal(h.fetch.calls.length, 1);
   assert.equal(h.fired.some(([event]) => event === 'PreCompact'), false);
   assert.deepEqual(h.agent.messages(), before);

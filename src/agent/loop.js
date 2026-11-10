@@ -325,14 +325,16 @@ export function createAgent(config, deps) {
         emit({ type: 'budget_stop', result: err.result });
         return finish('budget', false, stopSignal);
       }
-      overflowed = isPromptTooLong(err);
+      const status = err?.status ?? null;
+      const tooLong = isPromptTooLong(err);
+      if (status !== null) overflowed = tooLong;
       emit({
         type: 'error',
         message: err?.message ?? String(err),
         errorType: err?.type ?? err?.name ?? 'error',
-        status: err?.status ?? null,
+        status,
         apiError: apiErrorFields(err),
-        contextWindowExceeded: overflowed,
+        contextWindowExceeded: tooLong,
       });
       return finish('error', false, stopSignal);
     }
@@ -395,7 +397,7 @@ export function createAgent(config, deps) {
     if (history.length === 0) return { ok: false, reason: NOTHING_TO_COMPACT };
     closeDanglingUses();
     const source = overflowed ? acceptedPart(history, accepted) : history;
-    if (source.length === 0) return { ok: false, reason: NOTHING_TO_COMPACT };
+    if (source.length === 0) return { ok: false, reason: NOTHING_TO_COMPACT, contextWindowExceeded: true };
     await fireHook('PreCompact', { trigger, custom_instructions: instructions ?? '' }, signal);
     if (signal?.aborted) return { ok: false, reason: 'interrupted' };
     const { message, reason, failure } = await summarise(source, instructions, signal);
@@ -408,7 +410,7 @@ export function createAgent(config, deps) {
       return { ok: false, reason: message.stop_reason === 'end_turn' ? 'empty summary' : `stop_reason ${message.stop_reason}`, turn: ledger.endTurn() };
     }
     const { preTokens, postTokens } = compactTokens(message.usage);
-    const { blocks, reloaded, skipped } = await reloadFiles(reloadPaths(summary, history, { cwd: deps.cwd, count: reloadCount }), signal);
+    const { blocks, reloaded, skipped } = await reloadFiles(reloadPaths(summary, source, { cwd: deps.cwd, count: reloadCount }), signal);
     const next = summaryMessage(summary, blocks);
     history.splice(0, history.length, next);
     accept();
