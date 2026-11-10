@@ -15,6 +15,8 @@ for (const [model, usd] of [
   ['claude-sonnet-5-5', 0.0323],
   ['claude-haiku-5-5', 0.00163],
   ['claude-fable-5-1', 0.16075],
+  ['claude-fable-5-2', 0.1286],
+  ['claude-mythos-5-2', 0.1286],
 ]) {
   test(`${model} prices a mixed usage at its row`, () => {
     assert.deepEqual(priceUsage(model, mixed), { usd, tokens: mixedTokens, priced: true });
@@ -86,6 +88,10 @@ test('model ids match exactly, never by prefix or prototype key', () => {
   for (const model of ['claude-opus-5-5-preview', 'claude-opus-5', 'CLAUDE-OPUS-5-5', 'toString', '__proto__']) {
     assert.equal(priceUsage(model, mixed).priced, false, model);
   }
+});
+
+test('a dated id is unpriced even when a priced id is its prefix', () => {
+  assert.equal(priceUsage('claude-fable-5-20260601', mixed).priced, false);
 });
 
 test('deps can supply another price table', () => {

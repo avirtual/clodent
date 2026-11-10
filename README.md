@@ -467,10 +467,12 @@ clodent prices each Messages API response from its `usage` object, against a tab
 | `claude-sonnet-5-5` | 2.00 | 10.00 | 0.10 | 2.50 | 4.00 |
 | `claude-haiku-5-5` | 0.10 | 0.50 | 0.01 | 0.125 | 0.20 |
 | `claude-fable-5-1` | 10.00 | 50.00 | 0.25 | 12.50 | 20.00 |
+| `claude-fable-5-2` | 8.00 | 40.00 | 0.20 | 10.00 | 16.00 |
+| `claude-mythos-5-2` | 8.00 | 40.00 | 0.20 | 10.00 | 16.00 |
 
-Source: wirescope's table (proxy-lab `proxylab/billing.py` `PRICES` at ee3917a, v0.6.85), taken from platform.claude.com pricing read 2026-09/10.
+Source: wirescope's table (proxy-lab `proxylab/billing.py` `PRICES` at fdaf6d2, v0.6.87), taken from platform.claude.com pricing read 2026-09/11.
 
-- Prompt tokens are `input_tokens + cache_read_input_tokens` plus the cache-write tokens. When a `claude-haiku-5-5` request has more than 100,000 prompt tokens, the whole request, output included, is priced at input 0.50, output 2.50, cache read 0.05, cache write 5m 0.625, cache write 1h 1.00.
+- Prompt tokens are `input_tokens + cache_read_input_tokens` plus the cache-write tokens. When a `claude-haiku-5-5` request has more than 100,000 prompt tokens, the whole request, output included, is priced at input 0.50, output 2.50, cache read 0.05, cache write 5m 0.625, cache write 1h 1.00. No other model has a long-context rate: a request with another `[1m]` model is priced at the table's rates at any prompt size.
 - `usage.cache_creation.ephemeral_1h_input_tokens` are priced at the 1h rate. Every other cache-write token is priced at the 5m rate, including all of `cache_creation_input_tokens` when the `cache_creation` breakdown is absent.
 - A missing or null usage field counts as 0. Sums are kept in integer nano-dollars, so they do not drift.
 - A request for a model with no price still counts its tokens, but adds $0.
