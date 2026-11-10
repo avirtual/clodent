@@ -6,6 +6,7 @@ clodent was named clay up to 0.2.0.
 
 - Releases are published to npm from GitHub Actions with npm trusted publishing, so each version carries a provenance attestation.
 - `permissions.allow` in settings and `--allowedTools` now allow matching tool calls without asking: an allow rule never overrides a deny or ask rule, `--read-only` or a hook's decision, a Bash command is allowed only when every command in it matches an allow rule or is read-only, and edits under `.git`, `.clodent` or `.claude` and to hook scripts or settings files still ask.
+- A deny or ask rule now also matches a `Write` or `Edit` through a symlink that points to a path that does not exist yet, and a hook script that does not exist yet is protected from allowed Bash commands.
 
 ## 0.7.0 — 2026-11-10
 
