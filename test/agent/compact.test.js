@@ -200,7 +200,7 @@ test('the compact summary request carries the settled pin on the last real user 
   assert.deepEqual(summary.messages[0].content.at(-1).cache_control, { type: 'ephemeral' });
 });
 
-test('with cacheTtl 1h the compact summary request marks system, tool and settled pin 1h and keeps the tail 5m', async () => {
+test('with cacheTtl 1h the compact summary request marks system, tool, settled pin and tail 1h', async () => {
   const h = harness([reply('one'), reply('the summary')], { cacheTtl: '1h' });
   await h.agent.runTurn('first');
   assert.equal((await h.agent.compact(MANUAL)).ok, true);
@@ -208,7 +208,7 @@ test('with cacheTtl 1h the compact summary request marks system, tool and settle
   const long = { type: 'ephemeral', ttl: '1h' };
   assert.deepEqual(
     [summary.system[0].cache_control, summary.tools[0].cache_control, summary.messages[0].content.at(-1).cache_control, summary.messages[2].content.at(-1).cache_control],
-    [long, long, long, { type: 'ephemeral' }],
+    [long, long, long, long],
   );
   assert.equal(JSON.stringify(summary).match(/"cache_control"/g).length, 4);
 });
