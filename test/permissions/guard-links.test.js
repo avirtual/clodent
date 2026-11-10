@@ -51,9 +51,12 @@ test('a link target with a trailing slash or repeated slashes is followed to the
   const { tmp, link, write } = tree(t);
   link(`${tmp}/work/b/`, 'dir');
   link(`${tmp}//work//b//`, 'twice');
+  link(`${tmp}/work/c\n/`, 'newline');
   link(join(tmp, 'secret/missing'), 'b');
+  link(join(tmp, 'secret/missing'), 'c\n');
   assert.equal(await write('dir/x'), `deny Edit(/${tmp}/secret/**)`);
   assert.equal(await write('twice/x'), `deny Edit(/${tmp}/secret/**)`);
+  assert.equal(await write('newline/x'), `deny Edit(/${tmp}/secret/**)`);
 });
 
 test('an unreadable entry under a symlinked ancestor still resolves the ancestor: a deny rule denies in every mode', async (t) => {
