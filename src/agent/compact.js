@@ -29,6 +29,22 @@ export function compactPrompt(instructions, reloadFiles = 0) {
   return instructions ? `${prompt}\n\nAdditional instructions: ${instructions}` : prompt;
 }
 
+export function historyMark(history) {
+  return { messages: history.length, blocks: history.at(-1)?.content.length ?? 0 };
+}
+
+function hasToolUse(message) {
+  return message?.role === 'assistant' && message.content.some((block) => block.type === 'tool_use');
+}
+
+export function acceptedPart(history, { messages, blocks }) {
+  const kept = history.slice(0, messages);
+  const last = kept.at(-1);
+  if (last && last.content.length > blocks) kept[kept.length - 1] = { ...last, content: last.content.slice(0, blocks) };
+  if (hasToolUse(kept.at(-1))) kept.pop();
+  return kept;
+}
+
 export function compactMessages(history, instructions, reloadFiles = 0) {
   const messages = structuredClone(history);
   appendMessage(messages, 'user', [{ type: 'text', text: compactPrompt(instructions, reloadFiles) }]);

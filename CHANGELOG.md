@@ -12,6 +12,7 @@ clodent was named clay up to 0.2.0.
 - `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS` caps the `Read` tool: a result over that many tokens (UTF-8 bytes / 4) is an error asking for `offset` and `limit`, and the `/compact` reload skips such a file; an invalid value warns once at startup.
 - The stream `init` record lists the included AGENTS.md files as `instruction_files`, and clodent warns once at startup when a `CLAUDE.md` sits where it looks for AGENTS.md and no AGENTS.md was loaded.
 - Every stream `result` carries `unpriced_models`, the session's model ids with no price, once there is one.
+- After a prompt-too-long error, `/compact` leaves what the API did not accept out of its summary request, so it can succeed. When the summary request is too long as well, the compact fails with `clodent: the conversation is too large to summarise; use /clear`, and its stream `result` carries `api_error` and `context_window_exceeded: true`, as a turn's does.
 
 ## 0.6.1 — 2026-11-06
 

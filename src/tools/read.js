@@ -10,7 +10,7 @@ export function readTokenCap(env) {
   const raw = env[READ_TOKENS_ENV];
   if (raw === undefined) return { tokens: null, warning: null };
   const tokens = /^[0-9]+$/.test(raw) ? Number(raw) : 0;
-  if (tokens >= 1 && Number.isSafeInteger(tokens)) return { tokens, warning: null };
+  if (tokens >= 1) return { tokens, warning: null };
   return { tokens: null, warning: `ignoring ${READ_TOKENS_ENV}=${raw}: not a positive integer` };
 }
 

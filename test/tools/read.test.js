@@ -114,7 +114,8 @@ test('with a token cap, a result over ceil(bytes / 4) tokens is an error and one
 test('readTokenCap takes a positive integer; any other value warns and leaves the cap off; unset is off', () => {
   assert.deepEqual(readTokenCap({ CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS: '25000' }), { tokens: 25000, warning: null });
   assert.deepEqual(readTokenCap({}), { tokens: null, warning: null });
-  for (const raw of ['0', '-1', '1.5', '1e3', ' 5', 'abc', '', '99999999999999999999']) {
+  assert.deepEqual(readTokenCap({ CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS: '99999999999999999999' }), { tokens: 1e20, warning: null });
+  for (const raw of ['0', '-1', '1.5', '1e3', ' 5', 'abc', '']) {
     assert.deepEqual(readTokenCap({ CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS: raw }), {
       tokens: null,
       warning: `ignoring CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS=${raw}: not a positive integer`,

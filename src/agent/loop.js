@@ -3,7 +3,7 @@ import { buildRequest } from '../api/request.js';
 import { streamMessage } from '../api/stream.js';
 import { emptyOutcome, hookContextBlock, NO_HOOKS } from '../hooks/fire.js';
 import { denialReason, OPEN_GUARD } from '../permissions/guard.js';
-import { COMPACT_TOOL_CHOICE, compactMessages, compactTokens, NOTHING_TO_COMPACT, RELOAD_BUDGET_BYTES, reloadBlock, reloadPaths, summaryMessage, summaryOf } from './compact.js';
+import { acceptedPart, COMPACT_TOOL_CHOICE, compactMessages, compactTokens, historyMark, NOTHING_TO_COMPACT, RELOAD_BUDGET_BYTES, reloadBlock, reloadPaths, summaryMessage, summaryOf } from './compact.js';
 import { appendMessage } from './history.js';
 import { ASK_DENIAL, asksInMode, decide } from './permission.js';
 
@@ -26,6 +26,12 @@ class BudgetStop extends Error {
 
 function isMidStreamRetryable(err) {
   return err instanceof ApiError && err.status === null && MID_STREAM_RETRYABLE.has(err.type);
+}
+
+function failureFields(err) {
+  const apiError = apiErrorFields(err);
+  if (!apiError) return {};
+  return isPromptTooLong(err) ? { apiError, contextWindowExceeded: true } : { apiError };
 }
 
 function definition({ name, description, input_schema }) {
@@ -51,6 +57,8 @@ export function createAgent(config, deps) {
   const history = structuredClone(config.history ?? []);
   let interruptedBefore = config.interrupted ?? false;
   let heldContext = [];
+  let accepted = historyMark(history);
+  let overflowed = false;
 
   function syncTools() {
     if (!toolset) return [];
@@ -70,6 +78,11 @@ export function createAgent(config, deps) {
   function append(role, blocks, kind, meta = {}) {
     appendMessage(history, role, blocks);
     emit({ type: 'message_append', role, content: blocks, kind, meta });
+  }
+
+  function accept() {
+    accepted = historyMark(history);
+    overflowed = false;
   }
 
   async function fireHook(event, extra, signal) {
@@ -99,7 +112,10 @@ export function createAgent(config, deps) {
   }
 
   async function interrupt(partial, stopSignal) {
-    if (partial.length > 0) append('assistant', partial.map((block) => ({ ...block })), 'partial');
+    if (partial.length > 0) {
+      append('assistant', partial.map((block) => ({ ...block })), 'partial');
+      accept();
+    }
     interruptedBefore = true;
     emit({ type: 'interrupted' });
     return finish('interrupted', false, stopSignal);
@@ -280,6 +296,7 @@ export function createAgent(config, deps) {
         const { message, requestId, durationMs, cost } = await request(signal, partial);
         partial.length = 0;
         append('assistant', message.content, 'assistant', { message, requestId, durationMs, usd: cost.usd });
+        accept();
         emit({ type: 'assistant_message', message, requestId, durationMs, usd: cost.usd, priced: cost.priced });
         const stop = message.stop_reason;
         const uses = message.content.filter((block) => block.type === 'tool_use');
@@ -308,13 +325,14 @@ export function createAgent(config, deps) {
         emit({ type: 'budget_stop', result: err.result });
         return finish('budget', false, stopSignal);
       }
+      overflowed = isPromptTooLong(err);
       emit({
         type: 'error',
         message: err?.message ?? String(err),
         errorType: err?.type ?? err?.name ?? 'error',
         status: err?.status ?? null,
         apiError: apiErrorFields(err),
-        contextWindowExceeded: isPromptTooLong(err),
+        contextWindowExceeded: overflowed,
       });
       return finish('error', false, stopSignal);
     }
@@ -326,13 +344,13 @@ export function createAgent(config, deps) {
     return outcome;
   }
 
-  async function summarise(instructions, signal) {
+  async function summarise(source, instructions, signal) {
     try {
-      const { message } = await request(signal, [], { messages: compactMessages(history, instructions, reloadCount), toolChoice: COMPACT_TOOL_CHOICE, quiet: true });
+      const { message } = await request(signal, [], { messages: compactMessages(source, instructions, reloadCount), toolChoice: COMPACT_TOOL_CHOICE, quiet: true });
       return { message };
     } catch (err) {
       if (signal?.aborted) return { reason: 'interrupted' };
-      if (!(err instanceof BudgetStop)) return { reason: err?.message ?? String(err) };
+      if (!(err instanceof BudgetStop)) return { reason: err?.message ?? String(err), failure: failureFields(err) };
       emit({ type: 'budget_stop', result: err.result });
       return { reason: 'budget' };
     }
@@ -376,12 +394,14 @@ export function createAgent(config, deps) {
   async function compact({ instructions, trigger } = {}, { signal } = {}) {
     if (history.length === 0) return { ok: false, reason: NOTHING_TO_COMPACT };
     closeDanglingUses();
+    const source = overflowed ? acceptedPart(history, accepted) : history;
+    if (source.length === 0) return { ok: false, reason: NOTHING_TO_COMPACT };
     await fireHook('PreCompact', { trigger, custom_instructions: instructions ?? '' }, signal);
     if (signal?.aborted) return { ok: false, reason: 'interrupted' };
-    const { message, reason } = await summarise(instructions, signal);
+    const { message, reason, failure } = await summarise(source, instructions, signal);
     if (!message) {
       const turn = ledger.endTurn();
-      return turn.requests > 0 ? { ok: false, reason, turn } : { ok: false, reason };
+      return { ok: false, reason, ...(turn.requests > 0 ? { turn } : {}), ...failure };
     }
     const summary = summaryOf(message);
     if (message.stop_reason !== 'end_turn' || summary.trim() === '') {
@@ -391,6 +411,7 @@ export function createAgent(config, deps) {
     const { blocks, reloaded, skipped } = await reloadFiles(reloadPaths(summary, history, { cwd: deps.cwd, count: reloadCount }), signal);
     const next = summaryMessage(summary, blocks);
     history.splice(0, history.length, next);
+    accept();
     interruptedBefore = false;
     const turn = ledger.endTurn();
     emit({ type: 'compacted', trigger, summary, message: structuredClone(next), reloaded, skipped, preTokens, postTokens, turn });

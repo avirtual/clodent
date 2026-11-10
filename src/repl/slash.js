@@ -4,6 +4,8 @@ import { isTyped } from './editor.js';
 
 const NAME = /^\/[a-z]+$/;
 
+export const TOO_LARGE_TO_SUMMARISE = 'clodent: the conversation is too large to summarise; use /clear';
+
 export const HELP = Object.freeze([
   '/help              list these commands',
   '/cost              print the session cost so far',
@@ -26,6 +28,7 @@ const COMMANDS = {
     const result = await ctx.compact(argText);
     if (result.ok) return;
     ctx.print(result.reason === NOTHING_TO_COMPACT ? `clodent: ${NOTHING_TO_COMPACT}` : `clodent: compact failed: ${result.reason}`);
+    if (result.contextWindowExceeded) ctx.print(TOO_LARGE_TO_SUMMARISE);
   },
   clear(ctx) {
     return ctx.clear();
