@@ -277,7 +277,7 @@ test('when a prompt-too-long turn was the first, nothing is left to summarise: n
 });
 
 test('a prompt-too-long prompt merged into the summary message is cut back to the summary blocks', async () => {
-  const h = harness([reply('one'), reply('sum'), tooLong(), reply('sum2')]);
+  const h = harness([{ body: sse({ blocks: [text('one'), text('two')] }) }, reply('sum'), tooLong(), reply('sum2')]);
   await h.agent.runTurn('first');
   assert.equal((await h.agent.compact(MANUAL)).ok, true);
   await h.agent.runTurn('huge');
