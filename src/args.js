@@ -21,7 +21,7 @@ export const FLAGS = [
   { long: 'message-cache-ttl', key: 'messageCacheTtl', arg: 'ttl', check: checkMessageCacheTtl, help: 'prompt-cache lifetime for the conversation breakpoints: 5m or 1h (default: --cache-ttl)' },
   { long: 'budget', key: 'budgetUsd', arg: 'usd', check: checkBudget, help: 'stop before the session spends more than this many US dollars' },
   { long: 'yolo', key: 'yolo', value: true, mode: 'yolo', help: 'run every tool without asking' },
-  { long: 'read-only', key: 'readOnly', value: true, mode: 'read-only', help: 'refuse write tools and any Bash command that is not read-only' },
+  { long: 'read-only', key: 'readOnly', value: true, mode: 'read-only', help: 'refuse write tools, WebSearch, WebFetch and any Bash command that is not read-only' },
   { long: 'dangerously-skip-permissions', key: 'skipPermissions', value: true, mode: 'yolo', help: 'same as --yolo' },
   { long: 'permission-mode', key: 'permissionMode', arg: 'mode', check: checkPermissionMode, help: 'default (ask), plan (--read-only), acceptEdits (run edits without asking) or bypassPermissions (--yolo)' },
   { long: 'disallowedTools', alias: 'disallowed-tools', key: 'disallowedTools', arg: 'list', repeat: true, help: 'deny these tools or permission rules, separated by commas or spaces (repeatable)' },

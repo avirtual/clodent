@@ -136,8 +136,9 @@ async function prepare(opts, deps) {
     stderr.write(`clodent: ${err.message}\n`);
     return { code: 2 };
   }
+  const flagWarnings = [];
   const fail = (message) => {
-    for (const warning of loaded.warnings) stderr.write(`clodent: ${warning}\n`);
+    for (const warning of [...loaded.warnings, ...flagWarnings]) stderr.write(`clodent: ${warning}\n`);
     stderr.write(`clodent: ${message}\n`);
     return { code: 2 };
   };
@@ -154,7 +155,6 @@ async function prepare(opts, deps) {
   if (disallowed.error) return fail(disallowed.error);
   const allowed = fromFlag('allowedTools');
   if (allowed.error) return fail(allowed.error);
-  const flagWarnings = [];
   const settingsFiles = [join(home(deps), 'settings.json'), ...files];
   const builtins = builtinDenies(settingsFiles, rulesHome);
   const permissions = {

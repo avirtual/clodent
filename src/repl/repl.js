@@ -1,5 +1,5 @@
-import { INTERRUPTED_RESULT, USER_DENIAL } from '../agent/loop.js';
-import { visible } from '../render/terminal.js';
+import { USER_DENIAL } from '../agent/loop.js';
+import { INTERRUPTED_RESULT, visible } from '../text.js';
 import { createEditor, isBlank, isTyped, lineCount } from './editor.js';
 import { createKeyParser } from './keys.js';
 import { parseCommand, runCommand } from './slash.js';

@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { INTERRUPTED_RESULT, USER_DENIAL } from '../agent/loop.js';
+import { USER_DENIAL } from '../agent/loop.js';
 import { CLOSED_DENIAL } from '../repl/repl.js';
 import { parseCommand, runCommand } from '../repl/slash.js';
+import { INTERRUPTED_RESULT } from '../text.js';
 import { lineSplitter, parseLine } from './input.js';
 
 const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];

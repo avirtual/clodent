@@ -978,7 +978,7 @@ export function createGuard({ deny = [], ask = [], allow = [] } = {}, deps = {})
 
   // An allow rule needs both paths and every command, so whatever is uncertain falls back to asking.
   function allowedBy(tool, input, cwd, root, ruleForms, shielded, files) {
-    const bare = allow.find((rule) => rule.kind === 'tool' && rule.tool === tool);
+    const bare = allow.find((rule) => rule.kind === 'tool' && rule.tool === tool && !rule.scoped);
     if (tool === 'Bash') {
       const command = input?.command;
       if (typeof command !== 'string') return null;

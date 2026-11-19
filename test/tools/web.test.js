@@ -2,18 +2,18 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createAgent, INTERRUPTED_RESULT } from '../../src/agent/loop.js';
+import { createAgent } from '../../src/agent/loop.js';
 import { ASK_DENIAL } from '../../src/agent/permission.js';
 import { streamMessage } from '../../src/api/stream.js';
 import { createLedger } from '../../src/cost/ledger.js';
 import { emptyOutcome } from '../../src/hooks/fire.js';
 import { createGuard } from '../../src/permissions/guard.js';
 import { CLODENT_TOOLS, parseRules } from '../../src/permissions/rules.js';
-import { visible } from '../../src/render/terminal.js';
 import { loadTranscript } from '../../src/session/load.js';
 import { createRecorder } from '../../src/session/recorder.js';
 import { createTranscript } from '../../src/session/transcript.js';
 import { loadSettings } from '../../src/settings/load.js';
+import { INTERRUPTED_RESULT, visible } from '../../src/text.js';
 import { createTools } from '../../src/tools/index.js';
 import {
   createWebFetch,
@@ -92,7 +92,7 @@ test('WebSearch and WebFetch are built-in exec tools that rules can name, after 
   assert.deepEqual(CLODENT_TOOLS.slice(-2), ['WebSearch', 'WebFetch']);
 });
 
-test('WebSearch sends one sub-request on the main wire: Sonnet, both server tools, adaptive thinking, no cache_control, output_config or metadata', async () => {
+test('WebSearch sends one sub-request on the main wire: Sonnet, both server tools, adaptive thinking, no cache_control, output_config or metadata, and streams nothing to the renderer', async () => {
   const h = harness('WebSearch', { query: QUERY }, [web('web-search.sse')]);
   assert.deepEqual(await h.run(), { stopReason: 'end_turn', ok: true });
   assert.equal(h.calls.length, 3);
@@ -296,14 +296,18 @@ test('with no citations, the sources are the first 10 search and fetch result ur
   assert.deepEqual(sources(h.result().content), [`- ${page.content.title} — ${PAGE}`]);
 });
 
-test('an answer with no text is an is_error result', async () => {
-  assert.equal(formatAnswer([]).isError, true);
-  assert.equal(formatAnswer([{ type: 'server_tool_use', id: 's', name: 'web_search', input: {} }, { type: 'text', text: '  \n' }]).isError, true);
-  const empty = { body: sse({ blocks: [{ type: 'thinking', thinking: 'hm', signature: 'sig' }], usage: USAGE }) };
-  const h = harness('WebSearch', { query: QUERY }, [empty]);
-  await h.run();
-  assert.equal(h.result().isError, true);
-  assert.match(h.result().content, /no answer/);
+test('an answer with no text is an is_error result that is exactly the no-answer line, even when cut short', async () => {
+  const NO_ANSWER = { content: 'the web request returned no answer', isError: true };
+  assert.deepEqual(formatAnswer([]), NO_ANSWER);
+  assert.deepEqual(formatAnswer([{ type: 'server_tool_use', id: 's', name: 'web_search', input: {} }, { type: 'text', text: '  \n' }]), NO_ANSWER);
+  assert.deepEqual(formatAnswer([], MAX_TOKENS_NOTE), NO_ANSWER);
+  assert.deepEqual(formatAnswer([], PAUSE_CUT_NOTE), NO_ANSWER);
+  const thinking = [{ type: 'thinking', thinking: 'hm', signature: 'sig' }];
+  for (const stopReason of ['end_turn', 'max_tokens']) {
+    const h = harness('WebSearch', { query: QUERY }, [{ body: sse({ blocks: thinking, stopReason, usage: USAGE }) }]);
+    await h.run();
+    assert.deepEqual({ content: h.result().content, isError: h.result().isError }, NO_ANSWER, stopReason);
+  }
 });
 
 test('an API error is an is_error result carrying the sanitised message', async () => {
@@ -408,6 +412,15 @@ test('an allow rule with a specifier on a web tool is dropped with a warning; a 
   const allowed = await runMain(['-p', 'go', '--allowedTools', 'WebSearch'], { home, cwd, responses: [useReply('WebSearch', { query: QUERY }), web('web-search.sse'), doneReply()] });
   assert.equal(allowed.calls.length, 3);
   assert.equal(allowed.calls[1].body.model, DEFAULT_WEB_MODEL);
+});
+
+test('a scoped --allowedTools warning still prints when a later startup error exits 2, after the settings warnings', async (t) => {
+  const home = await useTempDir(t);
+  const cwd = await useTempDir(t);
+  const settings = writeSettings(home, { env: { ANTHROPIC_API_KEY: 123 } });
+  const res = await runMain(['-p', 'go', '--allowedTools', 'WebFetch(domain:example.com)'], { home, cwd, key: '' });
+  assert.deepEqual([res.code, res.stdout, res.calls.length], [2, '', 0]);
+  assert.equal(res.stderr, `clodent: settings ${settings}: env.ANTHROPIC_API_KEY is not a string; dropped\nclodent: ${SCOPED_ALLOW}\nclodent: ANTHROPIC_API_KEY is not set\n`);
 });
 
 test('PreToolUse updatedInput reaches the sub-request, and PostToolUse sees the result', async () => {

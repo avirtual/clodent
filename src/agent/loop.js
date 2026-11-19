@@ -4,12 +4,12 @@ import { streamMessage } from '../api/stream.js';
 import { formatBudgetStop } from '../cost/format.js';
 import { emptyOutcome, hookContextBlock, NO_HOOKS } from '../hooks/fire.js';
 import { denialReason, OPEN_GUARD } from '../permissions/guard.js';
+import { INTERRUPTED_RESULT } from '../text.js';
 import { acceptedPart, COMPACT_TOOL_CHOICE, compactMessages, compactTokens, historyMark, NOTHING_TO_COMPACT, RELOAD_BUDGET_BYTES, reloadBlock, reloadPaths, summaryMessage, summaryOf } from './compact.js';
 import { appendMessage } from './history.js';
 import { ASK_DENIAL, asksInMode, decide } from './permission.js';
 
 export const INTERRUPT_MARKER = '[clodent: previous turn interrupted by the user]';
-export const INTERRUPTED_RESULT = 'interrupted by user';
 export const USER_DENIAL = 'denied by the user';
 export const MID_STREAM_DELAYS_MS = Object.freeze([2000, 4000]);
 const MID_STREAM_RETRYABLE = new Set(['overloaded_error', 'api_error']);
