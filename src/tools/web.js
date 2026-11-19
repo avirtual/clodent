@@ -1,6 +1,5 @@
 import { appendMessage } from '../agent/history.js';
-import { INTERRUPTED_RESULT } from '../agent/loop.js';
-import { visible } from '../render/terminal.js';
+import { INTERRUPTED_RESULT, visible } from '../text.js';
 import { fail, ok, oneLine } from './util.js';
 
 export const DEFAULT_WEB_MODEL = 'claude-sonnet-5-5';
@@ -84,7 +83,7 @@ export function formatAnswer(content, note = null) {
     .filter((block) => block.type === 'text')
     .map((block) => block.text ?? '')
     .join('');
-  if (text.trim() === '') return fail(note ? `the web request returned no answer ${note}` : 'the web request returned no answer');
+  if (text.trim() === '') return fail('the web request returned no answer');
   const cited = citedSources(content);
   const sources = cited.size > 0 ? cited : resultSources(content);
   const parts = [UNTRUSTED_HEADER, text];

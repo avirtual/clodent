@@ -195,6 +195,15 @@ test('bare tool rules: Edit allows Edit only, an exact Clodex tool name allows t
   assert.equal(guardOf({ allow: ['Bash(ls:*)'] }).active, true);
 });
 
+test('a scoped web rule handed straight to the guard never allows; as a deny or ask rule it is the bare rule', async () => {
+  const fetch = { url: 'https://example.com/', prompt: 'x' };
+  assert.equal(await verdictOf(guardOf({ allow: ['WebFetch(domain:example.com)'] }), 'WebFetch', fetch), null);
+  assert.equal(await verdictOf(guardOf({ allow: ['WebSearch(news)'] }), 'WebSearch', { query: 'news' }), null);
+  assert.equal(await verdictOf(guardOf({ allow: ['WebFetch'] }), 'WebFetch', fetch), 'allow WebFetch');
+  assert.equal(await verdictOf(guardOf({ deny: ['WebFetch(domain:other.org)'], allow: ['WebFetch'] }), 'WebFetch', fetch), 'deny WebFetch(domain:other.org)');
+  assert.equal(await verdictOf(guardOf({ ask: ['WebSearch(news)'], allow: ['WebSearch'] }), 'WebSearch', { query: 'weather' }), 'ask WebSearch(news)');
+});
+
 test('allow rules leave the Grep and Glob listing filters as the deny and ask rules make them', async () => {
   const guard = guardOf({ deny: ['Read(./secret)'], allow: ['Read(./**)', 'Grep(./**)'] });
   const { ruled, hidden, approved } = await guard.screen('Grep', { pattern: 'x', path: '.' }, '/work', 'ask');

@@ -1,12 +1,8 @@
 import { formatBudgetStop, formatCost, formatTotal, formatUnpriced } from '../cost/format.js';
+import { visible } from '../text.js';
 
 const STYLES = { dim: 2, red: 31, yellow: 33 };
-const LINE_CONTROLS = /[\u0000-\u001f\u007f-\u009f]/g;
 const TEXT_CONTROLS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
-
-export function visible(text, controls = LINE_CONTROLS) {
-  return String(text ?? '').replace(controls, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
-}
 
 function paint(stream, style, text) {
   return stream.isTTY && style ? `\x1b[${STYLES[style]}m${text}\x1b[0m` : text;

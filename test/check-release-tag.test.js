@@ -51,11 +51,11 @@ async function check(argv, { version = '0.7.0', changelog = CHANGELOG, readme = 
   return { code, stdout, stderr };
 }
 
-test('a tag matching package.json version with a CHANGELOG heading passes', async () => {
+test('a tag matching package.json version, a CHANGELOG heading and the README lines passes with one stdout line', async () => {
   const r = await check(['v0.7.0']);
   assert.equal(r.code, 0);
   assert.equal(r.stderr, '');
-  assert.match(r.stdout, /v0\.7\.0/);
+  assert.equal(r.stdout, 'check-release-tag: v0.7.0 matches package.json, CHANGELOG.md and README.md\n');
 });
 
 test('a heading that is exactly ## <version> passes', async () => {
@@ -86,10 +86,12 @@ test('a heading for a longer version with the same prefix does not match', async
   assert.equal(r.stderr, 'check-release-tag: CHANGELOG.md has no "## 0.7.0" heading\n');
 });
 
-test('a README with the --version line and the Contract sentence for the version passes', async () => {
-  const r = await check(['v0.7.0']);
-  assert.equal(r.code, 0);
-  assert.equal(r.stdout, 'check-release-tag: v0.7.0 matches package.json, CHANGELOG.md and README.md\n');
+test('a README --version line for a longer version with the same prefix does not match', async () => {
+  const readme = readmeFor('0.7.0').replace('# clodent 0.7.0', '# clodent 0.7.01');
+  const r = await check(['v0.7.0'], { readme });
+  assert.equal(r.code, 1);
+  assert.equal(r.stdout, '');
+  assert.equal(r.stderr, 'check-release-tag: README.md has no line "clodent --version   # clodent 0.7.0"\n');
 });
 
 test('a README whose --version line names another version fails', async () => {

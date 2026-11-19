@@ -242,7 +242,7 @@ test('--session-id with --resume needs --fork-session', () => {
 });
 
 test('the --read-only help says only Bash commands that are not read-only are refused', () => {
-  assert.equal(FLAGS.find((f) => f.long === 'read-only').help, 'refuse write tools and any Bash command that is not read-only');
+  assert.equal(FLAGS.find((f) => f.long === 'read-only').help, 'refuse write tools, WebSearch, WebFetch and any Bash command that is not read-only');
 });
 
 test('a UUID-shaped --resume is lowercased and any other id is kept as given', () => {
