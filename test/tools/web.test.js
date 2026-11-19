@@ -115,7 +115,9 @@ test('WebSearch sends one sub-request on the main wire: Sonnet, both server tool
     stream: true,
   });
   assert.doesNotMatch(JSON.stringify(sub.body), /cache_control/);
-  assert.equal(h.of('text_delta').some((event) => /Node\.js 22 LTS build/.test(event.text)), false);
+  assert.equal(h.of('text_delta').map((event) => event.text).join(''), 'done');
+  assert.deepEqual(h.of('thinking_delta'), []);
+  assert.equal(h.of('request_start').length, 2);
 });
 
 test('allowed_domains or blocked_domains reach both server tools', async () => {
