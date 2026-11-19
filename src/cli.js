@@ -25,7 +25,7 @@ import { gitBranch } from './session/git-branch.js';
 import { createRecorder } from './session/recorder.js';
 import { toolEnv } from './tools/env.js';
 import { createClodexToolset } from './tools/clodex.js';
-import { createTools } from './tools/index.js';
+import { createTools, listTools } from './tools/index.js';
 import { readTokenCap } from './tools/read.js';
 
 export const NOT_YET = new Set([]);
@@ -395,6 +395,10 @@ export async function main(argv, deps) {
   }
   if (opts.version) {
     deps.stdout.write(`clodent ${version()}\n`);
+    return 0;
+  }
+  if (opts.listTools) {
+    deps.stdout.write(`${JSON.stringify({ v: 1, version: version(), tools: listTools() })}\n`);
     return 0;
   }
   const pending = givenFlags(opts).filter((name) => NOT_YET.has(name));

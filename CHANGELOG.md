@@ -2,6 +2,10 @@
 
 clodent was named clay up to 0.2.0.
 
+## Unreleased
+
+- `clodent --list-tools` prints the built-in tools (name, kind, description, input schema) as one JSON line, so a host can learn new tools without its own update.
+
 ## 0.9.0 — 2026-11-20
 
 - New WebSearch and WebFetch tools look things up on the web through a separate Messages API request (model `webModel`, default Sonnet), returning a sourced summary; clodent asks before each call unless `--yolo` or an allow rule says otherwise.

@@ -32,3 +32,7 @@ export function createTools(deps = {}) {
     createWebFetch(deps),
   ].map(guarded);
 }
+
+export function listTools() {
+  return createTools().map(({ name, kind, description, input_schema }) => ({ name, kind, description, input_schema }));
+}
