@@ -14,6 +14,8 @@ export const PRICES = Object.freeze({
   'claude-mythos-5-2': row(8.0, 40.0, 0.2, 10.0, 16.0),
 });
 
+export const WEB_SEARCH_USD = 0.01;
+
 export const PROMPT_TIERS = Object.freeze({
   'claude-haiku-5-5': Object.freeze({
     aboveTokens: 100000,

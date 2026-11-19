@@ -12,7 +12,7 @@ test('splitRuleList splits on commas and whitespace outside parentheses and drop
 });
 
 test('flagRules parses each entry as a settings deny rule, ignoring foreign names', () => {
-  const rules = flagRules(['Bash(git push:*) WebFetch', 'Read(~/x),mcp__a__b', 'Edit(./out) Write(/rel)'], WHERE);
+  const rules = flagRules(['Bash(git push:*) NotebookEdit', 'Read(~/x),mcp__a__b', 'Edit(./out) Write(/rel)'], WHERE);
   assert.deepEqual(rules.map((r) => r.text), ['Bash(git push:*)', 'Read(~/x)', 'Edit(./out)', 'Write(/rel)']);
   assert.deepEqual(rules.filter((r) => r.kind === 'path').map((r) => r.pattern), ['/Users/u/x', '/w/out', '/w/rel']);
   assert.deepEqual(flagRules([], WHERE), []);

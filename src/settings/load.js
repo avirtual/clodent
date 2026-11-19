@@ -4,7 +4,7 @@ import { MAX_RELOAD_FILES } from '../agent/compact.js';
 import { CACHE_TTLS, EFFORTS } from '../api/request.js';
 import { HOOK_CONTEXT_DEFAULTS, HOOK_CONTEXT_MAX_BYTES, HOOK_CONTEXT_MIN_BYTES } from '../hooks/context-cap.js';
 import { HOOK_EVENTS } from '../hooks/run.js';
-import { parseRules, RuleError, ruleHome } from '../permissions/rules.js';
+import { allowRules, parseRules, RuleError, ruleHome } from '../permissions/rules.js';
 import { sandboxGuard } from './sandbox.js';
 
 const ON_FAILURE = Object.freeze(['block', 'warn']);
@@ -125,12 +125,12 @@ function mergeDirs(acc, dirs, name, warn) {
   });
 }
 
-function mergeGuard(acc, source, where, warn) {
+function mergeGuard(acc, source, where, warn, note) {
   if (source.permissions !== undefined) {
     if (!isObject(source.permissions)) throw new RuleError('permissions is not an object');
     acc.deny.push(...parseRules(source.permissions.deny, 'permissions.deny', where));
     acc.ask.push(...parseRules(source.permissions.ask, 'permissions.ask', where));
-    acc.allow.push(...parseRules(source.permissions.allow, 'permissions.allow', where));
+    acc.allow.push(...allowRules(parseRules(source.permissions.allow, 'permissions.allow', where), note));
   }
   const sandbox = sandboxGuard(source.sandbox, where, warn);
   acc.deny.push(...sandbox.deny);
@@ -191,6 +191,10 @@ function mergeSource(acc, source, warn) {
     if (typeof source.model === 'string' && source.model !== '') acc.model = source.model;
     else warn('model is not a non-empty string; ignored');
   }
+  if (source.webModel !== undefined) {
+    if (typeof source.webModel === 'string' && source.webModel !== '') acc.webModel = source.webModel;
+    else warn('webModel is not a non-empty string; ignored');
+  }
 }
 
 export async function loadSettings({ clodentHome, files = [], cwd = process.cwd(), home = ruleHome(process.env) } = {}, deps = {}) {
@@ -198,14 +202,14 @@ export async function loadSettings({ clodentHome, files = [], cwd = process.cwd(
   const sources = [];
   if (clodentHome) sources.push({ path: join(clodentHome, 'settings.json'), optional: true });
   for (const path of files) sources.push({ path, optional: false });
-  const acc = { hooks: new Map(), statusLine: null, env: new Map(), extraDirs: new Set(), effortLevel: null, cacheTtl: null, messageCacheTtl: null, model: null, compactReloadFiles: null, hookContextMaxBytes: null, deny: [], ask: [], allow: [], envDeny: new Set() };
+  const acc = { hooks: new Map(), statusLine: null, env: new Map(), extraDirs: new Set(), effortLevel: null, cacheTtl: null, messageCacheTtl: null, model: null, webModel: null, compactReloadFiles: null, hookContextMaxBytes: null, deny: [], ask: [], allow: [], envDeny: new Set() };
   const warnings = [];
   for (const { path, optional } of sources) {
     const source = await readSource(path, optional, readFile);
     if (!source) continue;
     const warn = (message) => warnings.push(`settings ${path}: ${message}`);
     try {
-      mergeGuard(acc, source, { file: path, cwd, home }, warn);
+      mergeGuard(acc, source, { file: path, cwd, home }, warn, (message) => warnings.push(message));
     } catch (err) {
       if (err instanceof RuleError) throw new Error(`settings ${path}: ${err.message}`);
       throw err;
@@ -224,6 +228,7 @@ export async function loadSettings({ clodentHome, files = [], cwd = process.cwd(
   if (acc.cacheTtl) settings.cacheTtl = acc.cacheTtl;
   if (acc.messageCacheTtl) settings.messageCacheTtl = acc.messageCacheTtl;
   if (acc.model) settings.model = acc.model;
+  if (acc.webModel) settings.webModel = acc.webModel;
   if (acc.compactReloadFiles !== null) settings.compactReloadFiles = acc.compactReloadFiles;
   if (acc.hookContextMaxBytes !== null) settings.hookContextMaxBytes = acc.hookContextMaxBytes;
   if (acc.deny.length > 0 || acc.ask.length > 0 || acc.allow.length > 0) settings.permissions = { deny: acc.deny, ask: acc.ask, allow: acc.allow };

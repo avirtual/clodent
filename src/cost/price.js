@@ -1,4 +1,4 @@
-import { PRICES, PROMPT_TIERS } from './prices.js';
+import { PRICES, PROMPT_TIERS, WEB_SEARCH_USD } from './prices.js';
 
 export const NANOS_PER_USD = 1e9;
 
@@ -39,7 +39,8 @@ export function priceNanos(model, usage, deps = {}) {
     tokens.cacheRead * nanosPerToken(rates.cacheRead) +
     write5m * nanosPerToken(rates.cacheWrite5m) +
     write1h * nanosPerToken(rates.cacheWrite1h) +
-    tokens.out * nanosPerToken(rates.output);
+    tokens.out * nanosPerToken(rates.output) +
+    count(usage?.server_tool_use?.web_search_requests) * Math.round(WEB_SEARCH_USD * NANOS_PER_USD);
   return { nanos, tokens, priced: true };
 }
 

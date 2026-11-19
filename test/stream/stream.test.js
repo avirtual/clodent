@@ -66,7 +66,7 @@ test('init carries the session, the stripped model, the [1m] window, the tools s
     cwd,
     session_id: UUID,
     model: 'claude-haiku-5-5',
-    tools: ['Read', 'Write', 'Edit', 'Bash', 'Grep'],
+    tools: ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'WebSearch', 'WebFetch'],
     permissionMode: 'acceptEdits',
     slash_commands: ['compact', 'clear', 'cost', 'model', 'help', 'quit', 'exit'],
     apiKeySource: 'ANTHROPIC_API_KEY',

@@ -2,7 +2,8 @@ import { homedir as osHomedir } from 'node:os';
 import { dirname, resolve, sep } from 'node:path';
 import { isClodexToolName } from '../tools/clodex.js';
 
-export const CLODENT_TOOLS = Object.freeze(['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob']);
+export const CLODENT_TOOLS = Object.freeze(['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob', 'WebSearch', 'WebFetch']);
+const UNSCOPED_TOOLS = new Set(['WebSearch', 'WebFetch']);
 const CLODENT_TOOL_SET = new Set(CLODENT_TOOLS);
 const FOLDED_TOOLS = new Map(CLODENT_TOOLS.map((tool) => [tool.toLowerCase(), tool]));
 
@@ -120,6 +121,7 @@ export function parseRule(text, where) {
   }
   if (specifier === null) return { text, kind: 'tool', tool: name };
   if (specifier.trim() === '') throw new RuleError(`empty () on ${name}`);
+  if (UNSCOPED_TOOLS.has(name)) return { text, kind: 'tool', tool: name, scoped: true };
   if (name === 'Bash') return { text, kind: 'bash', test: bashTest(specifier) };
   const pattern = expandPath(specifier, where);
   if (pattern === '') throw new RuleError('the path expands to nothing (HOME is not set)');
@@ -152,6 +154,14 @@ export function builtinDenies(settingsFiles, home) {
     ...PROC_ENVIRON.map((pattern) => pathRule(`Read(/${pattern})`, 'Read', pattern, home)),
   ];
   return rules.map((rule) => ({ ...rule, builtin: true }));
+}
+
+export function allowRules(rules, warn) {
+  return rules.filter((rule) => {
+    if (!rule.scoped) return true;
+    warn(`permission rule ${rule.text}: specifiers on ${rule.tool} are not supported; rule ignored`);
+    return false;
+  });
 }
 
 export function parseRules(list, key, where) {

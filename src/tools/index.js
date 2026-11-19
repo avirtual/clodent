@@ -4,6 +4,7 @@ import { createGlob } from './glob.js';
 import { createGrep } from './grep.js';
 import { createRead } from './read.js';
 import { fail } from './util.js';
+import { createWebFetch, createWebSearch } from './web.js';
 import { createWrite } from './write.js';
 
 function guarded(tool) {
@@ -27,5 +28,7 @@ export function createTools(deps = {}) {
     createBash(deps),
     createGrep(deps),
     createGlob(deps),
+    createWebSearch(deps),
+    createWebFetch(deps),
   ].map(guarded);
 }

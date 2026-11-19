@@ -9,6 +9,7 @@ export const EVENT_TYPES = Object.freeze([
   'permission_request',
   'permission',
   'tool_result',
+  'side_request',
   'turn_end',
   'budget_stop',
   'warning',

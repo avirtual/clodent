@@ -11,7 +11,7 @@ import { createHookFirer } from './hooks/fire.js';
 import { createStatusLine } from './hooks/status-line.js';
 import { flagRules } from './permissions/flag-rules.js';
 import { createGuard, sentTools } from './permissions/guard.js';
-import { builtinDenies, RuleError, ruleHome } from './permissions/rules.js';
+import { allowRules, builtinDenies, RuleError, ruleHome } from './permissions/rules.js';
 import { killPendingGroups } from './proc/run.js';
 import { buildPrompt } from './prompt/system.js';
 import { createRenderer } from './render/terminal.js';
@@ -154,12 +154,13 @@ async function prepare(opts, deps) {
   if (disallowed.error) return fail(disallowed.error);
   const allowed = fromFlag('allowedTools');
   if (allowed.error) return fail(allowed.error);
+  const flagWarnings = [];
   const settingsFiles = [join(home(deps), 'settings.json'), ...files];
   const builtins = builtinDenies(settingsFiles, rulesHome);
   const permissions = {
     deny: [...(settings.permissions?.deny ?? []), ...disallowed.rules, ...builtins],
     ask: settings.permissions?.ask ?? [],
-    allow: [...(settings.permissions?.allow ?? []), ...allowed.rules],
+    allow: [...(settings.permissions?.allow ?? []), ...allowRules(allowed.rules, (message) => flagWarnings.push(message))],
   };
   const env = { ...deps.env, ...settings.env };
   if (opts.print === '' && opts.inputFormat !== 'stream-json') return fail('-p needs a non-empty prompt');
@@ -186,7 +187,7 @@ async function prepare(opts, deps) {
   }
   if (!session.ok) return fail(session.error);
   const readCap = readTokenCap(env);
-  const warnings = [...loaded.warnings, ...session.warnings];
+  const warnings = [...loaded.warnings, ...flagWarnings, ...session.warnings];
   if (readCap.warning) warnings.push(readCap.warning);
   if (prompt.claudeMdOnly) warnings.push(CLAUDE_MD_WARNING);
   return {
@@ -217,7 +218,7 @@ function createRuntime(prep, opts, deps, render) {
     { ...procDeps, warn: (message) => render({ type: 'warning', message }) },
   );
   const guard = createGuard(permissions, { env: toolEnv(env, settings.envDeny ?? []), ...prep.guarded });
-  const builtins = createTools({ ...procDeps, envDeny: settings.envDeny ?? [], readMaxTokens: prep.readMaxTokens });
+  const builtins = createTools({ ...procDeps, envDeny: settings.envDeny ?? [], readMaxTokens: prep.readMaxTokens, webModel: settings.webModel });
   const tools = builtins.filter((tool) => !guard.removes(tool.name));
   const current = { model: prep.model, contextWindow: prep.contextWindow, system: prep.system, instructionFiles: prep.instructionFiles };
   const statusOf = (session, usage) =>

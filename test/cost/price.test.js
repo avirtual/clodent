@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { priceUsage } from '../../src/cost/price.js';
+import { WEB_SEARCH_USD } from '../../src/cost/prices.js';
 
 const mixed = {
   input_tokens: 1000,
@@ -98,4 +99,12 @@ test('deps can supply another price table', () => {
   const prices = { 'm-1': { input: 1, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 } };
   assert.equal(priceUsage('m-1', { input_tokens: 1000000 }, { prices, tiers: {} }).usd, 1);
   assert.equal(priceUsage('claude-opus-5-5', mixed, { prices, tiers: {} }).priced, false);
+});
+
+test('each web_search_requests in server_tool_use adds $0.01; web_fetch_requests add nothing', () => {
+  const searches = { input_tokens: 1000, server_tool_use: { web_search_requests: 3, web_fetch_requests: 2 } };
+  assert.equal(priceUsage('claude-sonnet-5-5', searches).usd, 0.032);
+  assert.equal(priceUsage('claude-sonnet-5-5', { input_tokens: 1000, server_tool_use: { web_fetch_requests: 4 } }).usd, 0.002);
+  assert.equal(WEB_SEARCH_USD, 0.01);
+  assert.deepEqual(priceUsage('claude-unknown-9', searches), { usd: 0, tokens: { in: 1000, cacheRead: 0, cacheWrite: 0, out: 0 }, priced: false });
 });
