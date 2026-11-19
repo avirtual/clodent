@@ -90,6 +90,7 @@ A summary for a host adapter; each point links to the section that pins it down.
 - Launch: `clodent` without `-p`, in a PTY, in the seat's working directory. Pass `--session-id <uuid>` for a new session, or `--resume <id>`, with `--fork-session` to continue under a new id (the `--session-id` if given). Add `--settings <file>` for the host's hooks and statusLine, one `--add-dir <path>` per extra directory, `--system-prompt-file <path>` and `--append-system-prompt-file <path>` for the prompt, `--model <id>` (one trailing `[…]` suffix such as `[1m]` is dropped; a dropped `[1m]` sets the reported context window to 1,000,000), `--effort low|medium|high|xhigh|max`, and a permission mode: `--dangerously-skip-permissions` or `--yolo`, `--permission-mode default|plan|acceptEdits|bypassPermissions`, or `--read-only` (default: ask). Permission flags that name different modes exit 2. `--disallowedTools <list>` (or `--disallowed-tools`) adds deny rules, and `--allowedTools <list>` (or `--allowed-tools`) adds allow rules. See [Flags](#flags) and [System prompt](#system-prompt).
 - Stream seats: `clodent -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio` with the same flags as Launch. stdin takes one JSON message per line and stdout writes one JSON record per line: `system/init` first (again after each successful `/clear`), then each turn's records ending in exactly one `result`, and one `result` per empty prompt and per slash command but `/quit` and `/exit`; a prompt that joins a running turn gets none. Permission asks arrive as `control_request` `can_use_tool`. See [Stream JSON](#stream-json).
 - Accepted and ignored: `--plugin-dir <dir>`, `--agents <json>`, `--mcp-config <path>`, `--strict-mcp-config` and `--dangerously-bypass-hook-trust`. Each one given prints `clodent: ignoring --<name>: not supported` once on stderr and changes nothing. See [Flags](#flags).
+- Tool list: `clodent --list-tools` prints the built-in tools (name, kind, description, input schema) as one JSON line, so a host can learn each new tool from clodent itself. clodent older than 0.9.1 rejects it as an unknown option and exits 2, so the host falls back to its own list. See [Flags](#flags).
 - Env: `ANTHROPIC_API_KEY` (required), `CLODENT_HOME` as the per-account config dir (`settings.json` and `projects/`; default `~/.clodent`), and optionally `ANTHROPIC_BASE_URL` to send requests to another origin, such as a proxy. See [Environment](#environment).
 - Cache TTL: settings `cacheTtl: "1h"` (or `--cache-ttl 1h`) caches the system block, the last tool, the settled pin and the tail for an hour, which pays off for seats that idle between turns. The default `5m` suits short-lived seats. Adding `messageCacheTtl: "5m"` (or `--message-cache-ttl 5m`) keeps the system prompt and tools on `1h` while the conversation uses `5m`, which suits a seat whose context is cleared after an idle pause. See [API wire](#api-wire).
 - Transcript: `$CLODENT_HOME/projects/<slug>/<session-id>.jsonl`, where `<slug>` is the working directory with every `/` and `.` replaced by `-`. `SessionStart` hooks get the path as `transcript_path`. See [Sessions](#sessions).
@@ -171,6 +172,7 @@ Under Clodex, the seat's plugin tools are native clodent tools that send the sam
 | `--mcp-config <path>` | ignored | accepted and ignored; repeatable, one path each |
 | `--strict-mcp-config` | ignored | accepted and ignored |
 | `--dangerously-bypass-hook-trust` | ignored | accepted and ignored |
+| `--list-tools` | works | print the built-in tools as one JSON line on stdout and exit 0: `{"v":1,"version":"<version>","tools":[{"name":"Read","kind":"read","description":"…","input_schema":{…}},…]}`. `tools` holds every built-in tool; Clodex tools are not listed. `name` is the tool name, `kind` is `read`, `write` or `exec`, and `description` and `input_schema` are exactly what the request sends. `v` is the format version, bumped only on an incompatible change; new fields may be added. The list ignores every other flag, the working directory and the environment. Settings files are never read, so no warning or error from them reaches the output. It needs no `ANTHROPIC_API_KEY`, makes no request, writes no file and fires no hook |
 | `-v`, `--version` | works | print `clodent <version>` and exit 0 |
 | `-h`, `--help` | works | print usage, one line per flag, and exit 0 |
 
@@ -190,7 +192,7 @@ The ignored flags take their value, if they have one, and change nothing. Each o
 Exit codes:
 
 - A parse error prints `clodent: <error>` and then `clodent: see --help` to stderr, and exits 2.
-- Once the arguments parse, `--help` wins over every other flag, then `--version`.
+- Once the arguments parse, `--help` wins over every other flag, then `--version`, then `--list-tools`.
 - Without `-p`, see [REPL](#repl).
 - With `-p`, see [Print mode](#print-mode).
 

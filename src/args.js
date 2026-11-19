@@ -40,6 +40,7 @@ export const FLAGS = [
   { long: 'mcp-config', key: 'mcpConfig', arg: 'path', repeat: true, ignored: true, help: 'accepted and ignored' },
   { long: 'strict-mcp-config', key: 'strictMcpConfig', value: true, ignored: true, help: 'accepted and ignored' },
   { long: 'dangerously-bypass-hook-trust', key: 'bypassHookTrust', value: true, ignored: true, help: 'accepted and ignored' },
+  { long: 'list-tools', key: 'listTools', value: true, help: 'print the built-in tools as one JSON line and exit' },
   { long: 'version', short: 'v', key: 'version', value: true, help: 'print the version and exit' },
   { long: 'help', short: 'h', key: 'help', value: true, help: 'print this help and exit' },
 ];
