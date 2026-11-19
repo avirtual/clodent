@@ -21,6 +21,20 @@ export function userAgent() {
   return `clodent/${PACKAGE_VERSION}`;
 }
 
+export function apiWire(baseUrl, env) {
+  const apiKey = env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set');
+  return {
+    url: apiUrl(baseUrl),
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': API_VERSION,
+      'content-type': 'application/json',
+      'user-agent': userAgent(),
+    },
+  };
+}
+
 function withoutCacheControl(block) {
   const { cache_control: _dropped, ...rest } = block;
   return rest;
@@ -109,8 +123,7 @@ export function buildRequest(
   if (typeof system !== 'string' || system === '') {
     throw new Error('system must be a non-empty string');
   }
-  const apiKey = deps.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set');
+  const wire = apiWire(baseUrl, deps.env);
 
   const body = {
     model,
@@ -125,14 +138,5 @@ export function buildRequest(
   if (effort !== undefined && effort !== null) body.output_config = { effort };
   if (sessionId !== undefined && sessionId !== null) body.metadata = { user_id: JSON.stringify({ session_id: sessionId }) };
 
-  return {
-    url: apiUrl(baseUrl),
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': API_VERSION,
-      'content-type': 'application/json',
-      'user-agent': userAgent(),
-    },
-    body,
-  };
+  return { ...wire, body };
 }

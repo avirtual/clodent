@@ -197,10 +197,10 @@ test('an ask rule refuses in -p and under --read-only, runs under --yolo, and as
 
 test('a bare Bash deny drops Bash from the request tools, so a call takes the unknown-tool path; foreign names are ignored', GUARD, async (t) => {
   const { home, cwd, dir } = await setup(t);
-  const settings = writeSettings(dir, { permissions: { deny: ['Bash', 'WebFetch', 'Agent(claude-code-guide)', 'mcp__clodex__dm'] } });
+  const settings = writeSettings(dir, { permissions: { deny: ['Bash', 'NotebookEdit', 'Agent(claude-code-guide)', 'mcp__clodex__dm'] } });
   const res = await runMain(['-p', 'go', '--yolo', '--settings', settings], { home, cwd, responses: [toolsReply([['Bash', { command: 'echo hi' }]]), textReply('done')] });
   assert.equal(res.code, 0, res.stderr);
-  assert.deepEqual(res.calls[0].body.tools.map((tool) => tool.name), ['Edit', 'Glob', 'Grep', 'Read', 'Write']);
+  assert.deepEqual(res.calls[0].body.tools.map((tool) => tool.name), ['Edit', 'Glob', 'Grep', 'Read', 'WebFetch', 'WebSearch', 'Write']);
   assert.deepEqual(results(res), ['unknown tool Bash']);
 });
 
@@ -364,10 +364,10 @@ test('--disallowedTools and --disallowed-tools add deny rules after the settings
     ['Bash', { command: 'echo ok' }],
     ['Write', { file_path: 'c.txt', content: 'c' }],
   ];
-  const argv = ['-p', 'go', '--dangerously-skip-permissions', '--settings', settings, '--disallowedTools', 'Read(./a.txt),Read(./b.txt) WebFetch', '--disallowed-tools', 'Bash(git push:*), Write'];
+  const argv = ['-p', 'go', '--dangerously-skip-permissions', '--settings', settings, '--disallowedTools', 'Read(./a.txt),Read(./b.txt) NotebookEdit', '--disallowed-tools', 'Bash(git push:*), Write'];
   const res = await runMain(argv, { home, cwd, responses: [toolsReply(uses), textReply('done')] });
   assert.equal(res.code, 0, res.stderr);
-  assert.deepEqual(res.calls[0].body.tools.map((tool) => tool.name), ['Bash', 'Edit', 'Glob', 'Grep', 'Read']);
+  assert.deepEqual(res.calls[0].body.tools.map((tool) => tool.name), ['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'WebFetch', 'WebSearch']);
   assert.deepEqual(results(res), [denied('Read(./a.txt)'), denied('Read(./b.txt)'), denied('Bash(git push:*)'), 'ok\n[exit 0]', 'unknown tool Write']);
   assert.equal(existsSync(join(cwd, 'c.txt')), false);
 });
@@ -377,20 +377,20 @@ test('--disallowedTools Bash leaves Bash out of the request tools and every syst
   const named = (res, call = 0) => [res.calls[call].body.tools.map((tool) => tool.name), res.calls[call].body.system[0].text.includes('Bash')];
   const res = await runMain(['-p', 'go', '--disallowedTools', 'Bash'], { home, cwd, responses: [textReply('ok')] });
   assert.equal(res.code, 0, res.stderr);
-  assert.deepEqual(named(res), [['Edit', 'Glob', 'Grep', 'Read', 'Write'], false]);
+  assert.deepEqual(named(res), [['Edit', 'Glob', 'Grep', 'Read', 'WebFetch', 'WebSearch', 'Write'], false]);
   const repl = startRepl(['--disallowed-tools', 'Bash'], { home, cwd, replies: [textReply('ok')] });
   await repl.prompts(1);
   repl.stdin.type('/model claude-haiku-5-5\r');
   await repl.prompts(2);
   repl.stdin.type('hi\r');
   await repl.prompts(3);
-  assert.deepEqual(named(repl.fetch), [['Edit', 'Glob', 'Grep', 'Read', 'Write'], false]);
+  assert.deepEqual(named(repl.fetch), [['Edit', 'Glob', 'Grep', 'Read', 'WebFetch', 'WebSearch', 'Write'], false]);
   repl.stdin.type('\x04');
   assert.equal(await repl.done, 0);
   const settings = writeSettings(dir, guardedFixture(user));
   const guarded = await runMain(['-p', 'go', '--settings', settings], { home, cwd, env: { HOME: user }, responses: [textReply('ok')] });
   assert.equal(guarded.code, 0, guarded.stderr);
-  assert.deepEqual(named(guarded), [['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'Write'], true]);
+  assert.deepEqual(named(guarded), [['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'WebFetch', 'WebSearch', 'Write'], true]);
 });
 
 test('built-in denies refuse Read, Write, Edit and Bash reads of every loaded settings file and of /proc/*/environ under --yolo, and remove no tool', GUARD, async (t) => {
@@ -416,7 +416,7 @@ test('built-in denies refuse Read, Write, Edit and Bash reads of every loaded se
   const builtin = (rule) => `denied by built-in rule ${rule}`;
   const [read, edit] = [builtin(`Read(/${homeFile})`), builtin(`Edit(/${homeFile})`)];
   assert.deepEqual(results(res), [read, edit, read, read, read, read, builtin(`Read(/${settings})`), builtin(`Read(/${settings})`), builtin('Read(//proc/*/environ)'), 'ok\n[exit 0]']);
-  assert.deepEqual(res.calls[0].body.tools.map((tool) => tool.name), ['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'Write']);
+  assert.deepEqual(res.calls[0].body.tools.map((tool) => tool.name), ['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'WebFetch', 'WebSearch', 'Write']);
   assert.equal(readFileSync(homeFile, 'utf8'), '{}');
   const fresh = join(user, 'fresh');
   const write = [['Write', { file_path: join(fresh, 'settings.json'), content: '{}' }]];

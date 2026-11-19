@@ -13,6 +13,8 @@ test('tools come in order with their kinds', () => {
     ['Bash', 'exec'],
     ['Grep', 'read'],
     ['Glob', 'read'],
+    ['WebSearch', 'exec'],
+    ['WebFetch', 'exec'],
   ]);
 });
 
@@ -24,6 +26,8 @@ test('each tool carries a description and an object input_schema with the agreed
     Bash: ['command', 'timeout', 'description'],
     Grep: ['pattern', 'path', 'glob', 'output_mode', 'ignore_case', 'head_limit'],
     Glob: ['pattern', 'path'],
+    WebSearch: ['query', 'allowed_domains', 'blocked_domains'],
+    WebFetch: ['url', 'prompt'],
   };
   for (const tool of tools) {
     assert.equal(typeof tool.description, 'string');

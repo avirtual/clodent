@@ -19,8 +19,8 @@ import { useTempDir } from './tmp-dir.js';
 
 const GUARD = { timeout: 10000 };
 const CRED = 'c0ffee'.repeat(8);
-const BUILTINS = ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob'];
-const WIRE_BUILTINS = ['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'Write'];
+const BUILTINS = ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob', 'WebSearch', 'WebFetch'];
+const WIRE_BUILTINS = ['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'WebFetch', 'WebSearch', 'Write'];
 const OBJECT = { type: 'object' };
 const SCHEMA = { type: 'object', properties: { to: { type: 'string' }, body: { type: 'string' } }, required: ['to', 'body'] };
 const DM = { name: 'dm', description: 'Send a dm.', inputSchema: SCHEMA, logKeys: ['to'] };

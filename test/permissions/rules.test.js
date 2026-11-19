@@ -68,7 +68,7 @@ test('a specifier may contain spaces', () => {
 });
 
 test('rules for tools clodent does not have are ignored, bare or with a specifier', () => {
-  const list = ['WebFetch', 'NotebookEdit', 'Agent(claude-code-guide)', 'mcp__clodex', 'mcp__clodex__*', 'mcp__other__dm', 'mcp__clodex__', 'Skill', 'Agent()', 'Reads(/x)', 'Bash_(x)', 'Read(/x)'];
+  const list = ['TodoWrite', 'NotebookEdit', 'Agent(claude-code-guide)', 'mcp__clodex', 'mcp__clodex__*', 'mcp__other__dm', 'mcp__clodex__', 'Skill', 'Agent()', 'Reads(/x)', 'Bash_(x)', 'Read(/x)'];
   assert.deepEqual(parseRules(list, 'permissions.deny', WHERE).map((r) => r.text), ['Read(/x)']);
   assert.deepEqual(parseRules(undefined, 'permissions.deny', WHERE), []);
 });
@@ -109,7 +109,7 @@ test('each malformed rule list is an error naming the key, the index and the rul
 
 test('loadSettings concatenates deny and ask across sources in order and reports fatal errors as settings <path>: <message>', async () => {
   const fs = fakeFs({
-    '/h/settings.json': { permissions: { deny: ['Read(~/.ssh)', 'WebFetch'], ask: ['Bash(git push:*)'], allow: ['Bash'], defaultMode: 'plan' } },
+    '/h/settings.json': { permissions: { deny: ['Read(~/.ssh)', 'TodoWrite'], ask: ['Bash(git push:*)'], allow: ['Bash'], defaultMode: 'plan' } },
     '/1.json': { permissions: { deny: ['Bash'] }, skillOverrides: {}, sandbox: { enabled: false, network: {} } },
   });
   const { settings, warnings } = await loadSettings({ clodentHome: '/h', files: ['/1.json'], cwd: '/w', home: '/Users/u' }, fs);

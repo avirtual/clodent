@@ -168,7 +168,7 @@ test('unknown events and delta types are ignored; unknown and redacted blocks ar
   const { message } = await streamMessage(request, depsFor([{ body }]).deps);
   assert.deepEqual(message.content, [
     { type: 'redacted_thinking', data: 'EmwKAhgBEgy3va3pzix' },
-    { type: 'text', text: 'hi' },
+    { type: 'text', text: 'hi', citations: [{ cited_text: 'x' }] },
     { type: 'future_block', payload: { a: 1 } },
   ]);
 });
@@ -293,4 +293,32 @@ test('an SSE event over the injected cap fails the attempt as a network error', 
   const { deps, fetch } = depsFor([{ body: sse([startEvent, big]), chunkEvery: 16 }], { maxEventChars: 128 });
   await assert.rejects(streamMessage(request, deps), { name: 'ApiError', type: 'network_error', message: 'SSE event over 128 chars', status: null });
   assert.equal(fetch.calls.length, 1);
+});
+
+test('citations_delta appends to the text block citations, and server_tool_use input parses from its deltas', async () => {
+  const { deps } = depsFor([{ body: 'web-search.sse' }]);
+  const { message } = await streamMessage(request, deps);
+  const texts = message.content.filter((block) => block.type === 'text');
+  assert.deepEqual(texts.map((block) => (block.citations ?? []).length), [0, 1, 0, 1, 0]);
+  assert.equal(Object.hasOwn(texts[0], 'citations'), false);
+  assert.deepEqual(texts[1].citations.map(({ type, url }) => [type, url]), [['web_search_result_location', 'https://versionlog.com/nodejs/22/']]);
+  const uses = message.content.filter((block) => block.type === 'server_tool_use');
+  assert.deepEqual(uses.map((block) => block.input), [{ query: 'Node.js 22 LTS latest release changelog' }, { query: 'Node.js 22 new release November 2026' }]);
+  assert.equal(message.usage.server_tool_use.web_search_requests, 2);
+});
+
+test('a citations_delta on a text block that started without citations creates the list', async () => {
+  const events = [
+    ['message_start', { type: 'message_start', message: { id: 'm', model: 'x', usage: { input_tokens: 1 } } }],
+    ['content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }],
+    ['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'citations_delta', citation: { url: 'https://a/' } } }],
+    ['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'citations_delta', citation: { url: 'https://b/' } } }],
+    ['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'cited' } }],
+    ['content_block_stop', { type: 'content_block_stop', index: 0 }],
+    ['message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 1 } }],
+    ['message_stop', { type: 'message_stop' }],
+  ];
+  const { deps } = depsFor([{ body: sse(events) }]);
+  const { message } = await streamMessage(request, deps);
+  assert.deepEqual(message.content, [{ type: 'text', text: 'cited', citations: [{ url: 'https://a/' }, { url: 'https://b/' }] }]);
 });

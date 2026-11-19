@@ -89,6 +89,8 @@ function createAssembler(handlers, requestId) {
       block.signature = (block.signature ?? '') + delta.signature;
     } else if (delta.type === 'input_json_delta') {
       partialJson.set(index, (partialJson.get(index) ?? '') + delta.partial_json);
+    } else if (delta.type === 'citations_delta') {
+      block.citations = [...(block.citations ?? []), delta.citation];
     }
   }
 

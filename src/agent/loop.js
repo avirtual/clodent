@@ -1,6 +1,7 @@
 import { ApiError, apiErrorFields, isPromptTooLong, RETRYABLE_STATUSES } from '../api/errors.js';
-import { buildRequest } from '../api/request.js';
+import { apiWire, buildRequest } from '../api/request.js';
 import { streamMessage } from '../api/stream.js';
+import { formatBudgetStop } from '../cost/format.js';
 import { emptyOutcome, hookContextBlock, NO_HOOKS } from '../hooks/fire.js';
 import { denialReason, OPEN_GUARD } from '../permissions/guard.js';
 import { acceptedPart, COMPACT_TOOL_CHOICE, compactMessages, compactTokens, historyMark, NOTHING_TO_COMPACT, RELOAD_BUDGET_BYTES, reloadBlock, reloadPaths, summaryMessage, summaryOf } from './compact.js';
@@ -19,7 +20,7 @@ const RELOAD_USE_ID = 'compact-reload-';
 
 class BudgetStop extends Error {
   constructor(result) {
-    super('budget');
+    super(formatBudgetStop(result));
     this.result = result;
   }
 }
@@ -126,19 +127,11 @@ export function createAgent(config, deps) {
     if (!check.ok) throw new BudgetStop(check);
   }
 
-  async function request(signal, partial, { messages = history, toolChoice, quiet = false } = {}) {
-    const sentModel = model;
-    for (const message of syncTools()) emit({ type: 'warning', message });
-    const req = buildRequest({ model, system, tools: definitions, messages, effort, baseUrl, toolChoice, sessionId, cacheTtl, messageCacheTtl }, { env: deps.env });
+  async function send(req, sentModel, signal, { handlers = {}, partial = [], announce = true } = {}) {
     const streamDeps = { fetch: deps.fetch, sleep: deps.sleep, random: deps.random, now, signal };
-    const stream = quiet ? () => {} : emit;
     let reported = null;
-    const handlers = {
-      onText: (text, index) => stream({ type: 'text_delta', text, index }),
-      onThinking: (text, index) => stream({ type: 'thinking_delta', text, index }),
-      onBlockStop: (block) => {
-        if (block.type === 'text' && block.text) partial.push(block);
-      },
+    const watched = {
+      ...handlers,
       onUsage: (usage) => {
         reported = usage;
       },
@@ -147,9 +140,9 @@ export function createAgent(config, deps) {
     for (let attempt = 1; ; attempt++) {
       partial.length = 0;
       reported = null;
-      emit({ type: 'request_start', attempt });
+      if (announce) emit({ type: 'request_start', attempt });
       try {
-        const result = await streamMessage(req, streamDeps, handlers);
+        const result = await streamMessage(req, streamDeps, watched);
         return { ...result, cost: ledger.record(sentModel, result.message.usage) };
       } catch (err) {
         if (reported) ledger.record(sentModel, reported);
@@ -161,6 +154,28 @@ export function createAgent(config, deps) {
         await deps.sleep(wait, signal);
       }
     }
+  }
+
+  async function request(signal, partial, { messages = history, toolChoice, quiet = false } = {}) {
+    const sentModel = model;
+    for (const message of syncTools()) emit({ type: 'warning', message });
+    const req = buildRequest({ model, system, tools: definitions, messages, effort, baseUrl, toolChoice, sessionId, cacheTtl, messageCacheTtl }, { env: deps.env });
+    const stream = quiet ? () => {} : emit;
+    const handlers = {
+      onText: (text, index) => stream({ type: 'text_delta', text, index }),
+      onThinking: (text, index) => stream({ type: 'thinking_delta', text, index }),
+      onBlockStop: (block) => {
+        if (block.type === 'text' && block.text) partial.push(block);
+      },
+    };
+    return send(req, sentModel, signal, { handlers, partial });
+  }
+
+  async function sideRequest(toolUseId, { subtype, body }, signal) {
+    const req = { ...apiWire(baseUrl, deps.env), body: { ...body, stream: true } };
+    const { message, requestId, durationMs, cost } = await send(req, body.model, signal, { announce: false });
+    emit({ type: 'side_request', subtype, toolUseId, model: body.model, requestId, usage: message.usage, usd: cost.usd, durationMs });
+    return { message, requestId, durationMs, usd: cost.usd, priced: cost.priced };
   }
 
   function verdictFor(tool, input, pre, ruled) {
@@ -212,7 +227,8 @@ export function createAgent(config, deps) {
     });
     if (!verdict.allow) return { content: verdict.reason, isError: true, ran: false };
     try {
-      const outcome = await tool.run(input, { cwd: deps.cwd, env: deps.env, signal, hidden });
+      const sideRequestFor = (params, requestSignal = signal) => sideRequest(use.id, params, requestSignal);
+      const outcome = await tool.run(input, { cwd: deps.cwd, env: deps.env, signal, hidden, sideRequest: sideRequestFor });
       return { content: outcome.content, isError: outcome.isError, ran: true };
     } catch (err) {
       return { content: `${use.name} failed: ${err?.message ?? err}`, isError: true, ran: true };

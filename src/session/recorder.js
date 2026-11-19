@@ -43,6 +43,9 @@ export function createRecorder(transcript, { now }) {
       }
       append(record);
     },
+    side_request({ subtype, toolUseId, model, requestId, usage, usd, durationMs }) {
+      transcript.append({ type: 'system', subtype, toolUseId, model, requestId, usage, costUsd: usd, durationMs: Math.round(durationMs) });
+    },
     interrupted() {
       append({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: INTERRUPT_TEXT }] }, isVisibleInTranscriptOnly: true });
     },

@@ -185,13 +185,13 @@ test('a deny or ask rule wins over an allow rule on the same call; an uncertain 
 });
 
 test('bare tool rules: Edit allows Edit only, an exact Clodex tool name allows that tool, unknown names are ignored', async () => {
-  const guard = guardOf({ allow: ['Edit', 'mcp__clodex__dm', 'WebFetch', 'mcp__other__x'] });
+  const guard = guardOf({ allow: ['Edit', 'mcp__clodex__dm', 'NotebookEdit', 'mcp__other__x'] });
   assert.equal(await verdictOf(guard, 'Edit', { file_path: '/tmp/a' }), 'allow Edit');
   assert.equal(await verdictOf(guard, 'Write', { file_path: '/tmp/a' }), null);
   assert.equal(await verdictOf(guard, 'mcp__clodex__dm', { to: 'x' }), 'allow mcp__clodex__dm');
   assert.equal(await verdictOf(guard, 'mcp__clodex__exec', { name: 'x' }), null);
   assert.equal(await bash(guard, 'rm x'), null);
-  assert.equal(guardOf({ allow: ['WebFetch'] }).active, false);
+  assert.equal(guardOf({ allow: ['NotebookEdit'] }).active, false);
   assert.equal(guardOf({ allow: ['Bash(ls:*)'] }).active, true);
 });
 
