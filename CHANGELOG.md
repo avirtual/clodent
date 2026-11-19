@@ -2,7 +2,7 @@
 
 clodent was named clay up to 0.2.0.
 
-## Unreleased
+## 0.9.1 — 2026-11-20
 
 - `clodent --list-tools` prints the built-in tools (name, kind, description, input schema) as one JSON line, so a host can learn new tools without its own update.
 

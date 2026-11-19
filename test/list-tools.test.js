@@ -39,6 +39,7 @@ async function run(argv, { env = {}, cwd, homedir = cwd, responses = [] } = {}) 
 function spawnBin(args, { env = {}, cwd }) {
   const electron = process.env.ELECTRON_RUN_AS_NODE ? { ELECTRON_RUN_AS_NODE: process.env.ELECTRON_RUN_AS_NODE } : {};
   const res = spawnSync(process.execPath, [BIN, ...args], { cwd, env: { ...electron, ...env }, encoding: 'utf8', timeout: 20000 });
+  if (res.error) throw res.error;
   return { code: res.status, stdout: res.stdout, stderr: res.stderr };
 }
 

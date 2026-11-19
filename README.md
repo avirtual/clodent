@@ -1,6 +1,6 @@
 # clodent
 
-clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.9.0 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), a stream-json mode for hosts, eight built-in tools (under Clodex, the seat's plugin tools join them; see [Clodex tools](#clodex-tools)), cost accounting, JSONL session transcripts, settings files, hooks and post-compact file reload. clodent was named clay up to 0.2.0.
+clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.9.1 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), a stream-json mode for hosts, eight built-in tools (under Clodex, the seat's plugin tools join them; see [Clodex tools](#clodex-tools)), cost accounting, JSONL session transcripts, settings files, hooks and post-compact file reload. clodent was named clay up to 0.2.0.
 
 Not supported: MCP servers, plugins, a skill tool, subagents, image input, Windows, telemetry. Under Clodex, a seat's plugin tools and skills still reach the model; see [Clodex tools](#clodex-tools) and [Hosting clodent](#hosting-clodent).
 
@@ -10,7 +10,7 @@ Requires Node.js 22 or later. clodent has no dependencies.
 
 ```sh
 npm i -g clodent
-clodent --version   # clodent 0.9.0
+clodent --version   # clodent 0.9.1
 ```
 
 A pinned version: `npm i -g clodent@<version>`.
@@ -81,7 +81,7 @@ One-time setup on npmjs.com: package `clodent` → Settings → Trusted Publishe
 
 ## Contract
 
-This section is the contract a host integrates against. It describes clodent 0.9.0.
+This section is the contract a host integrates against. It describes clodent 0.9.1.
 
 ### Hosting clodent
 
@@ -103,7 +103,7 @@ A summary for a host adapter; each point links to the section that pins it down.
 - statusLine: the settings `statusLine` command gets `context_window.used_tokens`, `context_window.context_window_size`, `context_window.used_percentage`, `model.id` and `cost.total_cost_usd` on stdin after each API response, after `/clear` (zero usage) and after `/compact` (`used_tokens` is the summary's size). `context_window_size` is 1,000,000 when the model came with a `[1m]` suffix, else 200,000. See [Hooks](#hooks).
 - Signals: SIGINT acts as Ctrl-C: it interrupts a turn, and two in a row at an empty prompt exit 0. SIGTERM exits 143 and SIGHUP 129, after interrupting a running turn, whose `Stop` hook still fires. Ctrl-D, `/quit` and stdin closing exit 0. See [REPL](#repl).
 - Settings guard: `permissions.deny`/`ask`/`allow` are enforced; an allow rule runs a call without the ask and never overrides a deny or ask rule, a hook's decision or `--read-only` (see [Permission rules](#permission-rules)). A `sandbox` block with `enabled: true` is never fatal: its `filesystem.denyRead`, `filesystem.denyWrite` and deny `credentials.files` entries are enforced as deny rules, its deny `credentials.envVars` are removed from the environment of the Bash tool, of Grep and Glob's git calls, and of hooks and the statusLine command, and its other keys are ignored with one warning; clodent does not sandbox Bash. A malformed sandbox shape is a startup error (exit 2). clodent also always denies Read and Edit of every settings file it loaded and Read of `/proc/*/environ`, and `ANTHROPIC_API_KEY` is never in the environment of the Bash tool, Grep and Glob's git calls, hooks or the statusLine command; the value is replaced with `[redacted]` in hook warnings and deny reasons.
-- Absent in 0.9.0: MCP and subagents, so hooks never get `agent_id`.
+- Absent in 0.9.1: MCP and subagents, so hooks never get `agent_id`.
 - Clodex tools: with `CLODEX_INTENT_SOCK` and `CLODEX_INTENT_CRED` set, the seat's `mcp-tools.json` catalog becomes native `mcp__clodex__<name>` tools that call the intent socket, with no MCP layer; see [Clodex tools](#clodex-tools).
 - Skills: clodent has no skill tool and no skill discovery. Clodex lists a seat's enabled skills in a `# Clodex skills` block inside the `--append-system-prompt-file` text (Clodex `skill-delivery.js` `deliverCatalog`), which clodent appends to the system prompt as part 4, and the model reads a skill's `SKILL.md` with `Read`; a bare-name `Read` deny removes that tool, leaving Bash or Grep's `content` mode to reach the file. See [System prompt](#system-prompt).
 
@@ -828,7 +828,7 @@ An allow rule only lets a call run that would otherwise ask, in the default and 
 5. an allow rule;
 6. the mode (see [Print mode](#print-mode) and [REPL](#repl)).
 
-So an allow rule never overrides a deny or ask rule, or a hook's decision, and a call a deny rule and an allow rule both match is denied. `--read-only` and `--permission-mode plan` still refuse write tools and any `Bash` command that is not read-only, and `--yolo` runs every call anyway.
+So an allow rule never overrides a deny or ask rule, or a hook's decision, and a call a deny rule and an allow rule both match is denied. `--read-only` and `--permission-mode plan` still refuse write tools, `WebSearch`, `WebFetch` and any `Bash` command that is not read-only, and `--yolo` runs every call anyway.
 
 Where a deny or ask rule matches loosely and an uncertain match asks, an allow rule matches strictly and anything uncertain asks:
 
@@ -885,7 +885,7 @@ The permission decision for a tool call goes in this order:
 1. A hook `deny` wins: the call does not run and the model gets the hook's reason as an error tool result.
 2. A settings deny rule refuses the call in every mode, `--yolo` included, unless it matches only through an uncertain word, a recursive search or the conservative reading (see [Permission rules](#permission-rules)): then the call asks as in step 3, and under `--yolo` it is refused unless the match is only weakly uncertain. A hook `allow` does not override it.
 3. A settings ask rule or a hook `ask` asks in the REPL's default and `acceptEdits` modes, for read tools too; `-p` and `--read-only` refuse the call instead, and `--yolo` runs it. A hook `allow` does not skip the ask.
-4. `--read-only` refuses write tools and any Bash command that is not read-only; a hook `allow` does not override it.
+4. `--read-only` refuses write tools, `WebSearch`, `WebFetch` and any Bash command that is not read-only; a hook `allow` does not override it.
 5. A hook `allow` runs the call without the default or `acceptEdits` mode's ask or refusal.
 6. A settings or `--allowedTools` allow rule does the same, matching strictly (see [Allow rules](#allow-rules)).
 7. Otherwise it is left to the mode (see [Print mode](#print-mode)); in the REPL the default and `acceptEdits` modes ask (see [REPL](#repl)).

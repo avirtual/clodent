@@ -241,7 +241,7 @@ test('--session-id with --resume needs --fork-session', () => {
   assert.deepEqual(ok(['--resume', 'x', '--session-id', UUID, '--fork-session']).sessionId, UUID);
 });
 
-test('the --read-only help says only Bash commands that are not read-only are refused', () => {
+test('the --read-only help says write tools, WebSearch, WebFetch and Bash commands that are not read-only are refused', () => {
   assert.equal(FLAGS.find((f) => f.long === 'read-only').help, 'refuse write tools, WebSearch, WebFetch and any Bash command that is not read-only');
 });
 
