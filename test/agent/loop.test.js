@@ -1,13 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
 import { EVENT_TYPES } from '../../src/agent/events.js';
 import { createAgent, INTERRUPT_MARKER } from '../../src/agent/loop.js';
 import { ASK_DENIAL, hookPaths } from '../../src/agent/permission.js';
-import { emptyOutcome } from '../../src/hooks/fire.js';
+import { createHookFirer, emptyOutcome } from '../../src/hooks/fire.js';
 import { createLedger } from '../../src/cost/ledger.js';
 import { INTERRUPTED_RESULT } from '../../src/text.js';
+import { createBash } from '../../src/tools/bash.js';
 import { createTools } from '../../src/tools/index.js';
 import { createFakeFetch } from '../helpers/fake-fetch.js';
 import { sse, sseError, sseEvents } from '../helpers/sse-builder.js';
@@ -664,22 +667,132 @@ test('PostToolUseFailure carries is_interrupt false and is_timeout, true only fo
   ]);
 });
 
-test('a tool call the interrupt stops fires no PostToolUseFailure, so is_interrupt is never true', async () => {
+function fakeProcesses(onSpawn) {
+  const children = [];
+  const kills = [];
+  const pipe = () => Object.assign(new EventEmitter(), { destroy() {} });
+  const spawn = (file, args) => {
+    const child = Object.assign(new EventEmitter(), { pid: 4000 + children.length, command: args[1], stdin: new PassThrough(), stdout: pipe(), stderr: pipe() });
+    children.push(child);
+    queueMicrotask(() => onSpawn(child));
+    return child;
+  };
+  const kill = (pid, signal) => {
+    kills.push([pid, signal]);
+    const child = children.find((one) => -one.pid === pid);
+    if (!child || child.gone) return;
+    child.gone = true;
+    child.emit('exit', null, signal);
+    child.emit('close', null, signal);
+  };
+  return { spawn, kill, children, kills };
+}
+
+const KILLED = 'partial\n[killed by SIGTERM]';
+
+test('a Bash call interrupted while it runs fires PostToolUseFailure once, under the stop signal, with is_interrupt true and its partial output as error', async () => {
+  const controller = new AbortController();
+  const stop = new AbortController();
+  const fired = [];
+  const hooks = { fire: async (event, extra, signal) => (fired.push([event, extra, signal]), emptyOutcome()) };
+  const procs = fakeProcesses((child) => {
+    child.stdout.emit('data', Buffer.from('partial\n'));
+    controller.abort();
+  });
+  const bash = createBash({ spawn: procs.spawn, kill: procs.kill });
+  const h = harness([toolReply([{ name: 'Bash', input: { command: 'long-job' } }]), textReply('never')], { tools: [bash], hooks });
+  const result = await h.agent.runTurn('go', { signal: controller.signal, stopSignal: stop.signal });
+  assert.deepEqual(procs.kills[0], [-4000, 'SIGTERM']);
+  const post = fired.filter(([event]) => event.startsWith('PostToolUse'));
+  assert.equal(post.length, 1);
+  const [[event, extra, signal]] = post;
+  assert.equal(event, 'PostToolUseFailure');
+  assert.equal(signal, stop.signal);
+  assert.deepEqual([extra.is_interrupt, extra.is_timeout, extra.error], [true, false, KILLED]);
+  assert.deepEqual(extra.tool_response, { stdout: 'partial\n', stderr: '', interrupted: true, content: KILLED, isError: true });
+  assert.deepEqual(h.of('tool_result').map((e) => [e.content, e.isError]), [[KILLED, true]]);
+  assert.equal(result.stopReason, 'interrupted');
+});
+
+test('a second abort kills the PostToolUseFailure hook of an interrupted call, and the turn still ends', async () => {
+  const controller = new AbortController();
+  const stop = new AbortController();
+  const procs = fakeProcesses((child) => (child.command === 'long-job' ? controller : stop).abort());
+  const settings = { hooks: { PostToolUseFailure: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'post-hook' }] }] } };
+  const hooks = createHookFirer({ settings, env: {}, cwd: '/work', sessionId: 's-1', transcriptPath: '/t.jsonl', permission: 'yolo' }, { spawn: procs.spawn, kill: procs.kill });
+  const bash = createBash({ spawn: procs.spawn, kill: procs.kill });
+  const h = harness([toolReply([{ name: 'Bash', input: { command: 'long-job' } }]), textReply('never')], { tools: [bash], hooks });
+  const result = await h.agent.runTurn('go', { signal: controller.signal, stopSignal: stop.signal });
+  assert.deepEqual(procs.children.map((child) => child.command), ['long-job', 'post-hook']);
+  assert.deepEqual(procs.kills.slice(0, 2), [[-4000, 'SIGTERM'], [-4001, 'SIGTERM']]);
+  assert.deepEqual(result, { stopReason: 'interrupted', ok: false });
+  assert.deepEqual(h.types().slice(-2), ['interrupted', 'turn_end']);
+});
+
+test('a call the interrupt stops in PreToolUse, and the call after it, fire neither PostToolUse nor PostToolUseFailure', async () => {
   const controller = new AbortController();
   const fired = [];
-  const hooks = { fire: async (event) => (fired.push(event), emptyOutcome()) };
-  const interrupted = { content: 'partial\n[killed by SIGTERM]', isError: true, structured: { stdout: 'partial\n', stderr: '', interrupted: true }, exitCode: 143 };
+  const hooks = {
+    fire: async (event) => {
+      fired.push(event);
+      if (event === 'PreToolUse') controller.abort();
+      return emptyOutcome();
+    },
+  };
+  const log = [];
+  const tools = [fakeTool('A', 'read', log), fakeTool('B', 'read', log)];
+  const h = harness([toolReply([{ name: 'A', input: {} }, { name: 'B', input: {} }]), textReply('never')], { tools, hooks });
+  const result = await h.agent.runTurn('go', { signal: controller.signal, stopSignal: new AbortController().signal });
+  assert.deepEqual(fired, ['UserPromptSubmit', 'PreToolUse', 'Stop']);
+  assert.deepEqual(log, []);
+  assert.deepEqual(h.of('tool_result').map((e) => [e.name, e.content]), [['A', INTERRUPTED_RESULT], ['B', INTERRUPTED_RESULT]]);
+  assert.equal(result.stopReason, 'interrupted');
+});
+
+test('a call that returns a result that is not an error after the interrupt fires PostToolUse under the stop signal', async () => {
+  const controller = new AbortController();
+  const stop = new AbortController();
+  const fired = [];
+  const hooks = { fire: async (event, extra, signal) => (fired.push([event, signal]), emptyOutcome()) };
+  const tool = { ...fakeTool('A', 'read', []), run: async () => (controller.abort(), { content: 'done', isError: false }) };
+  const h = harness([toolReply([{ name: 'A', input: {} }]), textReply('never')], { tools: [tool], hooks });
+  await h.agent.runTurn('go', { signal: controller.signal, stopSignal: stop.signal });
+  assert.deepEqual(fired.filter(([event]) => event.startsWith('PostToolUse')), [['PostToolUse', stop.signal]]);
+});
+
+test('an interrupted call\'s PostToolUseFailure context goes after its tool_result in that user message, which the next prompt joins', async () => {
+  const controller = new AbortController();
+  const hooks = { fire: async (event) => ({ ...emptyOutcome(), additionalContext: event === 'PostToolUseFailure' ? ['console row'] : [] }) };
   const bash = {
     ...fakeTool('B', 'exec', []),
     run: async () => {
       controller.abort();
-      return interrupted;
+      return { content: KILLED, isError: true, structured: { stdout: 'partial\n', stderr: '', interrupted: true }, exitCode: null };
     },
   };
-  const h = harness([toolReply([{ name: 'B', input: {} }]), textReply('never')], { tools: [bash], hooks });
-  await h.agent.runTurn('go', { signal: controller.signal });
-  assert.deepEqual(fired.filter((event) => event.startsWith('PostToolUse')), []);
-  assert.deepEqual(h.of('tool_result').map((e) => [e.content, e.isError]), [['partial\n[killed by SIGTERM]', true]]);
+  const h = harness([toolReply([{ name: 'B', input: {} }]), textReply('ok')], { tools: [bash], hooks });
+  await h.agent.runTurn('go', { signal: controller.signal, stopSignal: new AbortController().signal });
+  const result = { type: 'tool_result', tool_use_id: 'toolu_1', content: KILLED, is_error: true };
+  const context = { type: 'text', text: '<hook-context event="PostToolUseFailure">\nconsole row\n</hook-context>' };
+  assert.deepEqual(h.events.filter((e) => e.type === 'message_append' && e.kind === 'tool_results').map((e) => e.content), [[result, context]]);
+  await h.agent.runTurn('next');
+  assert.deepEqual(strip(h.fetch.calls[1].body.messages).at(-1), { role: 'user', content: [result, context, { type: 'text', text: 'next' }, { type: 'text', text: INTERRUPT_MARKER }] });
+});
+
+test('a Bash call that times out sends is_interrupt false and is_timeout true, with no Exit code line', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const fired = [];
+  const hooks = { fire: async (event, extra) => (fired.push([event, extra]), emptyOutcome()) };
+  const procs = fakeProcesses((child) => {
+    child.stdout.emit('data', Buffer.from('started\n'));
+    t.mock.timers.tick(300);
+  });
+  const bash = createBash({ spawn: procs.spawn, kill: procs.kill });
+  const h = harness([toolReply([{ name: 'Bash', input: { command: 'long-job', timeout: 300 } }]), textReply('ok')], { tools: [bash], hooks });
+  const result = await h.agent.runTurn('go');
+  const post = fired.filter(([event]) => event.startsWith('PostToolUse')).map(([event, extra]) => [event, extra.is_interrupt, extra.is_timeout, extra.error]);
+  assert.deepEqual(post, [['PostToolUseFailure', false, true, 'started\n[timed out after 300 ms]']]);
+  assert.equal(result.stopReason, 'end_turn');
 });
 
 test('a prompt record leads with the prompt text, then the interrupt marker, SessionStart and UserPromptSubmit context', async () => {
