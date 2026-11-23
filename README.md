@@ -685,7 +685,7 @@ Loading a transcript:
 - Any other line that is not a JSON object, or a user or assistant record that would be replayed but has no `message.content` array, prints `clodent: <path>: line <n> is not valid JSON`, `… is not a record` or `… has no message content` and exits 2.
 - A `system` record with `subtype: "compact_boundary"` empties the history built so far, and a user record with `isCompactSummary: true` is replayed even though it is `isVisibleInTranscriptOnly`. `--resume` and `--fork-session` of a compacted session therefore start from the summary message, its reloaded file blocks included as recorded (the files are not re-read); `--fork-session` still copies every record.
 - When the last user record is the interrupt record, the next prompt goes to the API followed by the text block `[clodent: previous turn interrupted by the user]`, as it would have in the interrupted run.
-- When the history ends in an assistant record with `tool_use` blocks and no results (clodent was killed while a tool ran), the next turn first writes a tool results record giving each of them the error result `interrupted by user`, then the prompt, followed by that same text block.
+- When the history ends in an assistant record with `tool_use` blocks and no results (clodent was killed while a tool ran), the next turn first writes tool results records giving each of them the error result `interrupted by user`, then the prompt, followed by that same text block.
 
 Every record carries:
 
