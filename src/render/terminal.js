@@ -106,7 +106,7 @@ export function createRenderer({ out, err, mode, screen }) {
       attempt.shown += `${shown}\n`;
       return;
     }
-    attempt.clean = false;
+    if (attempt.shown !== '') attempt.clean = false;
     thinkingRun = false;
   }
 
@@ -186,7 +186,7 @@ export function createRenderer({ out, err, mode, screen }) {
     },
     permission_request({ id, name, summary }) {
       if (heldTool?.id === id) heldTool = null;
-      line(summary ? `[clodent:permit ${name} ${id}] ${summary}` : `[clodent:permit ${name} ${id}]`, undefined, { fit: 'clip' });
+      line(summary ? `[clodent:permit ${name} ${id}] ${summary}` : `[clodent:permit ${name} ${id}]`);
     },
     permission({ id, decision, reason }) {
       if (decision !== 'deny') return;

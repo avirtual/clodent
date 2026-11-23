@@ -369,6 +369,16 @@ test('a retry after the response completed, as a web sub-request has, erases not
   assert.equal(out.text(), `Searching.\n${yellow('clodent: Overloaded; retrying in 2 s')}\n`);
 });
 
+test('a pre-stream retry line before the attempt drew text still lets a mid-stream retry erase that text', () => {
+  const { out, render } = sized('repl', { columns: 80, rows: 24 });
+  render({ type: 'request_start', attempt: 1 });
+  render({ type: 'warning', message: '529 Overloaded; retrying in 3 s', retry: 'http' });
+  render({ type: 'text_delta', text: 'abc', index: 0 });
+  render(RETRY);
+  assert.equal(out.text(), `${dim('clodent: 529 Overloaded; retrying in 3 s')}\nabc\r\x1b[J${yellow('clodent: Overloaded; retrying in 2 s')}\n`);
+  assert.equal(out.text().includes(CUT_OFF_NOTE), false);
+});
+
 test('a pre-stream retry prints a dim line and erases nothing', () => {
   const { out, render } = sized('repl', { columns: 80, rows: 24 });
   render({ type: 'request_start', attempt: 1 });
@@ -442,15 +452,18 @@ test('in the REPL a call that asks prints only its permit line; a call that runs
   assert.equal(print.err.text(), '● Bash touch x\n[clodent:permit Bash a] touch x\n');
 });
 
-test('on a TTY the ● and permit lines are cut to 3 rows ending in …; off a TTY they are whole', () => {
+test('on a TTY the ● line is cut to 3 rows ending in … and the permit line keeps its whole summary; off a TTY both are whole', () => {
   const command = `echo ${'word '.repeat(40)}`.trim();
   const { out, render } = sized('repl', { columns: 30 });
   render({ type: 'tool_use', id: 'a', name: 'Bash', input: {}, summary: command });
   render({ type: 'permission', id: 'a', name: 'Bash', decision: 'allow' });
   render({ type: 'permission_request', id: 'b', name: 'Bash', input: {}, summary: command });
-  const [tool, permit] = out.text().split('\n');
+  const [tool, ...permit] = out.text().split('\n');
   assert.equal(tool, `${`● Bash ${command}`.slice(0, 89)}…`);
-  assert.equal(permit, `${`[clodent:permit Bash b] ${command}`.slice(0, 89)}…`);
+  assert.equal(permit.pop(), '');
+  assert.ok(permit.length > 3);
+  assert.ok(permit.every((row) => row.length <= 30));
+  assert.equal(permit.join(' '), `[clodent:permit Bash b] ${command}`);
   const plain = sized('repl', { tty: false, columns: 30 });
   plain.render({ type: 'permission_request', id: 'b', name: 'Bash', input: {}, summary: command });
   assert.equal(plain.out.text(), `[clodent:permit Bash b] ${command}\n`);
