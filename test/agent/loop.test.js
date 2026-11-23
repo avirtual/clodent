@@ -722,11 +722,13 @@ test('a Bash call interrupted while it runs fires PostToolUseFailure once, under
   assert.equal(post.length, 1);
   const [[event, extra, signal]] = post;
   assert.equal(event, 'PostToolUseFailure');
-  assert.equal(signal, stop.signal);
   assert.deepEqual([extra.is_interrupt, extra.is_timeout, extra.error], [true, false, KILLED]);
   assert.deepEqual(extra.tool_response, { stdout: 'partial\n', stderr: '', interrupted: true, content: KILLED, isError: true });
   assert.deepEqual(h.of('tool_result').map((e) => [e.content, e.isError]), [[KILLED, true]]);
   assert.equal(result.stopReason, 'interrupted');
+  assert.equal(signal.aborted, false);
+  stop.abort();
+  assert.equal(signal.aborted, true);
 });
 
 test('a second abort kills the PostToolUseFailure hook of an interrupted call, and the turn still ends', async () => {
@@ -772,7 +774,10 @@ test('a call that returns a result that is not an error after the interrupt fire
   const tool = { ...fakeTool('A', 'read', []), run: async () => (controller.abort(), { content: 'done', isError: false }) };
   const h = harness([toolReply([{ name: 'A', input: {} }]), textReply('never')], { tools: [tool], hooks });
   await h.agent.runTurn('go', { signal: controller.signal, stopSignal: stop.signal });
-  assert.deepEqual(fired.filter(([event]) => event.startsWith('PostToolUse')), [['PostToolUse', stop.signal]]);
+  const post = fired.filter(([event]) => event.startsWith('PostToolUse'));
+  assert.deepEqual(post.map(([event, signal]) => [event, signal.aborted]), [['PostToolUse', false]]);
+  stop.abort();
+  assert.equal(post[0][1].aborted, true);
 });
 
 test('an interrupted call\'s PostToolUseFailure context goes after its tool_result in that user message, which the next prompt joins', async () => {
