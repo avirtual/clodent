@@ -85,7 +85,7 @@ test('compact sends one quiet summary request, replaces the history with the sum
   assert.deepEqual(summary.system, first.system);
   assert.deepEqual(summary.tools, first.tools);
   assert.deepEqual(strip(summary.messages), [...before, { role: 'user', content: [text(`${COMPACT_PROMPT}\n\nAdditional instructions: keep paths`)] }]);
-  assert.deepEqual(h.types().slice(mark), ['warning', 'compact_start', 'request_start', 'compacted']);
+  assert.deepEqual(h.types().slice(mark), ['compact_start', 'warning', 'request_start', 'compacted']);
   const compacted = h.events.at(-1);
   assert.deepEqual({ ...compacted, turn: compacted.turn.requests }, {
     type: 'compacted',

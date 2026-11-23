@@ -244,3 +244,21 @@ test('an abort during a retry sleep stops before the next call', async () => {
   );
   assert.equal(fetch.calls.length, 1);
 });
+
+test('each pre-stream retry calls onRetry with the error and the wait, before that sleep; the last attempt calls none', async () => {
+  const log = [];
+  const { deps } = setup([{ ...overloaded, headers: { 'retry-after': '3' } }, { status: 502, body: '<html>bad gateway</html>' }, { body: 'text-only.sse' }]);
+  deps.sleep = async (ms) => log.push(['sleep', ms]);
+  await streamMessage(request, deps, { onRetry: (err, wait) => log.push(['retry', err.status, err.type, wait]) });
+  assert.deepEqual(log, [
+    ['retry', 529, 'overloaded_error', 3000],
+    ['sleep', 3000],
+    ['retry', 502, 'http_error', 2000],
+    ['sleep', 2000],
+  ]);
+  const last = setup([overloaded, overloaded, overloaded, overloaded]);
+  const calls = [];
+  await assert.rejects(streamMessage(request, last.deps, { onRetry: (err, wait) => calls.push(wait) }));
+  assert.deepEqual(calls, last.sleeps);
+  assert.equal(calls.length, 3);
+});

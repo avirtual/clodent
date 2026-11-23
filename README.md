@@ -219,7 +219,7 @@ stdout gets only the final answer: the text blocks of the turn's last assistant 
 - `[clodent:session] <session-id>` first, before any other line; see [Sessions](#sessions).
 - `clodent: ignoring --<name>: not supported` once for each ignored flag given (see [Flags](#flags)), then `clodent: settings <path>: <what was dropped>` for each settings warning, then `clodent: ignoring CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS=<value>: not a positive integer` (see [Environment](#environment)) and `clodent: CLAUDE.md found but not loaded; clodent reads AGENTS.md (see README System prompt)` (see [System prompt](#system-prompt)) when they apply.
 - `● <Tool> <summary>` for each tool call; the summary is the call's main input: `file_path` for Read, Write and Edit, `command` for Bash, `pattern` for Grep and Glob, `query` for WebSearch, `url` for WebFetch. It is one line, with each line break shown as `⏎`, and is cut to 200 characters ending in `…`. With an empty summary the line is `● <Tool>`.
-- `  ✗ <reason>` when a tool call is refused, and `  ✗ <first line of the result>` when a tool returns an error.
+- `  ✗ <reason>` when a tool call is refused, and `  ✗ <line>` when a tool returns an error: for a `Bash` result that ends in its trailer, that trailer; otherwise the result's first line that is not blank, trimmed, or `(no message)`, with each `<cwd>/` dropped for `Read` (see [REPL](#repl)).
 - `clodent: <message>` for warnings and errors, hook warnings included. An API error message is printed as the API sent it, except that each control byte in it, a line break included, is written as `\u` and four lowercase hex digits, as in the REPL (see [REPL](#repl)). When the error is the API's prompt-too-long 400 (`invalid_request_error` whose message starts `prompt is too long`), the next line is `clodent: the conversation is larger than the model's context window; start a new session`.
 - After the turn: `[clodent:cost] warning: no price for model <id>; cost not counted` once per unpriced model, then the per-turn `[clodent:cost]` line. A budget stop prints the `[clodent:budget]` line first.
 - On exit: the `[clodent:cost] session total` line.
@@ -422,7 +422,7 @@ A compact is not a turn: it fires no `Stop` hook and writes no `turn_duration` r
 
 Permission ask: in the default mode, a write or exec tool call that no hook allowed or denied and no allow rule matches (see [Allow rules](#allow-rules)) waits for an answer, unless it is a read-only `Bash` command (see [Read-only Bash](#read-only-bash)). In `--permission-mode acceptEdits` write tools run inside the working directory and the `--add-dir`/`trustedDirectories`/`additionalDirectories` dirs, so only a `Bash` command that is not read-only and a `WebSearch` or `WebFetch` call wait, and so does a `Write` or `Edit` outside those dirs, under a `.git`, `.clodent` or `.claude` directory, or to a file a hook or statusLine command names (see [Read-only Bash](#read-only-bash)). So does any call a settings ask rule matches, even one a hook allowed, and any call a hook asks about, a read included; a call a deny rule matches is refused without asking (see [Permission rules](#permission-rules)). The `--yolo` and `--read-only` modes, whichever flag names them, never ask, and print mode refuses the call instead.
 
-1. clodent prints `[clodent:permit <Tool> <tool_use id>] <summary>` on its own line, with the summary of the `● <Tool> <summary>` line; with an empty summary the line ends at `]`.
+1. clodent prints `[clodent:permit <Tool> <tool_use id>] <summary>` on its own line, with the summary the `● <Tool> <summary>` line would have had; with an empty summary the line ends at `]`. The REPL prints no `● <Tool>` line for a call that asks, so the summary shows once; stream-json's stderr keeps both.
 2. It writes `Allow? [y/n] ` and starts reading one line.
 3. With the ask listening, it fires the `Notification` hook with `notification_type: "permission_prompt"`, `title: "Permission needed"`, `message: "clodent needs your permission to use <Tool>"`, `tool` (the tool name) and `id` (the tool_use id). A line written while the hook runs is read as the answer. The call runs or is refused once both the answer and the hook are done.
 4. `y` or `yes`, trimmed and in any case, runs the call. `n` or `no` refuses it with the reason `denied by the user`. An empty line asks again. Any other line, and any line with a paste in it, is not an answer: it is queued as a prompt, and clodent prints `clodent: queued as a prompt; answer y or n` and asks again. On a TTY, an empty line or a line that is not an answer erases the ask row first, so the screen keeps one `Allow? [y/n] ` line.
@@ -470,7 +470,7 @@ No `anthropic-beta` header is sent. A web tool's sub-request goes to the same UR
 
 With the cache TTL `5m`, the default (see `--cache-ttl` and the settings `cacheTtl`), every breakpoint is `{"type": "ephemeral"}`, with no `ttl` key. The system block and the last tool follow the cache TTL; the settled pin and the tail follow the message cache TTL (see `--message-cache-ttl` and the settings `messageCacheTtl`), which is the cache TTL when unset and is always `5m` under the cache TTL `5m`. With `1h` and no message cache TTL, every breakpoint, the tail included, is `{"type": "ephemeral", "ttl": "1h"}`. With the cache TTL `1h` and the message cache TTL `5m`, the system block and the last tool are `{"type": "ephemeral", "ttl": "1h"}` and the settled pin and the tail are `{"type": "ephemeral"}`. The `/compact` summary request uses the same TTLs.
 
-Requests that fail before the first SSE event with status 429, 500, 502, 503, 504 or 529, or with a network error, are tried at most 4 times. The waits are 1 s, 2 s and 4 s, each with ±20% jitter, and a `retry-after` header in seconds replaces the wait, capped at 60 s. Any other status is not retried. An `error` event once the stream has started discards the partial response; when its type is `overloaded_error` or `api_error`, clodent re-sends the same request at most 2 more times, after 2 s and then 4 s, each announced by a `clodent: <message>; retrying in <n> s` warning. Any other `error` event is not retried. The API's error message is surfaced verbatim. A network error's message is surfaced with any `//<user>:<password>@` in it cut to `//`.
+Requests that fail before the first SSE event with status 429, 500, 502, 503, 504 or 529, or with a network error, are tried at most 4 times. The waits are 1 s, 2 s and 4 s, each with ±20% jitter, and a `retry-after` header in seconds replaces the wait, capped at 60 s. Each wait is announced by a `clodent: <status> <message>; retrying in <n> s` warning, `HTTP <status>` in place of `<status> <message>` when the body was not the API's JSON error and the network error's message for a network error, with `<n>` the wait in seconds rounded to one decimal; the REPL prints it dim. Any other status is not retried. An `error` event once the stream has started discards the partial response; when its type is `overloaded_error` or `api_error`, clodent re-sends the same request at most 2 more times, after 2 s and then 4 s, each announced by a `clodent: <message>; retrying in <n> s` warning (see [REPL](#repl) for what happens to the text already on screen). Each retry warning, of either kind, also writes a `system` record with `subtype: "informational"` (see [Sessions](#sessions)). Any other `error` event is not retried. The API's error message is surfaced verbatim. A network error's message is surfaced with any `//<user>:<password>@` in it cut to `//`.
 
 When no bytes of the response body arrive for 300 s, clodent drops the connection as a network error `stream idle for 300s`; an event whose unterminated text passes 16 MiB (16,777,216 characters) fails the same way with `SSE event over 16 MiB`. The rules above apply to both: retried before the first SSE event, and failing the turn after it. The API sends `ping` events while the model thinks, so a live stream is never idle that long.
 
@@ -559,7 +559,7 @@ where `<n>` is the exact number of bytes removed.
 - for `WebFetch`, sends a user message that holds the `url` and the `prompt`, and only `{type: "web_fetch_20250910", name: "web_fetch", max_uses: 2, max_content_tokens: 25000}`; a `url` that is not `http` or `https` is an error and sends nothing;
 - is retried and budget-checked as a main request is (see [API wire](#api-wire) and [Cost](#cost)), and charged to the turn;
 - on `stop_reason` `pause_turn`, is sent again with the response's content appended verbatim as the assistant message, at most 5 times;
-- never streams to the screen: its events are a `warning` for a mid-stream re-send and, when it completes, `side_request` (see [Events](#events)), which appends a `web request` record to the transcript (see [Sessions](#sessions)).
+- never streams to the screen: its events are a `warning` for each retry and, when it completes, `side_request` (see [Events](#events)), which appends a `web request` record to the transcript (see [Sessions](#sessions)).
 
 The result:
 
@@ -653,7 +653,7 @@ Internal; [Stream JSON](#stream-json) writes its lines from them. The agent loop
 | type | fields | emitted |
 |---|---|---|
 | `session_start` | `model`, `cwd`, `tools` (names), `permission` (`ask`, `yolo` or `read-only`) | once, when the agent is created |
-| `request_start` | `attempt` (1-based; a mid-stream re-send counts up) | before each request the loop sends, other than a web tool's sub-request; streamMessage's pre-stream retries are not announced |
+| `request_start` | `attempt` (1-based; a mid-stream re-send counts up) | before each request the loop sends, other than a web tool's sub-request; a retry before the first SSE event emits a `warning` and no `request_start` |
 | `text_delta` | `text`, `index` (content block index) | as text streams in; never for a compact's summary request |
 | `thinking_delta` | `text`, `index` | as thinking streams in; never for a compact's summary request |
 | `assistant_message` | `message` (the assembled API message), `requestId`, `durationMs`, `usd`, `priced` | when a response completes |
@@ -665,7 +665,8 @@ Internal; [Stream JSON](#stream-json) writes its lines from them. The agent loop
 | `side_request` | `subtype` (`web_request`), `toolUseId`, `model`, `requestId`, `usage`, `usd`, `durationMs` | when a tool's sub-request completes (see [Web tools](#web-tools)); no `request_start` precedes it |
 | `turn_end` | `stopReason`, `turn` (the turn's cost aggregate) | last, once per turn |
 | `budget_stop` | `result` (the budget check that failed) | instead of a request the budget does not cover, other than a web tool's sub-request, whose refusal is the tool's error result |
-| `warning` | `message`; `hookContext` (`{event, scope, bytes, limit}`) for a hook context cut | |
+| `warning` | `message`; `hookContext` (`{event, scope, bytes, limit}`) for a hook context cut; `retry` (`stream` for a mid-stream re-send, `http` for a retry before the first SSE event, whose message is `<status> <API message>; retrying in <n> s`, `HTTP <status>; …` when the body was not the API's JSON error, or `<network error message>; …`) | |
+| `compact_start` | `trigger` | when a compact that has something to summarise starts, before the `PreCompact` hook |
 | `error` | `message`, `errorType`, `status` (HTTP status, or null mid-stream) | when the turn ends on an error |
 | `interrupted` | none | when the turn's signal aborts |
 | `compacted` | `trigger`, `summary` (the summary text), `message` (the history's new user message: the summary block, then one block per reloaded file), `reloaded` (`[{path, bytes}]`: each reloaded file's absolute path and the byte length of its `Read` output), `skipped` (`[{path, reason}]`), `preTokens`, `postTokens`, `turn` (the summary request's cost aggregate) | when a compact replaced the history, before the `SessionStart` (`compact`) hook; a compact emits no `turn_end` |
@@ -729,6 +730,7 @@ Record kinds, in the order a turn writes them:
 | interrupt | `type: "user"`, `message: {role: "user", content: [{type: "text", text: "[Request interrupted by user]"}]}`, `isVisibleInTranscriptOnly: true`; no `isMeta` |
 | compact boundary | `type: "system"`, `subtype: "compact_boundary"`, `content: "Conversation compacted"`, `level: "info"`, `parentUuid: null`, `logicalParentUuid` (the previous record's `uuid`), `compactMetadata: {trigger, preTokens, postTokens, reloadedFiles}`, where `reloadedFiles` lists the absolute paths of the files reloaded into the summary message (`[]` when none); written by `/compact` (see [REPL](#repl) or [Stream JSON](#stream-json) stdin), outside any turn |
 | compact summary | `type: "user"`, `message: {role: "user", content: [{type: "text", text: "This session continues an earlier conversation that was compacted. Summary of it:\n\n<summary>"}, then one text block per reloaded file]}`, exactly the history's new message (see [REPL](#repl)), `isVisibleInTranscriptOnly: true`, `isCompactSummary: true`; right after the boundary. The summary request's own response is not recorded |
+| retry | `type: "system"`, `subtype: "informational"`, `content` (the retry warning without `clodent: `, such as `Overloaded; retrying in 2 s` or `529 Overloaded; retrying in 3 s`), `level: "warning"`; one per retry, before or during a stream, of a turn's request, a compact's summary request or a web tool's sub-request (see [API wire](#api-wire)). Clodex shows it as a notice; resuming ignores it |
 | turn end | `type: "system"`, `subtype: "turn_duration"`, `durationMs` (the turn's duration in whole milliseconds), `messageCount` (the user and assistant records written since the previous `turn_duration` record, the interrupt record included and the compact records not); after the turn's last record |
 
 A turn the model ended has `stop_reason: "end_turn"` on its last assistant record.
@@ -938,7 +940,7 @@ The context of `SessionStart`, `UserPromptSubmit`, `PostToolUse` and `PostToolUs
 
 - `perHook` (default 65536): one command's context over it is cut to its first and last bytes around the line `[clodent: hook context of <bytes> bytes truncated to <limit>]`; a cut never splits a character.
 - `perEvent` (default 262144): after the per-command cuts, the texts of one firing joined by a blank line, when over it, are cut the same way into one text. `SessionStart` is exempt from `perEvent`, not from `perHook`.
-- Each cut adds a warning, `hook <Event> "<first 60 code points of the command>": context of <bytes> bytes truncated to <limit>` for a command and `hook <Event>: context of <bytes> bytes truncated to <limit>` for a firing; [Stream JSON](#stream-json) also writes it to stdout as a `hook_context_truncated` record.
+- Each cut adds a warning, `hook <Event> "<command>": context of <bytes> bytes truncated to <limit>` for a command and `hook <Event>: context of <bytes> bytes truncated to <limit>` for a firing; [Stream JSON](#stream-json) also writes it to stdout as a `hook_context_truncated` record.
 
 Hook warnings print as `clodent: <warning>` lines. Hooks get the turn's interrupt: a signal kills running hooks, and a hook that would start after it does not run. `Stop` runs even after an interrupt, under its own abort: a second SIGTERM or SIGHUP kills it (in `-p`, any second signal).
 
@@ -987,9 +989,11 @@ Combining: a deny beats an ask, and an ask beats an allow. The reason comes from
 Warnings are one line each:
 
 ```
-hook <Event> "<first 60 code points of the command>": <exit <n>|timeout|aborted|killed by <signal>|<error message>|invalid JSON ignored|stdout over 1 MiB truncated|unknown permissionDecision <value as JSON> ignored|context of <bytes> bytes truncated to <limit>>
+hook <Event> "<command>": <exit <n>|timeout|aborted|killed by <signal>|<error message>|invalid JSON ignored|stdout over 1 MiB truncated|unknown permissionDecision <value as JSON> ignored|context of <bytes> bytes truncated to <limit>>
 hook <Event>: context of <bytes> bytes truncated to <limit>
 ```
+
+`<command>`, here and in the `statusLine` and context-cut warnings, is the command when it has at most 60 code points, and otherwise `…` followed by its last 60, so a script's file name stays in view.
 
 statusLine: after each API response other than a compact's summary request, and from the REPL or a stream-json slash command after `/clear` and a successful `/compact` (see [REPL](#repl) and [Stream JSON](#stream-json)), clodent runs the `statusLine` command the same way, less `CLODEX_INTENT_CRED` (see [Clodex tools](#clodex-tools)), with a 5 s timeout, and this JSON on stdin:
 
@@ -1011,7 +1015,7 @@ statusLine: after each API response other than a compact's summary request, and 
 - `context_window_size` is the session's context window: 1000000 when the model (`--model`, the settings `model` or the last `/model <id>`) came with a `[1m]` suffix, else 200000 (see [Flags](#flags)). `--resume` takes it from the current launch's model.
 - `used_percentage` is `used_tokens` over `context_window_size`, as a number from 0 to 100 with at most one decimal.
 - At most one statusLine command runs at a time. An update that arrives while one runs replaces any update already waiting, so only the latest runs next.
-- stdout is discarded. The first failure prints one warning, `statusLine "<first 60 code points of the command>": <reason>`; later failures are silent.
+- stdout is discarded. The first failure prints one warning, `statusLine "<command>": <reason>`; later failures are silent.
 - Before exit, clodent waits for the running statusLine command and the latest waiting update to finish.
 
 ## License

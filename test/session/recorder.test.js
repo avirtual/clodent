@@ -170,3 +170,16 @@ test('the recorder re-reads the git branch before the first record of each turn,
   record(reply);
   assert.deepEqual(transcript.refreshes, [0, 3, 4]);
 });
+
+test('a retry warning, mid-stream or pre-stream, writes one system informational record at level warning; other warnings write none', () => {
+  const transcript = capture();
+  const record = createRecorder(transcript, { now: () => 0 });
+  record({ type: 'warning', message: 'Overloaded; retrying in 2 s', retry: 'stream' });
+  record({ type: 'warning', message: '529 Overloaded; retrying in 3 s', retry: 'http' });
+  record({ type: 'warning', message: 'response hit max_tokens' });
+  record({ type: 'warning', message: 'hook Stop "x": exit 1' });
+  assert.deepEqual(transcript.records, [
+    { type: 'system', subtype: 'informational', content: 'Overloaded; retrying in 2 s', level: 'warning' },
+    { type: 'system', subtype: 'informational', content: '529 Overloaded; retrying in 3 s', level: 'warning' },
+  ]);
+});

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRenderer } from '../../src/render/terminal.js';
+import { COMPACTING, CUT_OFF_NOTE, NO_MESSAGE, createRenderer } from '../../src/render/terminal.js';
 
 function stream(isTTY = false) {
   const chunks = [];
@@ -207,7 +207,7 @@ test('a compact on an unpriced model prints the unpriced warning once, before it
 });
 
 test('repl mode on a TTY colours warnings yellow, errors red and cost lines dim, and leaves the rest plain', () => {
-  const { out, render } = setup('repl', true);
+  const { out, render } = sized('repl', { columns: 120 });
   render({ type: 'tool_use', id: 't0', name: 'Bash', input: {}, summary: 'pwd' });
   render({ type: 'permission', id: 't0', name: 'Bash', decision: 'allow' });
   render({ type: 'tool_use', id: 't1', name: 'Bash', input: {}, summary: 'ls' });
@@ -294,4 +294,203 @@ test('print mode: the stdout answer stays as the model wrote it; the stderr tool
   render({ type: 'turn_end', stopReason: 'end_turn', turn: agg() });
   assert.equal(out.text(), 'raw\x1b[1m\r\n\n');
   assert.equal(err.text(), `● Bash ls\\u001b[2K\n${COST}\n`);
+});
+
+function sized(mode, { tty = true, columns, rows } = {}) {
+  const out = Object.assign(stream(tty), { columns, rows });
+  const err = Object.assign(stream(tty), { columns, rows });
+  return { out, err, render: createRenderer({ out, err, mode }) };
+}
+
+const dim = (text) => `\x1b[2m${text}\x1b[0m`;
+const yellow = (text) => `\x1b[33m${text}\x1b[0m`;
+const red = (text) => `\x1b[31m${text}\x1b[0m`;
+const RETRY = { type: 'warning', message: 'Overloaded; retrying in 2 s', retry: 'stream' };
+
+test('a mid-stream retry on a TTY erases the rows the failed attempt drew, its thinking line included, then prints the warning', () => {
+  const { out, render } = sized('repl', { columns: 10, rows: 24 });
+  render({ type: 'request_start', attempt: 1 });
+  render({ type: 'thinking_delta', text: 't', index: 0 });
+  render({ type: 'text_delta', text: 'abcdefghijklmno\nxy', index: 1 });
+  const before = out.text();
+  render(RETRY);
+  assert.equal(before, `${dim('thinking…')}\nabcdefghijklmno\nxy`);
+  assert.equal(out.text().slice(before.length), `\r\x1b[3A\x1b[J${yellow('clodent:\nOverloaded;\nretrying\nin 2 s')}\n`);
+  render({ type: 'request_start', attempt: 2 });
+  render({ type: 'thinking_delta', text: 't', index: 0 });
+  render({ type: 'text_delta', text: 'whole', index: 1 });
+  assert.ok(out.text().endsWith(`in 2 s\x1b[0m\n${dim('thinking…')}\nwhole`));
+});
+
+test('a mid-stream retry erases a one-row attempt with \\r\\x1b[J and nothing above it', () => {
+  const { out, render } = sized('repl', { columns: 80, rows: 24 });
+  render({ type: 'request_start', attempt: 1 });
+  render({ type: 'text_delta', text: 'Hello, wor', index: 0 });
+  render(RETRY);
+  assert.equal(out.text(), `Hello, wor\r\x1b[J${yellow('clodent: Overloaded; retrying in 2 s')}\n`);
+});
+
+test('a mid-stream retry whose text fills the screen, or is not alone on it, keeps the text and prints the dim cut-off note above the warning', () => {
+  const tall = sized('repl', { columns: 80, rows: 3 });
+  tall.render({ type: 'request_start', attempt: 1 });
+  tall.render({ type: 'text_delta', text: 'one\ntwo\nthr', index: 0 });
+  tall.render(RETRY);
+  assert.equal(tall.out.text(), `one\ntwo\nthr\n${dim(CUT_OFF_NOTE)}\n${yellow('clodent: Overloaded; retrying in 2 s')}\n`);
+  const mixed = sized('repl', { columns: 80, rows: 24 });
+  mixed.render({ type: 'request_start', attempt: 1 });
+  mixed.render({ type: 'text_delta', text: 'one ', index: 0 });
+  mixed.render({ type: 'warning', message: 'statusLine "x": exit 1' });
+  mixed.render({ type: 'text_delta', text: 'two', index: 0 });
+  mixed.render(RETRY);
+  assert.equal(mixed.out.text().includes('\x1b[J'), false);
+  assert.ok(mixed.out.text().endsWith(`two\n${dim(CUT_OFF_NOTE)}\n${yellow('clodent: Overloaded; retrying in 2 s')}\n`));
+});
+
+test('a mid-stream retry off a TTY adds only the plain cut-off note; print mode, which streams no text, adds nothing', () => {
+  const repl = sized('repl', { tty: false });
+  repl.render({ type: 'request_start', attempt: 1 });
+  repl.render({ type: 'text_delta', text: 'partial', index: 0 });
+  repl.render(RETRY);
+  assert.equal(repl.out.text(), `partial\n${CUT_OFF_NOTE}\nclodent: Overloaded; retrying in 2 s\n`);
+  const print = sized('print', { tty: false });
+  print.render({ type: 'request_start', attempt: 1 });
+  print.render({ type: 'text_delta', text: 'partial', index: 0 });
+  print.render(RETRY);
+  assert.equal(print.out.text(), '');
+  assert.equal(print.err.text(), 'clodent: Overloaded; retrying in 2 s\n');
+});
+
+test('a retry after the response completed, as a web sub-request has, erases nothing and adds no note', () => {
+  const { out, render } = sized('repl', { columns: 80, rows: 24 });
+  render({ type: 'request_start', attempt: 1 });
+  render({ type: 'text_delta', text: 'Searching.', index: 0 });
+  render({ type: 'assistant_message', message: { role: 'assistant', content: [{ type: 'text', text: 'Searching.' }], stop_reason: 'tool_use' } });
+  render(RETRY);
+  assert.equal(out.text(), `Searching.\n${yellow('clodent: Overloaded; retrying in 2 s')}\n`);
+});
+
+test('a pre-stream retry prints a dim line and erases nothing', () => {
+  const { out, render } = sized('repl', { columns: 80, rows: 24 });
+  render({ type: 'request_start', attempt: 1 });
+  render({ type: 'warning', message: '529 Overloaded; retrying in 3 s', retry: 'http' });
+  assert.equal(out.text(), `${dim('clodent: 529 Overloaded; retrying in 3 s')}\n`);
+});
+
+test('a failed Bash call shows its trailer, never its first output line; a blank first line never leaves a bare ✗', () => {
+  const { out, render } = setup('repl');
+  render({ type: 'session_start', model: 'm', cwd: '/w', tools: [], permission: 'ask' });
+  const fail = (name, content) => render({ type: 'tool_result', id: name, name, content, isError: true });
+  fail('Bash', 'first line of output\nsecond\n[exit 3]');
+  fail('Bash', '\n\nnoise\n[timed out after 500 ms]');
+  fail('Bash', 'x\n[killed by SIGKILL]');
+  fail('Bash', 'Cannot run bash in /w: spawn ENOENT');
+  fail('Grep', '\n  \nInvalid regex: (\nmore');
+  fail('Glob', '');
+  fail('Read', 'File does not exist: /w/src/a.js');
+  fail('Read', 'File does not exist: /other/a.js');
+  assert.deepEqual(out.text().split('\n').slice(0, -1), [
+    '  ✗ [exit 3]',
+    '  ✗ [timed out after 500 ms]',
+    '  ✗ [killed by SIGKILL]',
+    '  ✗ Cannot run bash in /w: spawn ENOENT',
+    '  ✗ Invalid regex: (',
+    `  ✗ ${NO_MESSAGE}`,
+    '  ✗ File does not exist: src/a.js',
+    '  ✗ File does not exist: /other/a.js',
+  ]);
+});
+
+test('a new text block, as after a server tool, starts on a new line; one that follows a line end adds none', () => {
+  const { out, render } = setup('repl');
+  render({ type: 'request_start', attempt: 1 });
+  render({ type: 'text_delta', text: 'Let me search for that.', index: 0 });
+  render({ type: 'text_delta', text: 'The latest is 22.', index: 3 });
+  render({ type: 'text_delta', text: ' Done.\n', index: 3 });
+  render({ type: 'text_delta', text: 'Next block.', index: 5 });
+  render({ type: 'assistant_message', message: { role: 'assistant', content: [], stop_reason: 'pause_turn' } });
+  render({ type: 'request_start', attempt: 1 });
+  render({ type: 'text_delta', text: 'Continued.', index: 0 });
+  assert.equal(out.text(), 'Let me search for that.\nThe latest is 22. Done.\nNext block.\nContinued.');
+});
+
+test('in the REPL a call that asks prints only its permit line; a call that runs keeps its ● line', () => {
+  const { out, render } = setup('repl');
+  render({ type: 'tool_use', id: 'a', name: 'Bash', input: {}, summary: 'touch x' });
+  render({ type: 'permission_request', id: 'a', name: 'Bash', input: {}, summary: 'touch x' });
+  render({ type: 'permission', id: 'a', name: 'Bash', decision: 'allow' });
+  render({ type: 'tool_result', id: 'a', name: 'Bash', content: '[exit 0]', isError: false });
+  render({ type: 'tool_use', id: 'b', name: 'Read', input: {}, summary: 'notes.md' });
+  render({ type: 'permission', id: 'b', name: 'Read', decision: 'allow' });
+  render({ type: 'tool_use', id: 'c', name: 'Glob', input: {}, summary: '*.js' });
+  render({ type: 'tool_result', id: 'c', name: 'Glob', content: 'interrupted by user', isError: true });
+  assert.equal(out.text(), '[clodent:permit Bash a] touch x\n● Read notes.md\n● Glob *.js\n  ✗ interrupted by user\n');
+  const print = setup('print');
+  print.render({ type: 'tool_use', id: 'a', name: 'Bash', input: {}, summary: 'touch x' });
+  print.render({ type: 'permission_request', id: 'a', name: 'Bash', input: {}, summary: 'touch x' });
+  assert.equal(print.err.text(), '● Bash touch x\n[clodent:permit Bash a] touch x\n');
+});
+
+test('on a TTY the ● and permit lines are cut to 3 rows ending in …; off a TTY they are whole', () => {
+  const command = `echo ${'word '.repeat(40)}`.trim();
+  const { out, render } = sized('repl', { columns: 30 });
+  render({ type: 'tool_use', id: 'a', name: 'Bash', input: {}, summary: command });
+  render({ type: 'permission', id: 'a', name: 'Bash', decision: 'allow' });
+  render({ type: 'permission_request', id: 'b', name: 'Bash', input: {}, summary: command });
+  const [tool, permit] = out.text().split('\n');
+  assert.equal(tool, `${`● Bash ${command}`.slice(0, 89)}…`);
+  assert.equal(permit, `${`[clodent:permit Bash b] ${command}`.slice(0, 89)}…`);
+  const plain = sized('repl', { tty: false, columns: 30 });
+  plain.render({ type: 'permission_request', id: 'b', name: 'Bash', input: {}, summary: command });
+  assert.equal(plain.out.text(), `[clodent:permit Bash b] ${command}\n`);
+});
+
+test('on a TTY clodent word-wraps its own lines at the width, keeping each word whole; off a TTY it does not', () => {
+  const turn = { usd: 0.1173, tokens: { in: 3, cacheRead: 154321, cacheWrite: 12345, out: 1234 }, requests: 1, unpriced: [] };
+  const { out, render } = sized('repl', { columns: 40 });
+  render({ type: 'warning', message: 'hook Stop "/Users/me/.clodex/run/seat/stop-hook.sh": exit 1' });
+  render({ type: 'turn_end', stopReason: 'end_turn', turn });
+  assert.deepEqual(out.text().split('\n').slice(0, -1), [
+    '\x1b[33mclodent: hook Stop',
+    '"/Users/me/.clodex/run/seat/stop-hook.sh":',
+    'exit 1\x1b[0m',
+    '\x1b[2m[clodent:cost] $0.1173 (in 3, cache-read',
+    '154321, cache-write 12345, out 1234)\x1b[0m',
+  ]);
+  const plain = sized('repl', { tty: false, columns: 40 });
+  plain.render({ type: 'turn_end', stopReason: 'end_turn', turn });
+  assert.equal(plain.out.text(), '[clodent:cost] $0.1173 (in 3, cache-read 154321, cache-write 12345, out 1234)\n');
+});
+
+test('compact_start prints a dim compacting line in the REPL and nothing in print mode', () => {
+  const { out, render } = sized('repl', { columns: 80 });
+  render({ type: 'compact_start', trigger: 'manual' });
+  assert.equal(out.text(), `${dim(COMPACTING)}\n`);
+  const print = setup('print', true);
+  print.render({ type: 'compact_start', trigger: 'manual' });
+  assert.equal(print.out.text() + print.err.text(), '');
+});
+
+test('text cut by max_tokens is followed by a dim … on its line, before the warning; a complete answer gets none', () => {
+  const { out, render } = sized('repl', { columns: 80 });
+  render({ type: 'request_start', attempt: 1 });
+  render({ type: 'text_delta', text: 'in the middle of a sente', index: 0 });
+  render({ type: 'assistant_message', message: { role: 'assistant', content: [{ type: 'text', text: 'in the middle of a sente' }], stop_reason: 'max_tokens' } });
+  render({ type: 'warning', message: 'response hit max_tokens' });
+  assert.equal(out.text(), `in the middle of a sente${dim('…')}\n${yellow('clodent: response hit max_tokens')}\n`);
+  const done = sized('repl', { columns: 80 });
+  done.render({ type: 'request_start', attempt: 1 });
+  done.render({ type: 'text_delta', text: 'whole', index: 0 });
+  done.render({ type: 'assistant_message', message: { role: 'assistant', content: [{ type: 'text', text: 'whole' }], stop_reason: 'end_turn' } });
+  assert.equal(done.out.text(), 'whole\n');
+});
+
+test('\\r\\n in streamed text is a newline, also split across deltas; a bare \\r stays visible', () => {
+  const { out, render } = setup('repl');
+  render({ type: 'request_start', attempt: 1 });
+  render({ type: 'text_delta', text: 'CRLF text:\r', index: 0 });
+  render({ type: 'text_delta', text: '\nline two\r\n', index: 0 });
+  render({ type: 'text_delta', text: 'bare\r', index: 0 });
+  render({ type: 'text_delta', text: 'x\r', index: 0 });
+  render({ type: 'assistant_message', message: { role: 'assistant', content: [], stop_reason: 'end_turn' } });
+  assert.equal(out.text(), 'CRLF text:\nline two\nbare\\u000dx\\u000d\n');
 });

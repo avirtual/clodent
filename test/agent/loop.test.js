@@ -345,6 +345,19 @@ test('max_tokens warns and ends not ok; refusal ends not ok without a warning', 
   assert.deepEqual(r.of('warning'), []);
 });
 
+test('a pre-stream 529 or network retry warns with the status and the wait, marked as an http retry', async () => {
+  const overloaded = { status: 529, headers: { 'retry-after': '3' }, body: JSON.stringify({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }) };
+  const h = harness([overloaded, { status: 503, body: 'upstream down' }, { error: new TypeError('fetch failed') }, { body: 'text-only.sse' }]);
+  assert.deepEqual(await h.agent.runTurn('go'), { stopReason: 'end_turn', ok: true });
+  assert.deepEqual(h.sleeps, [3000, 2000, 4000]);
+  assert.deepEqual(h.of('warning'), [
+    { type: 'warning', message: '529 Overloaded; retrying in 3 s', retry: 'http' },
+    { type: 'warning', message: 'HTTP 503; retrying in 2 s', retry: 'http' },
+    { type: 'warning', message: 'fetch failed; retrying in 4 s', retry: 'http' },
+  ]);
+  assert.deepEqual(h.of('request_start').map((e) => e.attempt), [1]);
+});
+
 test('stop_sequence ends ok; an unknown stop_reason warns and ends not ok', async () => {
   const s = harness([textReply('x', { stopReason: 'stop_sequence' })]);
   assert.deepEqual(await s.agent.runTurn('go'), { stopReason: 'stop_sequence', ok: true });
