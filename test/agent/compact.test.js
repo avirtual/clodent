@@ -102,7 +102,7 @@ test('compact sends one quiet summary request, replaces the history with the sum
   assert.deepEqual(h.agent.messages(), [{ role: 'user', content: [text(`${SUMMARY_PREFIX}the summary`)] }]);
   await h.agent.runTurn('next');
   assert.deepEqual(strip(h.bodies()[2].messages), [
-    { role: 'user', content: [text(`${SUMMARY_PREFIX}the summary`), text('<hook-context event="SessionStart">\nbriefing\n</hook-context>'), text('next')] },
+    { role: 'user', content: [text(`${SUMMARY_PREFIX}the summary`), text('next'), text('<hook-context event="SessionStart">\nbriefing\n</hook-context>')] },
   ]);
   assert.deepEqual(h.events.filter((e) => e.type === 'turn_end').map((e) => e.turn.requests), [1, 1]);
   assert.equal(h.ledger.session().requests, 3);

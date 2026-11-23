@@ -56,7 +56,7 @@ test('boot prints the session line, runs SessionStart (startup), then shows the 
   assert.deepEqual(readJsonl(log).map((input) => [input.hook_event_name, input.source]), [['SessionStart', 'startup']]);
   repl.stdin.type(' hi\r');
   await repl.prompts(2);
-  assert.deepEqual(userTexts(repl.fetch.calls[0].body), ['<hook-context event="SessionStart">\nboot context\n</hook-context>', 'early hi']);
+  assert.deepEqual(userTexts(repl.fetch.calls[0].body), ['early hi', '<hook-context event="SessionStart">\nboot context\n</hook-context>']);
   assert.match(repl.out.text, /\nhello\n\[clodent:cost\] \$/);
   assertCleanExit(repl, await exitWith(repl, '\x04'));
 });
@@ -110,7 +110,7 @@ test('submissions entered during a running turn run as later turns, in FIFO orde
   assertCleanExit(repl, await exitWith(repl, '\x04'));
 });
 
-test('^C during a held request interrupts the turn; the next prompt shows and the next request starts with INTERRUPT_MARKER', GUARD, async (t) => {
+test('^C during a held request interrupts the turn; the next prompt shows and the next request carries INTERRUPT_MARKER after it', GUARD, async (t) => {
   const { home, cwd } = await dirs(t);
   const repl = startRepl([], { home, cwd });
   await repl.prompts(1);
@@ -125,7 +125,7 @@ test('^C during a held request interrupts the turn; the next prompt shows and th
   repl.stdin.type('next\r');
   await repl.prompts(3);
   const last = repl.fetch.calls[1].body.messages.at(-1);
-  assert.deepEqual(userTexts(repl.fetch.calls[1].body).slice(-2), [INTERRUPT_MARKER, 'next']);
+  assert.deepEqual(userTexts(repl.fetch.calls[1].body).slice(-2), ['next', INTERRUPT_MARKER]);
   assert.equal(last.role, 'user');
   repl.stdin.type('more\r');
   await repl.fetch.called(3);

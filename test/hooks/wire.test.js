@@ -72,7 +72,7 @@ test('permission_mode maps ask to default, --read-only to plan and --yolo to byp
   assert.deepEqual(readJsonl(log).map((input) => input.permission_mode), ['default', 'plan', 'bypassPermissions']);
 });
 
-test('SessionStart context goes before the prompt in the first request and the transcript; UserPromptSubmit context goes after it', GUARD, async (t) => {
+test('the prompt text leads the first request and the transcript record, then SessionStart context, then UserPromptSubmit context', GUARD, async (t) => {
   const { home, cwd, dir } = await setup(t);
   const named = await contextHook(dir, 'named.sh', 'SessionStart', 'You are the clodex agent named x.');
   const team = await contextHook(dir, 'team.sh', 'SessionStart', 'team block');
@@ -80,7 +80,7 @@ test('SessionStart context goes before the prompt in the first request and the t
   const settings = writeSettings(dir, { hooks: { SessionStart: [hookGroup('', named, team)], UserPromptSubmit: [hookGroup('', ack)] } });
   const res = await runMain(['-p', 'go', '--settings', settings], { home, cwd, responses: [textReply('done')] });
   assert.equal(res.code, 0, res.stderr);
-  const expected = [block('SessionStart', 'You are the clodex agent named x.', 'team block'), { type: 'text', text: 'go' }, block('UserPromptSubmit', 'ack 1')];
+  const expected = [{ type: 'text', text: 'go' }, block('SessionStart', 'You are the clodex agent named x.', 'team block'), block('UserPromptSubmit', 'ack 1')];
   assert.deepEqual(strip(res.calls[0].body.messages), [{ role: 'user', content: expected }]);
   assert.deepEqual(readJsonl(transcriptPath(home, cwd, res.id))[0].message.content, expected);
 });
@@ -96,7 +96,7 @@ test('--resume fires SessionStart with source resume, and its context follows th
   assert.deepEqual(readJsonl(log).map((input) => input.source), ['startup', 'resume']);
   const sent = strip(res.calls[0].body.messages);
   assertValidHistory(sent);
-  assert.deepEqual(sent.at(-1).content.slice(-3), [{ type: 'text', text: INTERRUPT_MARKER }, block('SessionStart', 'briefing'), { type: 'text', text: 'next' }]);
+  assert.deepEqual(sent.at(-1).content.slice(-3), [{ type: 'text', text: 'next' }, { type: 'text', text: INTERRUPT_MARKER }, block('SessionStart', 'briefing')]);
 });
 
 test('PostToolUse context goes after every tool_result block and the request stays valid', GUARD, async (t) => {

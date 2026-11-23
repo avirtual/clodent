@@ -171,7 +171,7 @@ test('a resume after an interrupt carries INTERRUPT_MARKER in the next request',
   const second = await run(['-p', 'second', '--resume', ID], { home, cwd, responses: [textReply('ok')] });
   assert.equal(second.code, 0, second.stderr);
   assert.deepEqual(strip(second.calls[0].body.messages), [
-    { role: 'user', content: [{ type: 'text', text: 'first' }, { type: 'text', text: INTERRUPT_MARKER }, { type: 'text', text: 'second' }] },
+    { role: 'user', content: [{ type: 'text', text: 'first' }, { type: 'text', text: 'second' }, { type: 'text', text: INTERRUPT_MARKER }] },
   ]);
 });
 
@@ -198,8 +198,8 @@ test('a resume of a session killed during a tool run closes the dangling tool_us
   assertValidHistory(sent);
   assert.deepEqual(sent[2].content, [
     { type: 'tool_result', tool_use_id: 'toolu_1', content: INTERRUPTED_RESULT, is_error: true },
-    { type: 'text', text: INTERRUPT_MARKER },
     { type: 'text', text: 'next' },
+    { type: 'text', text: INTERRUPT_MARKER },
   ]);
   const recs = records(path);
   assert.equal(recs[2].parentUuid, 'r2');

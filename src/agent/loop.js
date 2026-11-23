@@ -95,12 +95,12 @@ export function createAgent(config, deps) {
   }
 
   function addUserText(text, submitContext) {
-    const blocks = interruptedBefore ? [{ type: 'text', text: INTERRUPT_MARKER }] : [];
+    const blocks = [{ type: 'text', text }];
+    if (interruptedBefore) blocks.push({ type: 'text', text: INTERRUPT_MARKER });
     interruptedBefore = false;
     const held = hookContextBlock('SessionStart', heldContext);
     heldContext = [];
     if (held) blocks.push(held);
-    blocks.push({ type: 'text', text });
     const submitted = hookContextBlock('UserPromptSubmit', submitContext);
     if (submitted) blocks.push(submitted);
     append('user', blocks, 'prompt');
