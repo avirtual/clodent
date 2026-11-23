@@ -69,6 +69,7 @@ test('on a TTY whose columns is 0, rows are counted at 80 columns', GUARD, async
   repl.stdin.type(x81);
   repl.stdin.type('\x7f');
   assert.equal(since(repl, start), `${x81}${ERASE_2}> ${'x'.repeat(80)}`);
+  repl.stdin.type('\x15');
   repl.stdin.type('\x04');
   assert.equal(await repl.done, 0);
 });
