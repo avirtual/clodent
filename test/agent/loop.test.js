@@ -19,7 +19,7 @@ import { plant, useTempDir } from '../tools/tmp-dir.js';
 
 const MODEL = 'claude-opus-5-5';
 
-function harness(responses, { tools = [], permission = 'yolo', budgetUsd, cwd = '/work', onEvent, sleep, history, interrupted, hooks, cacheTtl, ask, scope } = {}) {
+function harness(responses, { tools = [], permission = 'yolo', budgetUsd, cwd = '/work', onEvent, sleep, history, interrupted, hooks, cacheTtl, ask, scope, now = () => 0 } = {}) {
   const events = [];
   const sleeps = [];
   const fetch = createFakeFetch(responses);
@@ -35,7 +35,7 @@ function harness(responses, { tools = [], permission = 'yolo', budgetUsd, cwd = 
         await sleep?.(ms, signal);
       },
       random: () => 0.5,
-      now: () => 0,
+      now,
       ledger,
       hooks,
       scope,
@@ -664,6 +664,21 @@ test('PostToolUseFailure carries is_interrupt false and is_timeout, true only fo
     { type: 'tool_result', tool_use_id: 'toolu_1', content: '[timed out after 300 ms]', is_error: true },
     { type: 'tool_result', tool_use_id: 'toolu_2', content: '[exit 1]', is_error: true },
     { type: 'tool_result', tool_use_id: 'toolu_3', content: 'fine', is_error: false },
+  ]);
+});
+
+test('PostToolUse and PostToolUseFailure carry duration_ms, the span of the tool run in whole milliseconds', async () => {
+  let clock = 0;
+  const fired = [];
+  const hooks = { fire: async (event, extra) => (fired.push([event, extra]), emptyOutcome()) };
+  const timed = (name, ms, result) => ({ ...fakeTool(name, 'read', [], result), run: async () => ((clock += ms), result) });
+  const tools = [timed('S', 1234.4, { content: 'fine', isError: false }), timed('F', 56.6, { content: '[exit 1]', isError: true, exitCode: 1 })];
+  const h = harness([toolReply([{ name: 'S', input: {} }, { name: 'F', input: {} }]), textReply('ok')], { tools, hooks, now: () => clock });
+  await h.agent.runTurn('go');
+  const post = fired.filter(([event]) => event.startsWith('PostToolUse')).map(([event, extra]) => [event, extra.tool_name, extra.duration_ms]);
+  assert.deepEqual(post, [
+    ['PostToolUse', 'S', 1234],
+    ['PostToolUseFailure', 'F', 57],
   ]);
 });
 

@@ -281,7 +281,8 @@ export function createAgent(config, deps) {
       const event = outcome.isError ? 'PostToolUseFailure' : 'PostToolUse';
       const tool_response = { ...outcome.structured, content: outcome.content, isError: outcome.isError };
       const extra = outcome.isError ? { error: failureText(outcome), is_interrupt: interrupted, is_timeout: outcome.timedOut === true } : {};
-      const after = await fireHook(event, { ...fields, tool_input: input, tool_response, ...extra }, interrupted ? stopSignal : signal);
+      const payload = { ...fields, tool_input: input, tool_response, ...extra, duration_ms: Math.round(result.durationMs) };
+      const after = await fireHook(event, payload, interrupted ? stopSignal : signal);
       post[event].push(...after.additionalContext);
     }
     return result;
