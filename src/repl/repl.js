@@ -3,6 +3,7 @@ import { INTERRUPTED_RESULT, visible } from '../text.js';
 import { createEditor, isBlank, isTyped, lineCount } from './editor.js';
 import { createKeyParser } from './keys.js';
 import { parseCommand, runCommand } from './slash.js';
+import { rowsOf } from './width.js';
 
 export const PASTE_ON = '\x1b[?2004h';
 export const PASTE_OFF = '\x1b[?2004l';
@@ -16,11 +17,17 @@ export const CLOSED_DENIAL = 'denied: input closed';
 const YES = new Set(['y', 'yes']);
 const NO = new Set(['n', 'no']);
 const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+const DEFAULT_COLUMNS = 80;
+const ROW_UP = '\x1b[A\x1b[2K';
 
 export function queuedEcho(submission) {
   const [first] = submission.text.split('\n');
   const more = lineCount(submission.text) - 1;
   return `${PASTE_ON}${PROMPT}${first}${more > 0 ? ` [+${more} lines]` : ''}\n`;
+}
+
+export function redrawLine(rows, next) {
+  return `${CLEAR_LINE}${ROW_UP.repeat(rows - 1)}${next}`;
 }
 
 export async function runRepl(ctx, deps) {
@@ -31,6 +38,7 @@ export async function runRepl(ctx, deps) {
   const queue = [];
   const stopHooks = new AbortController();
   const raw = stdin.isTTY === true && typeof stdin.setRawMode === 'function';
+  const tty = stdout.isTTY === true;
   let session = ctx.session;
   let agent = null;
   let mode = 'busy';
@@ -40,13 +48,51 @@ export async function runRepl(ctx, deps) {
   let armed = false;
   let ended = false;
   let exitCode = null;
+  let shown = '';
+  let shownColumns = DEFAULT_COLUMNS;
 
   const write = (text) => stdout.write(text);
   const print = (line) => write(`${visible(line)}\n`);
+  const columns = () => (stdout.columns > 0 ? stdout.columns : DEFAULT_COLUMNS);
+
+  function inputLine() {
+    if (mode === 'idle') return `${PROMPT}${editor.echo()}`;
+    if (mode === 'ask') return `${ASK_LINE}${asking.answer.echo()}`;
+    return null;
+  }
+
+  function drawn(text) {
+    shown = text;
+    shownColumns = columns();
+  }
+
+  function shownRows() {
+    return tty ? Math.min(rowsOf(shown, shownColumns), rowsOf(shown, columns())) : 1;
+  }
+
+  function redraw(next) {
+    write(redrawLine(shownRows(), next));
+    drawn(next);
+  }
+
+  function aside(draw) {
+    const line = tty ? inputLine() : null;
+    if (line !== null) redraw('');
+    draw();
+    if (line === null) return;
+    write(line);
+    drawn(line);
+  }
+
+  function onResize() {
+    const line = inputLine();
+    if (line !== null) redraw(line);
+  }
 
   function showPrompt() {
     mode = 'idle';
-    write(`${PASTE_ON}${PROMPT}${editor.echo()}`);
+    drawn(`${PROMPT}${editor.echo()}`);
+    write(`${PASTE_ON}${shown}`);
   }
 
   function leavePrompt(value) {
@@ -60,15 +106,18 @@ export async function runRepl(ctx, deps) {
   function edit(target, token, prefix) {
     const echo = prefix !== null;
     if (token.type === 'text' || token.type === 'paste') {
-      const shown = token.type === 'text' ? target.insertText(token.text) : target.insertPaste(token.text);
-      if (echo) write(shown);
+      const echoed = token.type === 'text' ? target.insertText(token.text) : target.insertPaste(token.text);
+      if (echo) {
+        write(echoed);
+        shown += echoed;
+      }
       return true;
     }
     if (token.type === 'backspace') target.backspace();
     else if (token.type === 'ctrl' && token.key === 'u') target.clear();
     else if (token.type === 'ctrl' && token.key === 'w') target.deleteWord();
     else return false;
-    if (echo) write(`${CLEAR_LINE}${prefix}${target.echo()}`);
+    if (echo) redraw(`${prefix}${target.echo()}`);
     return true;
   }
 
@@ -84,11 +133,13 @@ export async function runRepl(ctx, deps) {
       showPrompt();
     } else if (ctrlC && !editor.isEmpty()) {
       editor.clear();
-      write(`${CLEAR_LINE}${PROMPT}`);
+      redraw(PROMPT);
     } else if (ctrlC && wasArmed) {
       leavePrompt(null);
     } else if (ctrlC) {
-      write(`\n${EXIT_HINT}\n`);
+      if (tty) redraw('');
+      else write('\n');
+      write(`${EXIT_HINT}\n`);
       armed = true;
       showPrompt();
     } else if (token.type === 'ctrl' && token.key === 'd' && editor.isEmpty()) {
@@ -102,15 +153,19 @@ export async function runRepl(ctx, deps) {
     if (ctrlC) running?.abort();
     if (token.type !== 'enter') return;
     const submission = answer.take();
-    write('\n');
     const word = isTyped(submission) ? submission.text.trim().toLowerCase() : null;
-    if (YES.has(word)) return done({ allow: true });
-    if (NO.has(word)) return done({ allow: false, reason: USER_DENIAL });
+    if (YES.has(word) || NO.has(word)) {
+      write('\n');
+      return done(YES.has(word) ? { allow: true } : { allow: false, reason: USER_DENIAL });
+    }
+    if (tty) redraw('');
+    else write('\n');
     if (!isBlank(submission)) {
       queue.push(submission);
       print(QUEUED_NOTE);
     }
     write(ASK_LINE);
+    drawn(ASK_LINE);
   }
 
   function onBusyToken(token, ctrlC) {
@@ -182,6 +237,7 @@ export async function runRepl(ctx, deps) {
       asking = { answer: createEditor(), done };
       mode = 'ask';
       write(ASK_LINE);
+      drawn(ASK_LINE);
     });
   }
 
@@ -243,6 +299,8 @@ export async function runRepl(ctx, deps) {
   stdin.on('data', onData);
   stdin.on('end', onEnd);
   stdin.on('error', onError);
+  if (tty) stdout.on('resize', onResize);
+  if (deps.screen) deps.screen.aside = aside;
   try {
     print(`[clodent:session] ${session.sessionId}`);
     for (const warning of ctx.warnings) print(`clodent: ${warning}`);
@@ -269,6 +327,7 @@ export async function runRepl(ctx, deps) {
     stdin.off('data', onData);
     stdin.off('end', onEnd);
     stdin.off('error', onError);
+    if (tty) stdout.off('resize', onResize);
     stdin.pause();
     for (const off of offs) off();
   }
