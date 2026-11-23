@@ -666,9 +666,9 @@ Internal; [Stream JSON](#stream-json) writes its lines from them. The agent loop
 | `turn_end` | `stopReason`, `turn` (the turn's cost aggregate) | last, once per turn |
 | `budget_stop` | `result` (the budget check that failed) | instead of a request the budget does not cover, other than a web tool's sub-request, whose refusal is the tool's error result |
 | `warning` | `message`; `hookContext` (`{event, scope, bytes, limit}`) for a hook context cut; `retry` (`stream` for a mid-stream re-send, `http` for a retry before the first SSE event, whose message is `<status> <API message>; retrying in <n> s`, `HTTP <status>; …` when the body was not the API's JSON error, or `<network error message>; …`) | |
-| `compact_start` | `trigger` | when a compact that has something to summarise starts, before the `PreCompact` hook |
 | `error` | `message`, `errorType`, `status` (HTTP status, or null mid-stream) | when the turn ends on an error |
 | `interrupted` | none | when the turn's signal aborts |
+| `compact_start` | `trigger` | when a compact that has something to summarise starts, before the `PreCompact` hook |
 | `compacted` | `trigger`, `summary` (the summary text), `message` (the history's new user message: the summary block, then one block per reloaded file), `reloaded` (`[{path, bytes}]`: each reloaded file's absolute path and the byte length of its `Read` output), `skipped` (`[{path, reason}]`), `preTokens`, `postTokens`, `turn` (the summary request's cost aggregate) | when a compact replaced the history, before the `SessionStart` (`compact`) hook; a compact emits no `turn_end` |
 | `session_end` | `session` (the session's cost aggregate) | once, on exit |
 

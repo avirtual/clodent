@@ -8,6 +8,7 @@ const DEFAULT_COLUMNS = 80;
 const DEFAULT_ROWS = 24;
 const SUMMARY_ROWS = 3;
 const BASH_TRAILER = /^\[(exit -?\d+|timed out after \d+ ms|killed by \S+)\]$/;
+const JOINS_BEFORE = /^[\s\p{Pe}\p{Pf}\p{Po}]/u;
 
 export const CUT_OFF_NOTE = 'clodent: the text above was cut off and is repeated below';
 export const COMPACTING = 'clodent: compacting…';
@@ -50,6 +51,7 @@ export function createRenderer({ out, err, mode, screen }) {
   let midLine = false;
   let attempt = { shown: '', clean: true };
   let textIndex = null;
+  let lastChar = '\n';
   let heldCr = false;
   let drewText = false;
   let thinkingRun = false;
@@ -62,7 +64,12 @@ export function createRenderer({ out, err, mode, screen }) {
     attempt = { shown: '', clean: true };
   }
 
+  function joins(index, text) {
+    return index === textIndex + 1 && (/\s/u.test(lastChar) || JOINS_BEFORE.test(text));
+  }
+
   function drawText(text) {
+    lastChar = text.at(-1);
     const shown = visible(text, TEXT_CONTROLS);
     out.write(shown);
     attempt.shown += shown;
@@ -145,7 +152,7 @@ export function createRenderer({ out, err, mode, screen }) {
     },
     text_delta({ text, index }) {
       if (!repl || text === '') return;
-      if (textIndex !== null && index !== textIndex) endLine();
+      if (textIndex !== null && index !== textIndex && !joins(index, text)) endLine();
       textIndex = index;
       let chunk = `${heldCr ? '\r' : ''}${text}`;
       heldCr = chunk.endsWith('\r');

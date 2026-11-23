@@ -400,7 +400,19 @@ test('a failed Bash call shows its trailer, never its first output line; a blank
   ]);
 });
 
-test('a new text block, as after a server tool, starts on a new line; one that follows a line end adds none', () => {
+test('an adjacent text block starts on a new line unless whitespace or punctuation joins it, as citations split a sentence', () => {
+  const { out, render } = setup('repl');
+  render({ type: 'request_start', attempt: 1 });
+  render({ type: 'text_delta', text: 'First block ends here.', index: 0 });
+  render({ type: 'text_delta', text: 'Second block starts here.', index: 1 });
+  render({ type: 'text_delta', text: ' It is 22.23.5, which ', index: 2 });
+  render({ type: 'text_delta', text: 'was released in Nov', index: 3 });
+  render({ type: 'text_delta', text: ' and fixes CVEs', index: 4 });
+  render({ type: 'text_delta', text: '.', index: 5 });
+  assert.equal(out.text(), 'First block ends here.\nSecond block starts here. It is 22.23.5, which was released in Nov and fixes CVEs.');
+});
+
+test('a new text block after a server tool starts on a new line; one that follows a line end adds none', () => {
   const { out, render } = setup('repl');
   render({ type: 'request_start', attempt: 1 });
   render({ type: 'text_delta', text: 'Let me search for that.', index: 0 });
