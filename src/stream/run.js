@@ -16,6 +16,7 @@ export async function runStream(ctx, deps) {
   const stopHooks = new AbortController();
   let agent = null;
   let running = null;
+  let turnStop = null;
   let wake = null;
   let ended = false;
   let caught = null;
@@ -104,7 +105,8 @@ export async function runStream(ctx, deps) {
     const subtype = request?.subtype;
     if (subtype === 'interrupt') {
       output.controlResponse({ subtype: 'success', request_id: requestId });
-      if (running && (!inTurn || output.turnOpen())) running.abort();
+      if (running?.signal.aborted) turnStop.abort();
+      else if (running && (!inTurn || output.turnOpen())) running.abort();
       else if (queue.some((entry) => !entry.empty)) pendingInterrupt = true;
     } else if (subtype === 'set_model') {
       setModel(requestId, request.model);
@@ -164,12 +166,15 @@ export async function runStream(ctx, deps) {
   async function guarded(step) {
     const controller = new AbortController();
     running = controller;
+    turnStop = new AbortController();
+    const stopSignal = AbortSignal.any([stopHooks.signal, turnStop.signal]);
     if (caught !== null || pendingInterrupt) controller.abort();
     pendingInterrupt = false;
     try {
-      return await step(controller.signal);
+      return await step(controller.signal, stopSignal);
     } finally {
       running = null;
+      turnStop = null;
     }
   }
 
@@ -236,7 +241,7 @@ export async function runStream(ctx, deps) {
     turnId++;
     inTurn = true;
     try {
-      await guarded((signal) => agent.runTurn(text, { signal, stopSignal: stopHooks.signal }));
+      await guarded((signal, stopSignal) => agent.runTurn(text, { signal, stopSignal }));
     } finally {
       inTurn = false;
     }

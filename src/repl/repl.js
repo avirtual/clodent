@@ -43,6 +43,7 @@ export async function runRepl(ctx, deps) {
   let agent = null;
   let mode = 'busy';
   let running = null;
+  let turnStop = null;
   let asking = null;
   let wake = null;
   let armed = false;
@@ -158,7 +159,7 @@ export async function runRepl(ctx, deps) {
   function onAskToken(token, ctrlC) {
     const { answer, done } = asking;
     if (edit(answer, token, ASK_LINE)) return;
-    if (ctrlC) running?.abort();
+    if (ctrlC) interruptTurn();
     if (token.type !== 'enter') return;
     const submission = answer.take();
     const word = isTyped(submission) ? submission.text.trim().toLowerCase() : null;
@@ -182,7 +183,7 @@ export async function runRepl(ctx, deps) {
       const submission = editor.take();
       if (!isBlank(submission)) queue.push(submission);
     } else if (ctrlC) {
-      running?.abort();
+      interruptTurn();
     }
   }
 
@@ -249,14 +250,22 @@ export async function runRepl(ctx, deps) {
     });
   }
 
+  function interruptTurn() {
+    if (running?.signal.aborted) turnStop.abort();
+    else running?.abort();
+  }
+
   async function guarded(step) {
     const controller = new AbortController();
     running = controller;
+    turnStop = new AbortController();
+    const stopSignal = AbortSignal.any([stopHooks.signal, turnStop.signal]);
     if (exitCode !== null) controller.abort();
     try {
-      return await step(controller.signal);
+      return await step(controller.signal, stopSignal);
     } finally {
       running = null;
+      turnStop = null;
     }
   }
 
@@ -297,7 +306,7 @@ export async function runRepl(ctx, deps) {
   async function handle(submission) {
     const command = parseCommand(submission);
     if (command) return runCommand(command, commandCtx);
-    await guarded((signal) => agent.runTurn(submission.text, { signal, stopSignal: stopHooks.signal }));
+    await guarded((signal, stopSignal) => agent.runTurn(submission.text, { signal, stopSignal }));
     spaced = true;
     return undefined;
   }
