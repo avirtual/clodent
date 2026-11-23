@@ -87,7 +87,7 @@ test('a 300 ms timeout on sleep 5 returns within 3 s', GUARD, async (t) => {
   const started = Date.now();
   const result = await bash.run({ command: 'echo before; sleep 5', timeout: 300 }, ctxFor(dir));
   assert.ok(Date.now() - started < 3000);
-  assert.deepEqual(result, { content: 'before\n[timed out after 300 ms]', isError: true, structured: { stdout: 'before\n', stderr: '', interrupted: false }, exitCode: null });
+  assert.deepEqual(result, { content: 'before\n[timed out after 300 ms]', isError: true, structured: { stdout: 'before\n', stderr: '', interrupted: false }, exitCode: null, timedOut: true });
 });
 
 test('the process-group kill reaps a backgrounded grandchild', GUARD, async (t) => {
@@ -129,7 +129,7 @@ test('a line written just before the SIGKILL still reaches the output', GUARD, a
   const stubborn = createBash({ killGraceMs: 50, kill });
   const command = "(trap '' TERM; trap 'echo last-line; touch wrote' USR1; while :; do sleep 1; done) 2>/dev/null &";
   const result = await stubborn.run({ command, timeout: 300 }, ctxFor(dir));
-  assert.deepEqual(result, { content: 'last-line\n[timed out after 300 ms]', isError: true, structured: { stdout: 'last-line\n', stderr: '', interrupted: false }, exitCode: null });
+  assert.deepEqual(result, { content: 'last-line\n[timed out after 300 ms]', isError: true, structured: { stdout: 'last-line\n', stderr: '', interrupted: false }, exitCode: null, timedOut: true });
 });
 
 test('a descendant that leaves the process group cannot hold a timed-out call open', { ...GUARD, skip: HAS_PERL ? false : 'perl is not on PATH' }, async (t) => {
@@ -139,7 +139,7 @@ test('a descendant that leaves the process group cannot hold a timed-out call op
   const command = "perl -MPOSIX -e 'POSIX::setsid(); sleep 5' & echo started";
   const result = await quick.run({ command, timeout: 300 }, ctxFor(dir, { env: cleanEnv({ LC_ALL: 'C' }) }));
   assert.ok(Date.now() - started < 3000, `took ${Date.now() - started} ms`);
-  assert.deepEqual(result, { content: 'started\n[timed out after 300 ms]', isError: true, structured: { stdout: 'started\n', stderr: '', interrupted: false }, exitCode: null });
+  assert.deepEqual(result, { content: 'started\n[timed out after 300 ms]', isError: true, structured: { stdout: 'started\n', stderr: '', interrupted: false }, exitCode: null, timedOut: true });
 });
 
 test('aborting through an AbortController kills the command', GUARD, async (t) => {

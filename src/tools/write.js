@@ -1,12 +1,16 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { capResult } from './cap.js';
 import { structuredPatch } from './patch.js';
 import { checkInput, fail, isBinary, ok, oneLine } from './util.js';
 
-async function previous(path) {
+export const PREVIOUS_MAX_BYTES = 4 * 1024 * 1024;
+
+async function previous(path, fs) {
   try {
-    return { exists: true, buf: await readFile(path) };
+    const info = await fs.stat(path);
+    if (!info.isFile() || info.size > PREVIOUS_MAX_BYTES) return { exists: true, buf: null };
+    return { exists: true, buf: await fs.readFile(path) };
   } catch (err) {
     return { exists: err?.code !== 'ENOENT', buf: null };
   }
@@ -18,7 +22,8 @@ function writeResult(path, content, before) {
   return { type: 'update', filePath: path, structuredPatch: patch };
 }
 
-export function createWrite() {
+export function createWrite(deps = {}) {
+  const fs = { stat: deps.stat ?? stat, readFile: deps.readFile ?? readFile };
   return {
     name: 'Write',
     kind: 'write',
@@ -37,7 +42,7 @@ export function createWrite() {
       const bad = checkInput(input, ['file_path', 'content']);
       if (bad) return bad;
       const path = resolve(ctx.cwd, input.file_path);
-      const before = await previous(path);
+      const before = await previous(path, fs);
       try {
         await mkdir(dirname(path), { recursive: true });
         await writeFile(path, input.content);

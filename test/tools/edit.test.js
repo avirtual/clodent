@@ -95,6 +95,13 @@ test('non-UTF-8 bytes elsewhere in the file survive', async (t) => {
   assert.deepEqual(await readFile(path), expected);
 });
 
+test('a file with a NUL byte gives an empty update patch', async (t) => {
+  const { dir, path } = await fileWith(t, 'one\0\ntwo\n');
+  const result = await edit.run({ file_path: 'f.txt', old_string: 'two', new_string: 'three' }, ctxFor(dir));
+  assert.equal(await readFile(path, 'utf8'), 'one\0\nthree\n');
+  assert.deepEqual(result.structured, { type: 'update', filePath: path, structuredPatch: [] });
+});
+
 test('replacement text is literal, not a regex replacement pattern', async (t) => {
   const { dir, path } = await fileWith(t, 'a.b');
   await edit.run({ file_path: 'f.txt', old_string: '.', new_string: "$&$'" }, ctxFor(dir));

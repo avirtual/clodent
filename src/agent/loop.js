@@ -233,7 +233,7 @@ export function createAgent(config, deps) {
     try {
       const sideRequestFor = (params, requestSignal = signal) => sideRequest(use.id, params, requestSignal);
       const outcome = await tool.run(input, { cwd: deps.cwd, env: deps.env, signal, hidden, sideRequest: sideRequestFor });
-      return { content: outcome.content, isError: outcome.isError, ran: true, structured: outcome.structured, exitCode: outcome.exitCode };
+      return { content: outcome.content, isError: outcome.isError, ran: true, structured: outcome.structured, exitCode: outcome.exitCode, timedOut: outcome.timedOut === true };
     } catch (err) {
       return { content: `${use.name} failed: ${err?.message ?? err}`, isError: true, ran: true };
     }
@@ -267,7 +267,7 @@ export function createAgent(config, deps) {
     if (outcome.ran) {
       const event = outcome.isError ? 'PostToolUseFailure' : 'PostToolUse';
       const tool_response = { ...outcome.structured, content: outcome.content, isError: outcome.isError };
-      const extra = outcome.isError ? { error: failureText(outcome) } : {};
+      const extra = outcome.isError ? { error: failureText(outcome), is_interrupt: false, is_timeout: outcome.timedOut === true } : {};
       const after = await fireHook(event, { ...fields, tool_input: input, tool_response, ...extra }, signal);
       post[event].push(...after.additionalContext);
     }
