@@ -11,14 +11,14 @@ test('lines come back cat -n style', async (t) => {
   const dir = await useTempDir(t);
   await writeFile(join(dir, 'f.txt'), 'one\ntwo\n');
   const result = await read.run({ file_path: join(dir, 'f.txt') }, ctxFor(dir));
-  assert.deepEqual(result, { content: '     1\tone\n     2\ttwo', isError: false });
+  assert.deepEqual(result, { content: '     1\tone\n     2\ttwo', isError: false, structured: { file: { filePath: join(dir, 'f.txt'), startLine: 1, numLines: 2, totalLines: 2 } } });
 });
 
 test('a relative path resolves against ctx.cwd', async (t) => {
   const dir = await useTempDir(t);
   await writeFile(join(dir, 'f.txt'), 'x');
   const result = await read.run({ file_path: 'f.txt' }, ctxFor(dir));
-  assert.deepEqual(result, { content: '     1\tx', isError: false });
+  assert.deepEqual(result, { content: '     1\tx', isError: false, structured: { file: { filePath: join(dir, 'f.txt'), startLine: 1, numLines: 1, totalLines: 1 } } });
 });
 
 test('offset is a 1-based line and limit counts lines', async (t) => {
@@ -26,6 +26,7 @@ test('offset is a 1-based line and limit counts lines', async (t) => {
   await writeFile(join(dir, 'f.txt'), Array.from({ length: 10 }, (_, i) => `L${i + 1}`).join('\n'));
   const result = await read.run({ file_path: 'f.txt', offset: 3, limit: 2 }, ctxFor(dir));
   assert.equal(result.content, '     3\tL3\n     4\tL4');
+  assert.deepEqual(result.structured, { file: { filePath: join(dir, 'f.txt'), startLine: 3, numLines: 2, totalLines: 10 } });
 });
 
 test('limit defaults to 2000 lines', async (t) => {
@@ -90,7 +91,7 @@ test('an empty file returns a note saying it is empty', async (t) => {
   const dir = await useTempDir(t);
   await writeFile(join(dir, 'e.txt'), '');
   const result = await read.run({ file_path: 'e.txt' }, ctxFor(dir));
-  assert.deepEqual(result, { content: `${join(dir, 'e.txt')} is empty (0 bytes)`, isError: false });
+  assert.deepEqual(result, { content: `${join(dir, 'e.txt')} is empty (0 bytes)`, isError: false, structured: { file: { filePath: join(dir, 'e.txt'), startLine: 1, numLines: 0, totalLines: 0 } } });
 });
 
 test('a non-string file_path is an error, not a throw', async (t) => {
@@ -108,7 +109,7 @@ test('with a token cap, a result over ceil(bytes / 4) tokens is an error and one
     isError: true,
   });
   const under = await createRead({ readMaxTokens: 6 }).run({ file_path: join(dir, 'f.txt') }, ctxFor(dir));
-  assert.deepEqual(under, { content: '     1\tone\n     2\ttwo', isError: false });
+  assert.deepEqual(under, { content: '     1\tone\n     2\ttwo', isError: false, structured: { file: { filePath: join(dir, 'f.txt'), startLine: 1, numLines: 2, totalLines: 2 } } });
 });
 
 test('readTokenCap takes a positive integer; any other value warns and leaves the cap off; unset is off', () => {

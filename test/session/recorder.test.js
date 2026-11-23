@@ -45,18 +45,40 @@ test('the recorder maps appends, the interrupt and turn_end to transcript record
     { type: 'assistant', message: MESSAGE, requestId: 'req_1', costUsd: 0.25, durationMs: 7 },
     {
       type: 'user',
-      message: {
-        role: 'user',
-        content: [
-          { type: 'tool_result', tool_use_id: 'tu1', content: 'nope', is_error: true },
-          { type: 'tool_result', tool_use_id: 'other', content: 'ok', is_error: false },
-        ],
-      },
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'nope', is_error: true }] },
       toolUseResult: { name: 'Read', isError: true, input: {} },
+    },
+    {
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'other', content: 'ok', is_error: false }] },
+      toolUseResult: { name: null, isError: false, input: null },
     },
     { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Kept.' }], stop_reason: null } },
     { type: 'user', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] }, isVisibleInTranscriptOnly: true },
-    { type: 'system', subtype: 'turn_duration', durationMs: 1500, messageCount: 5 },
+    { type: 'system', subtype: 'turn_duration', durationMs: 1500, messageCount: 6 },
+  ]);
+});
+
+test('each tool_result gets its own record whose toolUseResult carries that tool\'s structured result; trailing blocks ride on the last', () => {
+  const transcript = capture();
+  const record = createRecorder(transcript, { now: () => 0 });
+  const file = { filePath: '/w/a.md', startLine: 1, numLines: 2, totalLines: 9 };
+  record({ type: 'tool_use', id: 'r1', name: 'Read', input: { file_path: 'a.md' } });
+  record({ type: 'tool_use', id: 'g1', name: 'Glob', input: { pattern: '*' } });
+  record({ type: 'tool_result', id: 'r1', name: 'Read', content: 'x', isError: false, durationMs: 1, structured: { file } });
+  record({ type: 'tool_result', id: 'g1', name: 'Glob', content: 'y', isError: false, durationMs: 1, structured: { numFiles: 4, truncated: false } });
+  const hook = { type: 'text', text: '<hook-context event="PostToolUse">\nctx\n</hook-context>' };
+  const blocks = [
+    { type: 'tool_result', tool_use_id: 'r1', content: 'x', is_error: false },
+    { type: 'tool_result', tool_use_id: 'g1', content: 'y', is_error: false },
+    hook,
+  ];
+  record({ type: 'message_append', role: 'user', content: blocks, kind: 'tool_results', meta: {} });
+  record({ type: 'message_append', role: 'user', content: [{ type: 'tool_result', tool_use_id: 'r1', content: 'again', is_error: false }], kind: 'tool_results', meta: {} });
+  assert.deepEqual(transcript.records, [
+    { type: 'user', message: { role: 'user', content: [blocks[0]] }, toolUseResult: { name: 'Read', isError: false, input: { file_path: 'a.md' }, file } },
+    { type: 'user', message: { role: 'user', content: [blocks[1], hook] }, toolUseResult: { name: 'Glob', isError: false, input: { pattern: '*' }, numFiles: 4, truncated: false } },
+    { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'r1', content: 'again', is_error: false }] }, toolUseResult: { name: 'Read', isError: false, input: { file_path: 'a.md' } } },
   ]);
 });
 

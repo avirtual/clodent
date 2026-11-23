@@ -609,6 +609,24 @@ test('a second SessionStart before a prompt replaces the held context instead of
   ]);
 });
 
+test('a tool\'s structured result rides on the tool_result event and in tool_response; the tool_result block keeps only the text', async () => {
+  const fired = [];
+  const hooks = { fire: async (event, extra) => (fired.push([event, extra]), emptyOutcome()) };
+  const structured = { stdout: 'out', stderr: 'err', interrupted: false };
+  const results = { B: { content: 'out\n[exit 2]', isError: true, structured, exitCode: 2 }, C: { content: 'plain failure', isError: true }, D: { content: 'fine', isError: false, structured: { numFiles: 1 } } };
+  const tools = Object.entries(results).map(([name, result]) => fakeTool(name, 'read', [], result));
+  const h = harness([toolReply(Object.keys(results).map((name) => ({ name, input: {} }))), textReply('ok')], { tools, hooks });
+  await h.agent.runTurn('go');
+  assert.deepEqual(h.of('tool_result').map((e) => e.structured), [structured, undefined, { numFiles: 1 }]);
+  const post = fired.filter(([event]) => event.startsWith('PostToolUse')).map(([event, extra]) => [event, extra.tool_response, extra.error]);
+  assert.deepEqual(post, [
+    ['PostToolUseFailure', { ...structured, content: 'out\n[exit 2]', isError: true }, 'Exit code 2\nout\n[exit 2]'],
+    ['PostToolUseFailure', { content: 'plain failure', isError: true }, 'plain failure'],
+    ['PostToolUse', { numFiles: 1, content: 'fine', isError: false }, undefined],
+  ]);
+  assert.deepEqual(h.fetch.calls[1].body.messages[2].content.map(({ content, is_error }) => [content, is_error]), [['out\n[exit 2]', true], ['plain failure', true], ['fine', false]]);
+});
+
 test('a prompt record leads with the prompt text, then the interrupt marker, SessionStart and UserPromptSubmit context', async () => {
   const context = { SessionStart: ['held start'], UserPromptSubmit: ['submitted'] };
   const hooks = { fire: async (event) => ({ ...emptyOutcome(), additionalContext: context[event] ?? [] }) };

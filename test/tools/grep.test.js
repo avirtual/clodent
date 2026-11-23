@@ -22,13 +22,14 @@ async function plainTree(t) {
 test('files_with_matches is the default, sorted, skipping node_modules, .git and binaries', async (t) => {
   const dir = await plainTree(t);
   const result = await grep.run({ pattern: 'foo' }, ctxFor(dir));
-  assert.deepEqual(result, { content: ['a.js', 'b.txt', 'sub/c.js'].map((f) => join(dir, f)).join('\n'), isError: false });
+  assert.deepEqual(result, { content: ['a.js', 'b.txt', 'sub/c.js'].map((f) => join(dir, f)).join('\n'), isError: false, structured: { numFiles: 3, truncated: false } });
 });
 
 test('content mode prints path:line:text, filtered by a basename glob', async (t) => {
   const dir = await plainTree(t);
   const result = await grep.run({ pattern: 'foo', output_mode: 'content', glob: '*.js' }, ctxFor(dir));
   assert.equal(result.content, `${join(dir, 'a.js')}:1:const foo = 1;\n${join(dir, 'sub/c.js')}:1:foo();`);
+  assert.deepEqual(result.structured, { numFiles: 2, numLines: 2, truncated: false });
 });
 
 test('a glob containing / matches the relative path', async (t) => {
@@ -43,11 +44,12 @@ test('count mode prints path:n and ignore_case widens the match', async (t) => {
   const loose = await grep.run({ pattern: 'FOO', output_mode: 'count', path: 'b.txt', ignore_case: true }, ctxFor(dir));
   assert.equal(strict.content, `${join(dir, 'b.txt')}:1`);
   assert.equal(loose.content, `${join(dir, 'b.txt')}:2`);
+  assert.deepEqual(loose.structured, { numFiles: 1, truncated: false });
 });
 
 test('no match is a plain result, not an error', async (t) => {
   const dir = await plainTree(t);
-  assert.deepEqual(await grep.run({ pattern: 'FOO' }, ctxFor(dir)), { content: 'No matches found', isError: false });
+  assert.deepEqual(await grep.run({ pattern: 'FOO' }, ctxFor(dir)), { content: 'No matches found', isError: false, structured: { numFiles: 0, truncated: false } });
 });
 
 test('an invalid regex is an error carrying the SyntaxError message', async (t) => {
@@ -94,6 +96,7 @@ test('head_limit cuts the output and says so', async (t) => {
   assert.deepEqual(lines.slice(0, 3), [1, 2, 3].map((n) => `${join(dir, 'many.txt')}:${n}:hit`));
   assert.equal(lines[3], '[clodent: showing the first 3 of 10 lines; raise head_limit to see more]');
   assert.equal(lines.length, 4);
+  assert.deepEqual(result.structured, { numFiles: 1, numLines: 10, truncated: true });
 });
 
 test('head_limit defaults to 250 lines', async (t) => {

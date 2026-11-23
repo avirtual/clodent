@@ -57,7 +57,7 @@ test('-p fires SessionStart, UserPromptSubmit, PreToolUse, PostToolUse and Stop 
   assert.equal(submit.prompt, 'go');
   assert.deepEqual([pre.tool_name, pre.tool_input, pre.tool_use_id], ['Bash', { command: 'echo hi' }, 'toolu_1']);
   assert.deepEqual([post.tool_name, post.tool_input, post.tool_use_id], ['Bash', { command: 'echo hi' }, 'toolu_1']);
-  assert.deepEqual(post.tool_response, { content: 'hi\n[exit 0]', isError: false });
+  assert.deepEqual(post.tool_response, { stdout: 'hi\n', stderr: '', interrupted: false, content: 'hi\n[exit 0]', isError: false });
   assert.equal(stop.stop_hook_active, false);
   const records = readJsonl(path);
   assert.equal(records.at(-1).subtype, 'turn_duration');
@@ -118,7 +118,8 @@ test('PostToolUse context goes after every tool_result block and the request sta
   assert.deepEqual(sent[2].content.map((b) => b.type), ['tool_result', 'tool_result', 'text']);
   assert.deepEqual(sent[2].content[2], block('PostToolUse', 'post toolu_1', 'post toolu_2'));
   const records = readJsonl(transcriptPath(home, cwd, res.id));
-  assert.deepEqual(records[2].message.content[2], block('PostToolUse', 'post toolu_1', 'post toolu_2'));
+  assert.deepEqual(records.slice(2, 4).map((r) => r.message.content.map((b) => b.tool_use_id ?? b.type)), [['toolu_1'], ['toolu_2', 'text']]);
+  assert.deepEqual(records[3].message.content[1], block('PostToolUse', 'post toolu_1', 'post toolu_2'));
 });
 
 test('PostToolUseFailure fires instead of PostToolUse when the tool returns an error', GUARD, async (t) => {
@@ -135,8 +136,8 @@ test('PostToolUseFailure fires instead of PostToolUse when the tool returns an e
   const [input] = readJsonl(log);
   assert.equal(readJsonl(log).length, 1);
   assert.equal(input.hook_event_name, 'PostToolUseFailure');
-  assert.deepEqual(input.tool_response, { content: '[exit 3]', isError: true });
-  assert.equal(input.error, '[exit 3]');
+  assert.deepEqual(input.tool_response, { stdout: '', stderr: '', interrupted: false, content: '[exit 3]', isError: true });
+  assert.equal(input.error, 'Exit code 3\n[exit 3]');
   const sent = strip(res.calls[1].body.messages);
   assert.deepEqual(sent[2].content.at(-1), block('PostToolUseFailure', 'it failed'));
 });
@@ -192,7 +193,7 @@ test('PreToolUse updatedInput changes what Bash runs while the history keeps the
   assert.match(res.stderr, /^● Bash echo changed$/m);
   const records = readJsonl(transcriptPath(home, cwd, res.id));
   assert.deepEqual(records[1].message.content[0].input, { command: 'echo original' });
-  assert.deepEqual(records[2].toolUseResult, { name: 'Bash', isError: false, input: { command: 'echo changed' } });
+  assert.deepEqual(records[2].toolUseResult, { name: 'Bash', isError: false, input: { command: 'echo changed' }, stdout: 'changed\n', stderr: '', interrupted: false });
 });
 
 test('a failing UserPromptSubmit hook only warns and the turn completes', GUARD, async (t) => {

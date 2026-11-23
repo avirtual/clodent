@@ -17,7 +17,11 @@ async function fileWith(t, content) {
 test('replaces a unique match', async (t) => {
   const { dir, path } = await fileWith(t, 'alpha beta gamma\n');
   const result = await edit.run({ file_path: 'f.txt', old_string: 'beta', new_string: 'BETA' }, ctxFor(dir));
-  assert.deepEqual(result, { content: `Edited ${path}: 1 replacement(s)`, isError: false });
+  assert.deepEqual(result, {
+    content: `Edited ${path}: 1 replacement(s)`,
+    isError: false,
+    structured: { type: 'update', filePath: path, structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-alpha beta gamma', '+alpha BETA gamma'] }] },
+  });
   assert.equal(await readFile(path, 'utf8'), 'alpha BETA gamma\n');
 });
 
@@ -26,6 +30,16 @@ test('replace_all replaces every match and counts them', async (t) => {
   const result = await edit.run({ file_path: path, old_string: 'x', new_string: 'yy', replace_all: true }, ctxFor(dir));
   assert.equal(result.content, `Edited ${path}: 3 replacement(s)`);
   assert.equal(await readFile(path, 'utf8'), 'yy-yy-yy');
+});
+
+test('replace_all far apart in a file gives one hunk per change with three lines of context', async (t) => {
+  const lines = Array.from({ length: 20 }, (_, i) => (i === 1 || i === 17 ? 'old' : `l${i + 1}`));
+  const { dir, path } = await fileWith(t, `${lines.join('\n')}\n`);
+  const result = await edit.run({ file_path: path, old_string: 'old', new_string: 'new\nmore', replace_all: true }, ctxFor(dir));
+  assert.deepEqual(result.structured.structuredPatch, [
+    { oldStart: 1, oldLines: 5, newStart: 1, newLines: 6, lines: [' l1', '-old', '+new', '+more', ' l3', ' l4', ' l5'] },
+    { oldStart: 15, oldLines: 6, newStart: 16, newLines: 7, lines: [' l15', ' l16', ' l17', '-old', '+new', '+more', ' l19', ' l20'] },
+  ]);
 });
 
 test('more than one match without replace_all is an error that says how many', async (t) => {

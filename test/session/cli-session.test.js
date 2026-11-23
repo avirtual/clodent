@@ -111,7 +111,12 @@ test('-p with a tool round writes prompt, assistant, tool results, assistant and
   assert.equal(recs[1].requestId, null);
   assert.equal(typeof recs[1].costUsd, 'number');
   assert.equal(recs[1].durationMs, 0);
-  assert.deepEqual(recs[2].toolUseResult, { name: 'Read', isError: false, input: { file_path: 'notes.md' } });
+  assert.deepEqual(recs[2].toolUseResult, {
+    name: 'Read',
+    isError: false,
+    input: { file_path: 'notes.md' },
+    file: { filePath: join(cwd, 'notes.md'), startLine: 1, numLines: 1, totalLines: 1 },
+  });
   assert.equal(recs[2].message.content[0].type, 'tool_result');
   assert.deepEqual(recs[4], { ...recs[4], durationMs: 0, messageCount: 4 });
 });

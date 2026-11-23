@@ -52,6 +52,12 @@ test('braces, classes and ? are supported', async (t) => {
   assert.deepEqual(await names(dir, { pattern: 'sub/**' }), ['sub/deep/e.js', 'sub/d.js']);
 });
 
+test('structured counts every match and says the list was not cut', async (t) => {
+  const dir = await plainTree(t);
+  const result = await glob.run({ pattern: '**/*.js' }, ctxFor(dir));
+  assert.deepEqual(result.structured, { numFiles: 3, truncated: false });
+});
+
 test('path narrows the root and a leading ./ is ignored', async (t) => {
   const dir = await plainTree(t);
   assert.deepEqual(await names(dir, { pattern: './*.js', path: 'sub' }), ['sub/d.js']);
@@ -59,7 +65,7 @@ test('path narrows the root and a leading ./ is ignored', async (t) => {
 
 test('no match is a plain result, not an error', async (t) => {
   const dir = await plainTree(t);
-  assert.deepEqual(await glob.run({ pattern: '*.py' }, ctxFor(dir)), { content: 'No files matched', isError: false });
+  assert.deepEqual(await glob.run({ pattern: '*.py' }, ctxFor(dir)), { content: 'No files matched', isError: false, structured: { numFiles: 0, truncated: false } });
 });
 
 test('a malformed glob is an error naming the glob', async (t) => {
@@ -90,7 +96,7 @@ test('results are capped at 1000 newest with a note, then byte-capped like any r
   const newest = Array.from({ length: 1000 }, (_, i) => join(dir, `f${1000 - i}.txt`));
   const note = '[clodent: showing the 1000 newest of 1001 matches; narrow the pattern]';
   const result = await glob.run({ pattern: '*.txt' }, ctxFor(dir));
-  assert.deepEqual(result, { content: capResult([...newest, note].join('\n')), isError: false });
+  assert.deepEqual(result, { content: capResult([...newest, note].join('\n')), isError: false, structured: { numFiles: 1001, truncated: true } });
 });
 
 test('inside a git work tree .gitignore is respected, also from a subdirectory', async (t) => {

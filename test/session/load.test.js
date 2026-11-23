@@ -94,6 +94,37 @@ test('replaying the transcript rebuilds the live history exactly, merged roles i
   assert.equal(loaded.records.length, readFileSync(path, 'utf8').trimEnd().split('\n').length);
 });
 
+test('a round of two tool calls is written as one record per tool_result and replays as one user message', async (t) => {
+  const dir = await useTempDir(t);
+  const path = join(dir, 's.jsonl');
+  const uses = [1, 2].map((n) => ({ type: 'tool_use', id: `toolu_${n}`, name: 'A', input: { n } }));
+  const live = liveSession(path, [{ body: sse({ blocks: uses, stopReason: 'tool_use' }) }, textReply('done')]);
+  await live.turn('go');
+  const records = readFileSync(path, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+  assert.deepEqual(records.slice(2, 4).map((r) => [r.message.content.map((b) => b.tool_use_id), r.toolUseResult.input]), [[['toolu_1'], { n: 1 }], [['toolu_2'], { n: 2 }]]);
+  assert.deepEqual(loadTranscript(path, fs).history, live.agent.messages());
+});
+
+test('an older transcript loads as written: hook context ahead of the prompt, several tool_results in one record, the old toolUseResult', async (t) => {
+  const dir = await useTempDir(t);
+  const path = join(dir, 's.jsonl');
+  const hook = (event) => ({ type: 'text', text: `<hook-context event="${event}">\nctx\n</hook-context>` });
+  const prompt = [hook('SessionStart'), { type: 'text', text: 'hi' }];
+  const uses = [1, 2].map((n) => ({ type: 'tool_use', id: `toolu_${n}`, name: 'A', input: { n } }));
+  const results = [...[1, 2].map((n) => ({ type: 'tool_result', tool_use_id: `toolu_${n}`, content: 'A ok', is_error: false })), hook('PostToolUse')];
+  const lines = [
+    { type: 'user', message: { role: 'user', content: prompt } },
+    { type: 'assistant', message: { role: 'assistant', content: uses, stop_reason: 'tool_use' } },
+    { type: 'user', message: { role: 'user', content: results }, toolUseResult: { name: 'A', isError: false, input: { n: 1 } } },
+  ];
+  writeFileSync(path, lines.map((r) => `${JSON.stringify(r)}\n`).join(''));
+  assert.deepEqual(loadTranscript(path, fs).history, [
+    { role: 'user', content: prompt },
+    { role: 'assistant', content: uses },
+    { role: 'user', content: results },
+  ]);
+});
+
 test('interruptedLast is true only when the last user record is the interrupt record', async (t) => {
   const dir = await useTempDir(t);
   const path = join(dir, 's.jsonl');
