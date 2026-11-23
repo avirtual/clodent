@@ -23,6 +23,7 @@ const WIDE = [
 const ZERO_WIDTH = /^[\p{M}\u200b-\u200f\u2060-\u2064\ufeff]+$/u;
 const EMOJI = /^\p{Emoji_Presentation}/u;
 const EMOJI_BASE = /^\p{Emoji}/u;
+const NOT_SPACING = /[\p{M}\p{Cf}]/gu;
 const TAB_STOP = 8;
 
 const segmenter = new Intl.Segmenter('en', { granularity: 'grapheme' });
@@ -35,11 +36,15 @@ function isWide(cp) {
   return cp >= 0x1100 && WIDE.some(([lo, hi]) => cp >= lo && cp <= hi);
 }
 
+function isEmoji(grapheme) {
+  return EMOJI.test(grapheme) || (grapheme.includes('\ufe0f') && EMOJI_BASE.test(grapheme));
+}
+
 function graphemeWidth(grapheme) {
   const cp = grapheme.codePointAt(0);
   if (cp < 0x20 || (cp >= 0x7f && cp < 0xa0) || ZERO_WIDTH.test(grapheme)) return 0;
-  if (EMOJI.test(grapheme) || (grapheme.includes('\ufe0f') && EMOJI_BASE.test(grapheme))) return 2;
-  return isWide(cp) ? 2 : 1;
+  if (isWide(cp)) return 2;
+  return isEmoji(grapheme) && [...grapheme.replace(NOT_SPACING, '')].length > 1 ? 2 : 1;
 }
 
 export function cellWidth(text) {

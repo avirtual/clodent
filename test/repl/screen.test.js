@@ -60,6 +60,20 @@ test('on a TTY, a resize redraws the prompt line over the rows it uses at both t
   assert.equal(repl.out.listenerCount('resize'), 0);
 });
 
+test('on a TTY whose columns is 0, rows are counted at 80 columns', GUARD, async (t) => {
+  const { home, cwd } = await dirs(t);
+  const repl = startRepl([], { home, cwd, columns: 0 });
+  await repl.prompts(1);
+  const start = repl.out.text.length;
+  const x81 = 'x'.repeat(81);
+  repl.stdin.type(x81);
+  repl.stdin.type('\x7f');
+  assert.equal(since(repl, start), `${x81}${ERASE_2}> ${'x'.repeat(80)}`);
+  repl.stdin.type('\x15');
+  repl.stdin.type('\x04');
+  assert.equal(await repl.done, 0);
+});
+
 test('on a TTY, the first exit ^C replaces the empty prompt row with the hint', GUARD, async (t) => {
   const { home, cwd } = await dirs(t);
   const repl = startRepl([], { home, cwd, columns: 80 });

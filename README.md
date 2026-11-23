@@ -1,6 +1,6 @@
 # clodent
 
-clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.9.1 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), a stream-json mode for hosts, eight built-in tools (under Clodex, the seat's plugin tools join them; see [Clodex tools](#clodex-tools)), cost accounting, JSONL session transcripts, settings files, hooks and post-compact file reload. clodent was named clay up to 0.2.0.
+clodent is a terminal coding agent for Node.js that talks to the Anthropic Messages API directly. Version 0.10.0 has an interactive REPL built to be driven through a PTY, a print mode (`clodent -p`), a stream-json mode for hosts, eight built-in tools (under Clodex, the seat's plugin tools join them; see [Clodex tools](#clodex-tools)), cost accounting, JSONL session transcripts, settings files, hooks and post-compact file reload. clodent was named clay up to 0.2.0.
 
 Not supported: MCP servers, plugins, a skill tool, subagents, image input, Windows, telemetry. Under Clodex, a seat's plugin tools and skills still reach the model; see [Clodex tools](#clodex-tools) and [Hosting clodent](#hosting-clodent).
 
@@ -10,7 +10,7 @@ Requires Node.js 22 or later. clodent has no dependencies.
 
 ```sh
 npm i -g clodent
-clodent --version   # clodent 0.9.1
+clodent --version   # clodent 0.10.0
 ```
 
 A pinned version: `npm i -g clodent@<version>`.
@@ -81,7 +81,7 @@ One-time setup on npmjs.com: package `clodent` → Settings → Trusted Publishe
 
 ## Contract
 
-This section is the contract a host integrates against. It describes clodent 0.9.1.
+This section is the contract a host integrates against. It describes clodent 0.10.0.
 
 ### Hosting clodent
 
@@ -103,7 +103,7 @@ A summary for a host adapter; each point links to the section that pins it down.
 - statusLine: the settings `statusLine` command gets `context_window.used_tokens`, `context_window.context_window_size`, `context_window.used_percentage`, `model.id` and `cost.total_cost_usd` on stdin after each API response, after `/clear` (zero usage) and after `/compact` (`used_tokens` is the summary's size). `context_window_size` is 1,000,000 when the model came with a `[1m]` suffix, else 200,000. See [Hooks](#hooks).
 - Signals: SIGINT acts as Ctrl-C: it interrupts a turn, and two in a row at an empty prompt exit 0. SIGTERM exits 143 and SIGHUP 129, after interrupting a running turn, whose `Stop` hook still fires. Ctrl-D, `/quit` and stdin closing exit 0. See [REPL](#repl).
 - Settings guard: `permissions.deny`/`ask`/`allow` are enforced; an allow rule runs a call without the ask and never overrides a deny or ask rule, a hook's decision or `--read-only` (see [Permission rules](#permission-rules)). A `sandbox` block with `enabled: true` is never fatal: its `filesystem.denyRead`, `filesystem.denyWrite` and deny `credentials.files` entries are enforced as deny rules, its deny `credentials.envVars` are removed from the environment of the Bash tool, of Grep and Glob's git calls, and of hooks and the statusLine command, and its other keys are ignored with one warning; clodent does not sandbox Bash. A malformed sandbox shape is a startup error (exit 2). clodent also always denies Read and Edit of every settings file it loaded and Read of `/proc/*/environ`, and `ANTHROPIC_API_KEY` is never in the environment of the Bash tool, Grep and Glob's git calls, hooks or the statusLine command; the value is replaced with `[redacted]` in hook warnings and deny reasons.
-- Absent in 0.9.1: MCP and subagents, so hooks never get `agent_id`.
+- Absent in 0.10.0: MCP and subagents, so hooks never get `agent_id`.
 - Clodex tools: with `CLODEX_INTENT_SOCK` and `CLODEX_INTENT_CRED` set, the seat's `mcp-tools.json` catalog becomes native `mcp__clodex__<name>` tools that call the intent socket, with no MCP layer; see [Clodex tools](#clodex-tools).
 - Skills: clodent has no skill tool and no skill discovery. Clodex lists a seat's enabled skills in a `# Clodex skills` block inside the `--append-system-prompt-file` text (Clodex `skill-delivery.js` `deliverCatalog`), which clodent appends to the system prompt as part 4, and the model reads a skill's `SKILL.md` with `Read`; a bare-name `Read` deny removes that tool, leaving Bash or Grep's `content` mode to reach the file. See [System prompt](#system-prompt).
 
@@ -350,7 +350,7 @@ Every prompt, and every queued line's echo, is written as `\x1b[?2004h` and then
 
 Input line: the prompt or the ask line, followed by the echo of what is typed. When stdout is a TTY:
 
-- An edit other than adding text (backspace, Ctrl-W, Ctrl-U, Ctrl-C with text) redraws it: `\r\x1b[2K`, then `\x1b[A\x1b[2K` once for each further row the line wraps onto, then the prompt or ask line and the echo. A redraw writes no `\x1b[?2004h`. Rows are counted at `stdout.columns` (80 when it is unset or 0), one cell per grapheme, two for East Asian wide and fullwidth characters and emoji.
+- An edit other than adding text (backspace, Ctrl-W, Ctrl-U, Ctrl-C with text) redraws it: `\r\x1b[2K`, then `\x1b[A\x1b[2K` once for each further row the line wraps onto, then the prompt or ask line and the echo. A redraw writes no `\x1b[?2004h`. Rows are counted at `stdout.columns` (80 when it is unset or 0), one cell per grapheme, two for East Asian wide and fullwidth characters and for an emoji with more than one code point besides combining marks and format characters such as ZWJ (a ZWJ sequence, a skin tone, a country flag). clodent assumes Unicode 6 emoji widths, like an xterm.js terminal without the unicode11 addon: a single emoji that is not East Asian wide, such as ✅, ⚠️ or 🤖, is one cell, its variation selector included.
 - On a resize, it is redrawn the same way, over the rows it uses at the old width or the new one, whichever is fewer, so no line above it is erased. A terminal that reflows the line when it narrows (tmux) or does not reflow it when it widens (xterm.js) can keep a stale row of it.
 - A line printed while it shows, such as a statusLine or hook warning, first erases it the same way; the input line is redrawn below the printed line.
 
@@ -419,7 +419,7 @@ Permission ask: in the default mode, a write or exec tool call that no hook allo
 1. clodent prints `[clodent:permit <Tool> <tool_use id>] <summary>` on its own line, with the summary of the `● <Tool> <summary>` line; with an empty summary the line ends at `]`.
 2. It writes `Allow? [y/n] ` and starts reading one line.
 3. With the ask listening, it fires the `Notification` hook with `notification_type: "permission_prompt"`, `title: "Permission needed"`, `message: "clodent needs your permission to use <Tool>"`, `tool` (the tool name) and `id` (the tool_use id). A line written while the hook runs is read as the answer. The call runs or is refused once both the answer and the hook are done.
-4. `y` or `yes`, trimmed and in any case, runs the call. `n` or `no` refuses it with the reason `denied by the user`. An empty line asks again. Any other line, and any line with a paste in it, is not an answer: it is queued as a prompt, and clodent prints `clodent: queued as a prompt; answer y or n` and asks again. On a TTY, a line that is not an answer erases the ask row first, so the screen keeps one `Allow? [y/n] ` line.
+4. `y` or `yes`, trimmed and in any case, runs the call. `n` or `no` refuses it with the reason `denied by the user`. An empty line asks again. Any other line, and any line with a paste in it, is not an answer: it is queued as a prompt, and clodent prints `clodent: queued as a prompt; answer y or n` and asks again. On a TTY, an empty line or a line that is not an answer erases the ask row first, so the screen keeps one `Allow? [y/n] ` line.
 5. Ctrl-C interrupts the turn, and the call does not run. stdin closing refuses the call with the reason `denied: input closed`.
 
 Exit, on every path: clodent prints the session total line, waits for the statusLine command, writes `\x1b[?2004l`, turns raw mode off, stops reading stdin and sends any pending SIGKILL (see [Tools](#tools)). An unexpected error skips the session total and the wait, but still restores the terminal and sends the pending SIGKILLs. Exit codes:
@@ -731,14 +731,14 @@ A turn the model ended has `stop_reason: "end_turn"` on its last assistant recor
 
 | tool | fields |
 |---|---|
-| `Read` | `file: {filePath, startLine, numLines, totalLines}`: the absolute path, the first line shown (1-based), the number of lines shown and the file's line count. An empty file gives `startLine` 1 and 0 for both counts. The file's text is never copied |
+| `Read` | `file: {filePath, startLine, numLines, totalLines}`: the absolute path, the first line shown (1-based), the number of lines in the range read (counted before the 32 KiB cap) and the file's line count. An empty file gives `startLine` 1 and 0 for both counts. The file's text is never copied |
 | `Grep` | `numFiles`: files with a match; `numLines`: matching lines, in `content` mode only; `truncated`: `true` when `head_limit` cut the output. Both counts take every match, before `head_limit` |
 | `Glob` | `numFiles`: every match, before the 1000 cap; `truncated`: `true` when the list was cut to 1000 |
 | `Bash` | `stdout` and `stderr`: each stream on its own, each capped at 32768 bytes as a result is (head and tail kept); `interrupted`: `true` when the user's interrupt killed the command. Present on any command that started, failed ones included |
 | `Edit` | `type: "update"`, `filePath` (absolute), `structuredPatch` |
 | `Write` | a new file: `type: "create"`, `filePath`, `content` (the text written, capped at 32768 bytes as a result is), `structuredPatch: []`; an existing file: `type: "update"`, `filePath`, `structuredPatch` |
 
-`structuredPatch` is a list of hunks `{oldStart, oldLines, newStart, newLines, lines}`, as in a unified diff: each `lines` entry is one line of the file prefixed `" "`, `"-"` or `"+"`, with deletions before insertions in a run, up to 3 lines of context on each side, and hunks whose changes are at most 6 unchanged lines apart joined into one. Lines are split on `\n`, a final `\n` adding no line. A start is 1-based, and with a count of 0 it names the line before. When the changed lines differ by more than 1000 insertions and deletions, the region from the first to the last changed line is one run of `-` lines then `+` lines. `structuredPatch` is `[]` when its lines would total more than 32768 UTF-8 bytes (one more per line), and for a file with a NUL byte in its first 8 KiB.
+`structuredPatch` is a list of hunks `{oldStart, oldLines, newStart, newLines, lines}`, as in a unified diff: each `lines` entry is one line of the file prefixed `" "`, `"-"` or `"+"`, with deletions before insertions in a run, up to 3 lines of context on each side, and hunks whose changes are at most 6 unchanged lines apart joined into one. Lines are split on `\n`, a final `\n` adding no line. A start is 1-based, and with a count of 0 it names the line before. When the changed lines differ by more than 1000 insertions and deletions, the region from the first to the last changed line is one run of `-` lines then `+` lines. `structuredPatch` is `[]` when its lines would total more than 32768 UTF-8 bytes (one more per line), for a file with a NUL byte in its first 8 KiB, and for a `Write` over an existing path that is not a regular file or is larger than 4 MiB (4194304 bytes), which is not read.
 
 ### Settings
 
@@ -951,8 +951,8 @@ stdin is one JSON object followed by a newline, then closed. Every event sends `
 | `SessionStart` | `source`: `startup`, `resume`, `clear` or `compact`; `model`: the session's model id |
 | `UserPromptSubmit` | `prompt` |
 | `PreToolUse` | `tool_name`, `tool_input`, `tool_use_id`; for a `/compact` file reload, `tool_name` `Read`, `tool_input` `{"file_path": "<absolute path>"}` and `tool_use_id` `compact-reload-<n>`, where `<n>` is the file's place in the reload list, from 1 |
-| `PostToolUse` | `tool_name`, `tool_input` (the input that ran), `tool_use_id`, `tool_response`: `{content, isError}` plus the tool's `toolUseResult` fields beyond `name`, `isError` and `input` (see [Sessions](#sessions)), such as `Bash` `stdout`, `stderr` and `interrupted` |
-| `PostToolUseFailure` | the `PostToolUse` fields, and `error`: the result text. For a `Bash` command that started and did not time out, the line `Exit code <n>` comes first: `<n>` is its exit status, or 128 plus the signal number when a signal killed it |
+| `PostToolUse` | `tool_name`, `tool_input` (the input that ran), `tool_use_id`, `tool_response`: `{content, isError}` plus the tool's `toolUseResult` fields beyond `name`, `isError` and `input` (see [Sessions](#sessions)), such as `Bash` `stdout`, `stderr` and `interrupted`, except that `content` stays the result text |
+| `PostToolUseFailure` | the `PostToolUse` fields, and `error`: the result text. For a `Bash` command that started and did not time out, the line `Exit code <n>` comes first: `<n>` is its exit status, or 128 plus the signal number when a signal killed it. `is_timeout`: `true` for a `Bash` command that timed out, else `false`. `is_interrupt`: always `false`, since an interrupted call fires no `PostToolUseFailure` |
 | `Notification` | a permission prompt sends `notification_type: "permission_prompt"`, `title: "Permission needed"`, `message: "clodent needs your permission to use <Tool>"`, `tool` and `id` |
 | `PreCompact` | `trigger`: `manual`; `custom_instructions`: the `/compact` instructions, or `""` |
 | `Stop` | `stop_hook_active`: `false` |
