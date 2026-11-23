@@ -43,7 +43,7 @@ export function webBody({ model, tools, text }) {
     system: WEB_SYSTEM,
     tools,
     messages: [{ role: 'user', content: [{ type: 'text', text }] }],
-    thinking: { type: 'adaptive' },
+    thinking: { type: 'adaptive', display: 'summarized' },
   };
 }
 

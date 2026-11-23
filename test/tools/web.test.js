@@ -111,7 +111,7 @@ test('WebSearch sends one sub-request on the main wire: Sonnet, both server tool
       { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 3, max_content_tokens: 25000 },
     ],
     messages: [{ role: 'user', content: [{ type: 'text', text: QUERY }] }],
-    thinking: { type: 'adaptive' },
+    thinking: { type: 'adaptive', display: 'summarized' },
     stream: true,
   });
   assert.doesNotMatch(JSON.stringify(sub.body), /cache_control/);
