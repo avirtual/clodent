@@ -8,9 +8,19 @@ function messageRecord({ role, content, kind, meta }) {
   return { type: 'user', message: { role, content } };
 }
 
+function byToolResult(content) {
+  const groups = [];
+  for (const block of content) {
+    if (block.type === 'tool_result' || groups.length === 0) groups.push([block]);
+    else groups.at(-1).push(block);
+  }
+  return groups;
+}
+
 export function createRecorder(transcript, { now }) {
   const toolNames = new Map();
   const toolInputs = new Map();
+  const toolResults = new Map();
   let turnStart = null;
   let messageCount = 0;
 
@@ -19,29 +29,38 @@ export function createRecorder(transcript, { now }) {
     transcript.append(record);
   }
 
+  function toolUseResult(block) {
+    const id = block.tool_use_id;
+    const structured = toolResults.get(id);
+    toolResults.delete(id);
+    return { name: toolNames.get(id) ?? null, isError: block.is_error === true, input: toolInputs.get(id) ?? null, ...structured };
+  }
+
   const handlers = {
     tool_use(event) {
       toolNames.set(event.id, event.name);
       toolInputs.set(event.id, event.input);
     },
+    tool_result(event) {
+      if (event.structured) toolResults.set(event.id, event.structured);
+    },
     message_append(event) {
       if (turnStart === null) transcript.refreshBranch();
       if (event.kind === 'prompt' && turnStart === null) turnStart = now();
-      const record = messageRecord(event);
       for (const block of event.content) {
         if (block.type !== 'tool_use') continue;
         toolNames.set(block.id, block.name);
         toolInputs.set(block.id, block.input);
       }
-      if (event.kind === 'tool_results') {
-        const [first] = event.content;
-        record.toolUseResult = {
-          name: toolNames.get(first.tool_use_id) ?? null,
-          isError: first.is_error === true,
-          input: toolInputs.get(first.tool_use_id) ?? null,
-        };
+      if (event.kind !== 'tool_results') {
+        append(messageRecord(event));
+        return;
       }
-      append(record);
+      for (const content of byToolResult(event.content)) {
+        const record = messageRecord({ ...event, content });
+        if (content[0].type === 'tool_result') record.toolUseResult = toolUseResult(content[0]);
+        append(record);
+      }
     },
     side_request({ subtype, toolUseId, model, requestId, usage, usd, durationMs }) {
       transcript.append({ type: 'system', subtype, toolUseId, model, requestId, usage, costUsd: usd, durationMs: Math.round(durationMs) });

@@ -89,7 +89,7 @@ test('SIGTERM to a child clodent -p kills its running Bash, exits 143, and leave
   assertValidHistory(sent);
   assert.equal(sent[2].content[0].type, 'tool_result');
   assert.equal(sent[2].content[0].is_error, true);
-  assert.deepEqual(sent[2].content.slice(1), [{ type: 'text', text: INTERRUPT_MARKER }, { type: 'text', text: 'next' }]);
+  assert.deepEqual(sent[2].content.slice(1), [{ type: 'text', text: 'next' }, { type: 'text', text: INTERRUPT_MARKER }]);
 });
 
 test('SIGTERM and SIGHUP abort the turn, then Stop fires and the statusLine flushes before the exit code', GUARD, async (t) => {

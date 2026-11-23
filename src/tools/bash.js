@@ -1,3 +1,4 @@
+import { constants } from 'node:os';
 import { StringDecoder } from 'node:string_decoder';
 import { KILL_GRACE_MS, runProcess } from '../proc/run.js';
 import { createCapSink } from './cap.js';
@@ -14,6 +15,12 @@ export function clampTimeout(value) {
   return Math.min(Math.ceil(n), MAX_TIMEOUT_MS);
 }
 
+function exitCodeOf({ code, signal }) {
+  if (code !== null) return code;
+  const number = signal ? constants.signals[signal] : undefined;
+  return number === undefined ? null : 128 + number;
+}
+
 function trailerFor({ timedOut, timeoutMs, code, signal }) {
   if (timedOut) return `[timed out after ${timeoutMs} ms]`;
   if (signal) return `[killed by ${signal}]`;
@@ -22,10 +29,13 @@ function trailerFor({ timedOut, timeoutMs, code, signal }) {
 
 async function execute(command, timeoutMs, ctx, deps) {
   const sink = createCapSink();
+  const streams = { stdout: createCapSink(), stderr: createCapSink() };
   let lastChar = '\n';
-  const append = (text) => {
+  const append = (stream, text) => {
     if (!text) return;
-    sink.push(Buffer.from(text, 'utf8'));
+    const bytes = Buffer.from(text, 'utf8');
+    sink.push(bytes);
+    streams[stream].push(bytes);
     lastChar = text.at(-1);
   };
   const decoders = { stdout: new StringDecoder('utf8'), stderr: new StringDecoder('utf8') };
@@ -36,17 +46,22 @@ async function execute(command, timeoutMs, ctx, deps) {
       env: ctx.env,
       timeoutMs,
       signal: ctx.signal,
-      onStdout: (chunk) => append(decoders.stdout.write(chunk)),
-      onStderr: (chunk) => append(decoders.stderr.write(chunk)),
+      onStdout: (chunk) => append('stdout', decoders.stdout.write(chunk)),
+      onStderr: (chunk) => append('stderr', decoders.stderr.write(chunk)),
     },
     deps,
   );
   if (res.error) return fail(`Cannot run bash in ${ctx.cwd}: ${res.error.message}`);
-  append(decoders.stdout.end());
-  append(decoders.stderr.end());
+  append('stdout', decoders.stdout.end());
+  append('stderr', decoders.stderr.end());
   const status = { timedOut: res.timedOut, timeoutMs, code: res.code, signal: res.signal };
   sink.push(Buffer.from(`${lastChar === '\n' ? '' : '\n'}${trailerFor(status)}`, 'utf8'));
-  return { content: sink.text(), isError: res.timedOut || res.signal !== null || res.code !== 0 };
+  return {
+    content: sink.text(),
+    isError: res.timedOut || res.signal !== null || res.code !== 0,
+    structured: { stdout: streams.stdout.text(), stderr: streams.stderr.text(), interrupted: res.aborted },
+    exitCode: res.timedOut ? null : exitCodeOf(res),
+  };
 }
 
 export function createBash(deps = {}) {

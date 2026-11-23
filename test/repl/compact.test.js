@@ -57,7 +57,7 @@ test('/compact <instructions> summarises quietly, records boundary and summary, 
     { role: 'user', content: [{ type: 'text', text: `${COMPACT_PROMPT}\n${reloadRequest(5)}\n\nAdditional instructions: keep the file list` }] },
   ]);
   assert.equal(next.messages.length, 1);
-  assert.deepEqual(userTexts(next), [`${SUMMARY_PREFIX}${SUMMARY}`, '<hook-context event="SessionStart">\nbriefing\n</hook-context>', 'three']);
+  assert.deepEqual(userTexts(next), [`${SUMMARY_PREFIX}${SUMMARY}`, 'three', '<hook-context event="SessionStart">\nbriefing\n</hook-context>']);
   const out = repl.out.text;
   assert.equal(out.includes('SUMMARY-TEXT'), false);
   assert.match(out, /> \/compact {3}keep the file list \nclodent: conversation compacted \(1200 → 45 tokens\)\n\[clodent:cost\] \$\d+\.\d{4} \(in 1000, cache-read 150, cache-write 50, out 45\)\n/);

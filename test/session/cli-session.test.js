@@ -111,7 +111,12 @@ test('-p with a tool round writes prompt, assistant, tool results, assistant and
   assert.equal(recs[1].requestId, null);
   assert.equal(typeof recs[1].costUsd, 'number');
   assert.equal(recs[1].durationMs, 0);
-  assert.deepEqual(recs[2].toolUseResult, { name: 'Read', isError: false, input: { file_path: 'notes.md' } });
+  assert.deepEqual(recs[2].toolUseResult, {
+    name: 'Read',
+    isError: false,
+    input: { file_path: 'notes.md' },
+    file: { filePath: join(cwd, 'notes.md'), startLine: 1, numLines: 1, totalLines: 1 },
+  });
   assert.equal(recs[2].message.content[0].type, 'tool_result');
   assert.deepEqual(recs[4], { ...recs[4], durationMs: 0, messageCount: 4 });
 });
@@ -171,7 +176,7 @@ test('a resume after an interrupt carries INTERRUPT_MARKER in the next request',
   const second = await run(['-p', 'second', '--resume', ID], { home, cwd, responses: [textReply('ok')] });
   assert.equal(second.code, 0, second.stderr);
   assert.deepEqual(strip(second.calls[0].body.messages), [
-    { role: 'user', content: [{ type: 'text', text: 'first' }, { type: 'text', text: INTERRUPT_MARKER }, { type: 'text', text: 'second' }] },
+    { role: 'user', content: [{ type: 'text', text: 'first' }, { type: 'text', text: 'second' }, { type: 'text', text: INTERRUPT_MARKER }] },
   ]);
 });
 
@@ -198,8 +203,8 @@ test('a resume of a session killed during a tool run closes the dangling tool_us
   assertValidHistory(sent);
   assert.deepEqual(sent[2].content, [
     { type: 'tool_result', tool_use_id: 'toolu_1', content: INTERRUPTED_RESULT, is_error: true },
-    { type: 'text', text: INTERRUPT_MARKER },
     { type: 'text', text: 'next' },
+    { type: 'text', text: INTERRUPT_MARKER },
   ]);
   const recs = records(path);
   assert.equal(recs[2].parentUuid, 'r2');

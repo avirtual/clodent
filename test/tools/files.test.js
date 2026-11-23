@@ -21,7 +21,7 @@ test('Grep and Glob list a work tree whose .git/config sets core.fsmonitor to a 
   execFileSync('git', ['config', 'core.fsmonitor', hook], { cwd: repo, env: cleanEnv(), stdio: 'ignore' });
   const [grep, glob] = listingTools();
   const ctx = ctxFor(repo);
-  assert.deepEqual(await grep.run({ pattern: 'needle' }, ctx), { content: join(repo, 'a.txt'), isError: false });
+  assert.deepEqual(await grep.run({ pattern: 'needle' }, ctx), { content: join(repo, 'a.txt'), isError: false, structured: { numFiles: 1, truncated: false } });
   const listed = await glob.run({ pattern: '*.txt' }, ctx);
   assert.deepEqual(listed.content.split('\n').sort(), [join(repo, 'a.txt'), join(repo, 'b.txt')]);
   assert.equal(existsSync(marker), false);

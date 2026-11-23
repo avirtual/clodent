@@ -56,13 +56,14 @@ export function createGlob(deps = {}) {
           if (found.isFile()) hits.push({ path, mtime: found.mtimeMs });
         } catch {}
       }
-      if (hits.length === 0) return ok('No files matched');
+      const structured = { numFiles: hits.length, truncated: hits.length > MAX_GLOB_RESULTS };
+      if (hits.length === 0) return ok('No files matched', structured);
       hits.sort(newestFirst);
       const shown = hits.slice(0, MAX_GLOB_RESULTS).map((hit) => hit.path);
       if (hits.length > MAX_GLOB_RESULTS) {
         shown.push(`[clodent: showing the ${MAX_GLOB_RESULTS} newest of ${hits.length} matches; narrow the pattern]`);
       }
-      return ok(shown.join('\n'));
+      return ok(shown.join('\n'), structured);
     },
   };
 }

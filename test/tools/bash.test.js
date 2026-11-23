@@ -27,23 +27,39 @@ function isGone(pid) {
 
 test('stdout comes back with an [exit 0] trailer', GUARD, async (t) => {
   const dir = await useTempDir(t);
-  assert.deepEqual(await bash.run({ command: 'echo hello' }, ctxFor(dir)), { content: 'hello\n[exit 0]', isError: false });
+  assert.deepEqual(await bash.run({ command: 'echo hello' }, ctxFor(dir)), { content: 'hello\n[exit 0]', isError: false, structured: { stdout: 'hello\n', stderr: '', interrupted: false }, exitCode: 0 });
 });
 
 test('a non-zero exit is an error and the trailer starts on its own line', GUARD, async (t) => {
   const dir = await useTempDir(t);
-  assert.deepEqual(await bash.run({ command: 'printf abc; exit 3' }, ctxFor(dir)), { content: 'abc\n[exit 3]', isError: true });
+  assert.deepEqual(await bash.run({ command: 'printf abc; exit 3' }, ctxFor(dir)), { content: 'abc\n[exit 3]', isError: true, structured: { stdout: 'abc', stderr: '', interrupted: false }, exitCode: 3 });
 });
 
 test('no output is just the trailer', GUARD, async (t) => {
   const dir = await useTempDir(t);
-  assert.deepEqual(await bash.run({ command: 'true' }, ctxFor(dir)), { content: '[exit 0]', isError: false });
+  assert.deepEqual(await bash.run({ command: 'true' }, ctxFor(dir)), { content: '[exit 0]', isError: false, structured: { stdout: '', stderr: '', interrupted: false }, exitCode: 0 });
 });
 
 test('stdout and stderr interleave in arrival order', GUARD, async (t) => {
   const dir = await useTempDir(t);
   const command = 'echo out1; sleep 0.2; echo err1 >&2; sleep 0.2; echo out2';
   assert.equal((await bash.run({ command }, ctxFor(dir))).content, 'out1\nerr1\nout2\n[exit 0]');
+});
+
+test('structured keeps stdout and stderr apart, each capped head and tail on its own', GUARD, async (t) => {
+  const dir = await useTempDir(t);
+  const command = "echo out1; echo err1 >&2; echo out2; head -c 100000 /dev/zero | tr '\\0' e >&2";
+  const result = await bash.run({ command }, ctxFor(dir));
+  assert.deepEqual(result.structured, { stdout: 'out1\nout2\n', stderr: capResult(`err1\n${'e'.repeat(100000)}`), interrupted: false });
+  assert.equal(result.exitCode, 0);
+});
+
+test('a command killed by a signal reports 128 plus the signal number as its exit code', GUARD, async (t) => {
+  const dir = await useTempDir(t);
+  const result = await bash.run({ command: 'kill -KILL $$' }, ctxFor(dir));
+  assert.equal(result.content, '[killed by SIGKILL]');
+  assert.equal(result.exitCode, 137);
+  assert.equal(result.structured.interrupted, false);
 });
 
 test('cwd and env come from ctx', GUARD, async (t) => {
@@ -71,7 +87,7 @@ test('a 300 ms timeout on sleep 5 returns within 3 s', GUARD, async (t) => {
   const started = Date.now();
   const result = await bash.run({ command: 'echo before; sleep 5', timeout: 300 }, ctxFor(dir));
   assert.ok(Date.now() - started < 3000);
-  assert.deepEqual(result, { content: 'before\n[timed out after 300 ms]', isError: true });
+  assert.deepEqual(result, { content: 'before\n[timed out after 300 ms]', isError: true, structured: { stdout: 'before\n', stderr: '', interrupted: false }, exitCode: null });
 });
 
 test('the process-group kill reaps a backgrounded grandchild', GUARD, async (t) => {
@@ -113,7 +129,7 @@ test('a line written just before the SIGKILL still reaches the output', GUARD, a
   const stubborn = createBash({ killGraceMs: 50, kill });
   const command = "(trap '' TERM; trap 'echo last-line; touch wrote' USR1; while :; do sleep 1; done) 2>/dev/null &";
   const result = await stubborn.run({ command, timeout: 300 }, ctxFor(dir));
-  assert.deepEqual(result, { content: 'last-line\n[timed out after 300 ms]', isError: true });
+  assert.deepEqual(result, { content: 'last-line\n[timed out after 300 ms]', isError: true, structured: { stdout: 'last-line\n', stderr: '', interrupted: false }, exitCode: null });
 });
 
 test('a descendant that leaves the process group cannot hold a timed-out call open', { ...GUARD, skip: HAS_PERL ? false : 'perl is not on PATH' }, async (t) => {
@@ -123,7 +139,7 @@ test('a descendant that leaves the process group cannot hold a timed-out call op
   const command = "perl -MPOSIX -e 'POSIX::setsid(); sleep 5' & echo started";
   const result = await quick.run({ command, timeout: 300 }, ctxFor(dir, { env: cleanEnv({ LC_ALL: 'C' }) }));
   assert.ok(Date.now() - started < 3000, `took ${Date.now() - started} ms`);
-  assert.deepEqual(result, { content: 'started\n[timed out after 300 ms]', isError: true });
+  assert.deepEqual(result, { content: 'started\n[timed out after 300 ms]', isError: true, structured: { stdout: 'started\n', stderr: '', interrupted: false }, exitCode: null });
 });
 
 test('aborting through an AbortController kills the command', GUARD, async (t) => {
@@ -134,7 +150,7 @@ test('aborting through an AbortController kills the command', GUARD, async (t) =
   controller.abort();
   const result = await pending;
   assert.ok(Date.now() - started < 3000);
-  assert.deepEqual(result, { content: '[killed by SIGTERM]', isError: true });
+  assert.deepEqual(result, { content: '[killed by SIGTERM]', isError: true, structured: { stdout: '', stderr: '', interrupted: true }, exitCode: 143 });
 });
 
 test('after an abort, a background child that ignores TERM and redirected its output still gets the SIGKILL', GUARD, async (t) => {

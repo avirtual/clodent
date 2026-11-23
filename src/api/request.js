@@ -134,7 +134,7 @@ export function buildRequest(
   if (tools.length > 0) body.tools = copyTools(tools, cacheTtl);
   if (toolChoice !== undefined && toolChoice !== null) body.tool_choice = toolChoice;
   body.messages = copyMessages(messages, messageTtl);
-  body.thinking = { type: 'adaptive' };
+  body.thinking = { type: 'adaptive', display: 'summarized' };
   if (effort !== undefined && effort !== null) body.output_config = { effort };
   if (sessionId !== undefined && sessionId !== null) body.metadata = { user_id: JSON.stringify({ session_id: sessionId }) };
 

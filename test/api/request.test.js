@@ -85,7 +85,7 @@ test('body carries model, default max_tokens, stream, system block, tools, messa
   assert.equal(DEFAULT_MAX_TOKENS, 32000);
   assert.equal(body.stream, true);
   assert.deepEqual(body.system, [{ type: 'text', text: 'You are clodent.', cache_control: { type: 'ephemeral' } }]);
-  assert.deepEqual(body.thinking, { type: 'adaptive' });
+  assert.deepEqual(body.thinking, { type: 'adaptive', display: 'summarized' });
 });
 
 test('maxTokens overrides the default', () => {

@@ -236,7 +236,7 @@ test('the named files are re-read into text blocks after the unchanged summary b
   await h.agent.runTurn('next');
   const sent = JSON.parse(h.raw[1]).messages;
   assert.deepEqual(sent.length, 1);
-  assert.deepEqual(sent[0].content.map((block) => block.text), [...message.content.map((block) => block.text), '<hook-context event="SessionStart">\nbriefing\n</hook-context>', 'next']);
+  assert.deepEqual(sent[0].content.map((block) => block.text), [...message.content.map((block) => block.text), 'next', '<hook-context event="SessionStart">\nbriefing\n</hook-context>']);
 });
 
 test('a Read a PreToolUse hook denied is left out of the fallback, and a summary naming it gets it skipped as hook, so its content goes nowhere', async (t) => {

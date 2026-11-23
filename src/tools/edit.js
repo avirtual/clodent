@@ -1,6 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { checkInput, describeFsError, fail, ok, oneLine } from './util.js';
+import { structuredPatch } from './patch.js';
+import { checkInput, describeFsError, fail, isBinary, ok, oneLine } from './util.js';
 
 function asBytes(text) {
   return Buffer.from(text, 'utf8').toString('latin1');
@@ -50,7 +51,8 @@ export function createEdit() {
       } catch (err) {
         return fail(`Cannot write ${path}: ${err.message}`);
       }
-      return ok(`Edited ${path}: ${count} replacement(s)`);
+      const patch = isBinary(buf) ? [] : structuredPatch(buf.toString('utf8'), Buffer.from(edited, 'latin1').toString('utf8'));
+      return ok(`Edited ${path}: ${count} replacement(s)`, { type: 'update', filePath: path, structuredPatch: patch });
     },
   };
 }

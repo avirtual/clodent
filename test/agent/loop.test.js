@@ -451,7 +451,7 @@ test('an interrupt mid-stream keeps completed text, and the next request alterna
   assertValidHistory(sent);
   assert.deepEqual(sent.at(-1), {
     role: 'user',
-    content: [{ type: 'text', text: INTERRUPT_MARKER }, { type: 'text', text: 'second' }],
+    content: [{ type: 'text', text: 'second' }, { type: 'text', text: INTERRUPT_MARKER }],
   });
 });
 
@@ -465,7 +465,7 @@ test('an interrupt with nothing kept merges the next prompt into the same user m
   const sent = strip(h.fetch.calls[1].body.messages);
   assertValidHistory(sent);
   assert.deepEqual(sent, [
-    { role: 'user', content: [{ type: 'text', text: 'first' }, { type: 'text', text: INTERRUPT_MARKER }, { type: 'text', text: 'second' }] },
+    { role: 'user', content: [{ type: 'text', text: 'first' }, { type: 'text', text: 'second' }, { type: 'text', text: INTERRUPT_MARKER }] },
   ]);
 });
 
@@ -496,8 +496,8 @@ test('an interrupt during a tool run passes the signal, keeps that result and sy
   assert.deepEqual(sent.at(-1).content, [
     { type: 'tool_result', tool_use_id: 'toolu_1', content: 'stopped early', is_error: true },
     { type: 'tool_result', tool_use_id: 'toolu_2', content: INTERRUPTED_RESULT, is_error: true },
-    { type: 'text', text: INTERRUPT_MARKER },
     { type: 'text', text: 'next' },
+    { type: 'text', text: INTERRUPT_MARKER },
   ]);
 });
 
@@ -592,7 +592,7 @@ test('createAgent starts from a given history and interrupted flag without mutat
   assert.deepEqual(history, frozen);
   assert.deepEqual(strip(h.fetch.calls[0].body.messages), [
     ...frozen.slice(0, 2),
-    { role: 'user', content: [{ type: 'text', text: 'before' }, { type: 'text', text: INTERRUPT_MARKER }, { type: 'text', text: 'next' }] },
+    { role: 'user', content: [{ type: 'text', text: 'before' }, { type: 'text', text: 'next' }, { type: 'text', text: INTERRUPT_MARKER }] },
   ]);
 });
 
@@ -604,9 +604,39 @@ test('a second SessionStart before a prompt replaces the held context instead of
   await h.agent.fireSessionStart('compact');
   await h.agent.runTurn('hi');
   assert.deepEqual(h.fetch.calls[0].body.messages[0].content.map((block) => block.text), [
-    '<hook-context event="SessionStart">\nsecond start\n</hook-context>',
     'hi',
+    '<hook-context event="SessionStart">\nsecond start\n</hook-context>',
   ]);
+});
+
+test('a tool\'s structured result rides on the tool_result event and in tool_response; the tool_result block keeps only the text', async () => {
+  const fired = [];
+  const hooks = { fire: async (event, extra) => (fired.push([event, extra]), emptyOutcome()) };
+  const structured = { stdout: 'out', stderr: 'err', interrupted: false };
+  const results = { B: { content: 'out\n[exit 2]', isError: true, structured, exitCode: 2 }, C: { content: 'plain failure', isError: true }, D: { content: 'fine', isError: false, structured: { numFiles: 1 } } };
+  const tools = Object.entries(results).map(([name, result]) => fakeTool(name, 'read', [], result));
+  const h = harness([toolReply(Object.keys(results).map((name) => ({ name, input: {} }))), textReply('ok')], { tools, hooks });
+  await h.agent.runTurn('go');
+  assert.deepEqual(h.of('tool_result').map((e) => e.structured), [structured, undefined, { numFiles: 1 }]);
+  const post = fired.filter(([event]) => event.startsWith('PostToolUse')).map(([event, extra]) => [event, extra.tool_response, extra.error]);
+  assert.deepEqual(post, [
+    ['PostToolUseFailure', { ...structured, content: 'out\n[exit 2]', isError: true }, 'Exit code 2\nout\n[exit 2]'],
+    ['PostToolUseFailure', { content: 'plain failure', isError: true }, 'plain failure'],
+    ['PostToolUse', { numFiles: 1, content: 'fine', isError: false }, undefined],
+  ]);
+  assert.deepEqual(h.fetch.calls[1].body.messages[2].content.map(({ content, is_error }) => [content, is_error]), [['out\n[exit 2]', true], ['plain failure', true], ['fine', false]]);
+});
+
+test('a prompt record leads with the prompt text, then the interrupt marker, SessionStart and UserPromptSubmit context', async () => {
+  const context = { SessionStart: ['held start'], UserPromptSubmit: ['submitted'] };
+  const hooks = { fire: async (event) => ({ ...emptyOutcome(), additionalContext: context[event] ?? [] }) };
+  const h = harness([textReply('ok')], { hooks, interrupted: true });
+  await h.agent.fireSessionStart('resume');
+  await h.agent.runTurn('hi');
+  const expected = ['hi', INTERRUPT_MARKER, '<hook-context event="SessionStart">\nheld start\n</hook-context>', '<hook-context event="UserPromptSubmit">\nsubmitted\n</hook-context>'];
+  assert.deepEqual(h.fetch.calls[0].body.messages[0].content.map((block) => block.text), expected);
+  const prompt = h.events.find((e) => e.type === 'message_append' && e.kind === 'prompt');
+  assert.deepEqual(prompt.content.map((block) => block.text), expected);
 });
 
 test('each hook context cut is a warning event carrying hookContext, after the hook warnings', async () => {
