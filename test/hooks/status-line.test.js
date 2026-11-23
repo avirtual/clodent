@@ -93,7 +93,7 @@ test('a failing script warns once and later failures stay silent', GUARD, async 
   line.update(state(2));
   await line.flush();
   assert.equal((await runs()).length, 2);
-  assert.deepEqual(warnings, [`statusLine "${command.slice(0, 60)}": exit 1`]);
+  assert.deepEqual(warnings, [`statusLine "${command.length <= 60 ? command : `…${command.slice(-60)}`}": exit 1`]);
 });
 
 test('a null statusLine runs nothing', async () => {

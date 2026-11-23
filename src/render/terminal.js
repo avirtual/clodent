@@ -1,15 +1,32 @@
 import { formatBudgetStop, formatCost, formatTotal, formatUnpriced } from '../cost/format.js';
+import { clipRows, linesRows, wrapWords } from '../repl/width.js';
 import { visible } from '../text.js';
 
 const STYLES = { dim: 2, red: 31, yellow: 33 };
 const TEXT_CONTROLS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
+const DEFAULT_COLUMNS = 80;
+const DEFAULT_ROWS = 24;
+const SUMMARY_ROWS = 3;
+const BASH_TRAILER = /^\[(exit -?\d+|timed out after \d+ ms|killed by \S+)\]$/;
+const JOINS_BEFORE = /^[\s\p{Pe}\p{Pf}\p{Po}]/u;
+
+export const CUT_OFF_NOTE = 'clodent: the text above was cut off and is repeated below';
+export const COMPACTING = 'clodent: compacting…';
+export const NO_MESSAGE = '(no message)';
 
 function paint(stream, style, text) {
   return stream.isTTY && style ? `\x1b[${STYLES[style]}m${text}\x1b[0m` : text;
 }
 
-function firstLine(text) {
-  return String(text ?? '').split('\n')[0];
+function errorLine(name, content, cwd) {
+  const lines = String(content ?? '')
+    .split('\n')
+    .map((text) => text.trim())
+    .filter((text) => text !== '');
+  const last = lines.at(-1);
+  if (name === 'Bash' && last !== undefined && BASH_TRAILER.test(last)) return last;
+  const first = lines[0] ?? NO_MESSAGE;
+  return name === 'Read' && cwd ? first.split(`${cwd}/`).join('') : first;
 }
 
 function messageText(message) {
@@ -29,21 +46,84 @@ export function createRenderer({ out, err, mode, screen }) {
   const info = repl ? out : err;
   const warnedUnpriced = new Set();
   const denied = new Set();
-  const thinkingShown = new Set();
+  let cwd = null;
   let finalText = '';
   let midLine = false;
+  let attempt = { shown: '', clean: true };
+  let textIndex = null;
+  let lastChar = '\n';
+  let heldCr = false;
+  let drewText = false;
+  let thinkingRun = false;
+  let heldTool = null;
+
+  const columnsOf = (stream) => (stream.columns > 0 ? stream.columns : DEFAULT_COLUMNS);
+  const screenRows = () => (out.rows > 0 ? out.rows : DEFAULT_ROWS);
+
+  function newAttempt() {
+    attempt = { shown: '', clean: true };
+  }
+
+  function joins(index, text) {
+    return index === textIndex + 1 && (/\s/u.test(lastChar) || JOINS_BEFORE.test(text));
+  }
+
+  function drawText(text) {
+    lastChar = text.at(-1);
+    const shown = visible(text, TEXT_CONTROLS);
+    out.write(shown);
+    attempt.shown += shown;
+    midLine = !text.endsWith('\n');
+  }
+
+  function flushCr() {
+    if (!heldCr) return;
+    heldCr = false;
+    drawText('\r');
+  }
 
   function endLine() {
+    flushCr();
     if (!midLine) return;
     out.write('\n');
+    attempt.shown += '\n';
     midLine = false;
   }
 
-  function line(text, style) {
+  function layout(text, fit) {
+    if (!info.isTTY || fit === 'none') return text;
+    const cols = columnsOf(info);
+    return fit === 'clip' ? clipRows(text, cols, SUMMARY_ROWS) : wrapWords(text, cols);
+  }
+
+  function line(text, style, { fit = 'wrap', part = false } = {}) {
     if (repl) endLine();
-    const draw = () => info.write(`${paint(info, style, visible(text))}\n`);
+    const shown = layout(visible(text), fit);
+    const draw = () => info.write(`${paint(info, style, shown)}\n`);
     if (screen) screen.aside(draw);
     else draw();
+    if (part) {
+      attempt.shown += `${shown}\n`;
+      return;
+    }
+    if (attempt.shown !== '') attempt.clean = false;
+    thinkingRun = false;
+  }
+
+  function takeBack() {
+    const { shown, clean } = attempt;
+    newAttempt();
+    heldCr = false;
+    if (!repl || shown === '') return;
+    const rows = linesRows(shown, columnsOf(out));
+    if (out.isTTY && clean && rows < screenRows()) {
+      out.write(`\r${rows > 1 ? `\x1b[${rows - 1}A` : ''}\x1b[J`);
+      midLine = false;
+      textIndex = null;
+      thinkingRun = false;
+      return;
+    }
+    line(CUT_OFF_NOTE, 'dim');
   }
 
   function warnUnpriced(turn) {
@@ -54,39 +134,74 @@ export function createRenderer({ out, err, mode, screen }) {
     }
   }
 
+  function releaseTool() {
+    const { text } = heldTool;
+    heldTool = null;
+    line(text, undefined, { fit: 'clip' });
+  }
+
   const handlers = {
+    session_start(event) {
+      cwd = event.cwd ?? null;
+    },
     request_start() {
-      thinkingShown.clear();
+      newAttempt();
+      textIndex = null;
+      heldCr = false;
+      drewText = false;
     },
-    text_delta({ text }) {
+    text_delta({ text, index }) {
       if (!repl || text === '') return;
-      out.write(visible(text, TEXT_CONTROLS));
-      midLine = !text.endsWith('\n');
+      if (textIndex !== null && index !== textIndex && !joins(index, text)) endLine();
+      textIndex = index;
+      let chunk = `${heldCr ? '\r' : ''}${text}`;
+      heldCr = chunk.endsWith('\r');
+      if (heldCr) chunk = chunk.slice(0, -1);
+      chunk = chunk.replaceAll('\r\n', '\n');
+      if (chunk === '') return;
+      drawText(chunk);
+      drewText = true;
+      thinkingRun = false;
     },
-    thinking_delta({ index }) {
-      if (!repl || !out.isTTY || thinkingShown.has(index)) return;
-      thinkingShown.add(index);
-      line('thinking…', 'dim');
+    thinking_delta() {
+      if (!repl || !out.isTTY || thinkingRun) return;
+      line('thinking…', 'dim', { part: true });
+      thinkingRun = true;
     },
     assistant_message({ message }) {
       if (message.stop_reason !== 'tool_use') finalText = messageText(message);
-      if (repl) endLine();
+      if (!repl) return;
+      flushCr();
+      if (message.stop_reason === 'max_tokens' && drewText && message.content?.at(-1)?.type === 'text') {
+        out.write(paint(out, 'dim', '…'));
+        midLine = true;
+      }
+      endLine();
+      newAttempt();
     },
-    tool_use({ name, summary }) {
-      line(summary ? `● ${name} ${summary}` : `● ${name}`);
+    tool_use({ id, name, summary }) {
+      const text = summary ? `● ${name} ${summary}` : `● ${name}`;
+      if (repl) heldTool = { id, text };
+      else line(text, undefined, { fit: 'clip' });
     },
     permission_request({ id, name, summary }) {
-      line(summary ? `[clodent:permit ${name} ${id}] ${summary}` : `[clodent:permit ${name} ${id}]`);
+      if (heldTool?.id === id) heldTool = null;
+      line(summary ? `[clodent:permit ${name} ${id}] ${summary}` : `[clodent:permit ${name} ${id}]`, undefined, { fit: 'none' });
     },
     permission({ id, decision, reason }) {
       if (decision !== 'deny') return;
       denied.add(id);
       line(`  ✗ ${reason}`, 'red');
     },
-    tool_result({ id, content, isError }) {
-      if (isError && !denied.has(id)) line(`  ✗ ${firstLine(content)}`, 'red');
+    tool_result({ id, name, content, isError }) {
+      if (isError && !denied.has(id)) line(`  ✗ ${errorLine(name, content, cwd)}`, 'red');
     },
-    warning({ message }) {
+    warning({ message, retry }) {
+      if (retry === 'http') {
+        line(`clodent: ${message}`, 'dim');
+        return;
+      }
+      if (retry === 'stream') takeBack();
       line(`clodent: ${message}`, 'yellow');
     },
     error({ message, contextWindowExceeded }) {
@@ -106,6 +221,9 @@ export function createRenderer({ out, err, mode, screen }) {
       finalText = '';
       denied.clear();
     },
+    compact_start() {
+      if (repl) line(COMPACTING, 'dim');
+    },
     compacted({ preTokens, postTokens, reloaded, skipped, turn }) {
       line(`clodent: conversation compacted (${preTokens} → ${postTokens} tokens)`);
       if (reloaded.length > 0) line(`clodent: reloaded ${reloaded.length} file(s) after compact: ${reloaded.map((file) => file.path).join(', ')}`);
@@ -119,6 +237,7 @@ export function createRenderer({ out, err, mode, screen }) {
   };
 
   return (event) => {
+    if (heldTool && !(event.type === 'permission_request' && event.id === heldTool.id)) releaseTool();
     handlers[event.type]?.(event);
   };
 }

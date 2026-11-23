@@ -15,6 +15,7 @@ export const EVENT_TYPES = Object.freeze([
   'warning',
   'error',
   'interrupted',
+  'compact_start',
   'compacted',
   'session_end',
 ]);

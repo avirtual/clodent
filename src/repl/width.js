@@ -6,17 +6,12 @@ const WIDE = [
   [0x3400, 0x4dbf],
   [0x4e00, 0x9fff],
   [0xa000, 0xa4cf],
-  [0xa960, 0xa97f],
   [0xac00, 0xd7a3],
   [0xf900, 0xfaff],
   [0xfe10, 0xfe19],
   [0xfe30, 0xfe6f],
   [0xff00, 0xff60],
   [0xffe0, 0xffe6],
-  [0x16fe0, 0x16fe4],
-  [0x17000, 0x18cff],
-  [0x1b000, 0x1b2ff],
-  [0x1f200, 0x1f265],
   [0x20000, 0x2fffd],
   [0x30000, 0x3fffd],
 ];
@@ -51,21 +46,57 @@ export function cellWidth(text) {
   return graphemes(text).reduce((cells, grapheme) => cells + graphemeWidth(grapheme), 0);
 }
 
-export function rowsOf(text, cols) {
-  let row = 0;
-  let col = 0;
-  for (const grapheme of graphemes(text)) {
-    if (grapheme === '\t') {
-      col = Math.max(col, Math.min(cols - 1, col - (col % TAB_STOP) + TAB_STOP));
-      continue;
-    }
-    const cells = graphemeWidth(grapheme);
-    if (cells === 0) continue;
-    if (col + cells > cols) {
-      row += 1;
-      col = 0;
-    }
-    col += cells;
+function place(cursor, grapheme, cols) {
+  if (grapheme === '\t') {
+    cursor.col = Math.max(cursor.col, Math.min(cols - 1, cursor.col - (cursor.col % TAB_STOP) + TAB_STOP));
+    return;
   }
-  return row + 1;
+  const cells = graphemeWidth(grapheme);
+  if (cells === 0) return;
+  if (cursor.col + cells > cols) {
+    cursor.row += 1;
+    cursor.col = 0;
+  }
+  cursor.col += cells;
+}
+
+export function rowsOf(text, cols) {
+  const cursor = { row: 0, col: 0 };
+  for (const grapheme of graphemes(text)) place(cursor, grapheme, cols);
+  return cursor.row + 1;
+}
+
+export function linesRows(text, cols) {
+  return text.split('\n').reduce((rows, part) => rows + rowsOf(part, cols), 0);
+}
+
+export function clipRows(text, cols, maxRows) {
+  if (rowsOf(text, cols) <= maxRows) return text;
+  const cursor = { row: 0, col: 0 };
+  let kept = '';
+  for (const grapheme of graphemes(text)) {
+    place(cursor, grapheme, cols);
+    if (cursor.row > maxRows - 1 || (cursor.row === maxRows - 1 && cursor.col + 1 > cols)) break;
+    kept += grapheme;
+  }
+  return `${kept}…`;
+}
+
+export function wrapWords(text, cols) {
+  const rows = [];
+  for (const part of text.split('\n')) {
+    let row = null;
+    for (const word of part.split(' ')) {
+      if (row === null) {
+        row = word;
+      } else if (cellWidth(`${row} ${word}`) <= cols) {
+        row = `${row} ${word}`;
+      } else {
+        rows.push(row.trimEnd());
+        row = word === '' ? null : word;
+      }
+    }
+    rows.push(row ?? '');
+  }
+  return rows.join('\n');
 }

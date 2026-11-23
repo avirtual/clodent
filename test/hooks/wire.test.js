@@ -203,7 +203,7 @@ test('a failing UserPromptSubmit hook only warns and the turn completes', GUARD,
   const res = await runMain(['-p', 'go', '--settings', settings], { home, cwd, responses: [textReply('done')] });
   assert.equal(res.code, 0, res.stderr);
   assert.equal(res.stdout, 'done\n');
-  assert.ok(res.stderr.split('\n').includes(`clodent: hook UserPromptSubmit "${broken.slice(0, 60)}": exit 1`), res.stderr);
+  assert.ok(res.stderr.split('\n').includes(`clodent: hook UserPromptSubmit "${broken.length <= 60 ? broken : `…${broken.slice(-60)}`}": exit 1`), res.stderr);
   assert.deepEqual(strip(res.calls[0].body.messages), [{ role: 'user', content: [{ type: 'text', text: 'go' }] }]);
 });
 

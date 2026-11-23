@@ -3,7 +3,7 @@ import { INTERRUPTED_RESULT, visible } from '../text.js';
 import { createEditor, isBlank, isTyped, lineCount } from './editor.js';
 import { createKeyParser } from './keys.js';
 import { parseCommand, runCommand } from './slash.js';
-import { rowsOf } from './width.js';
+import { rowsOf, wrapWords } from './width.js';
 
 export const PASTE_ON = '\x1b[?2004h';
 export const PASTE_OFF = '\x1b[?2004l';
@@ -50,10 +50,12 @@ export async function runRepl(ctx, deps) {
   let exitCode = null;
   let shown = '';
   let shownColumns = DEFAULT_COLUMNS;
+  let spaced = false;
 
   const write = (text) => stdout.write(text);
-  const print = (line) => write(`${visible(line)}\n`);
   const columns = () => (stdout.columns > 0 ? stdout.columns : DEFAULT_COLUMNS);
+  const print = (line) => write(`${tty ? wrapWords(visible(line), columns()) : visible(line)}\n`);
+  const printSession = (id) => write(`${visible(`[clodent:session] ${id}`)}\n`);
 
   function inputLine() {
     if (mode === 'idle') return `${PROMPT}${editor.echo()}`;
@@ -89,9 +91,15 @@ export async function runRepl(ctx, deps) {
     if (line !== null) redraw(line);
   }
 
+  function gap() {
+    if (spaced) write('\n');
+    spaced = false;
+  }
+
   function showPrompt() {
     mode = 'idle';
     drawn(`${PROMPT}${editor.echo()}`);
+    gap();
     write(`${PASTE_ON}${shown}`);
   }
 
@@ -266,7 +274,7 @@ export async function runRepl(ctx, deps) {
       return;
     }
     session = next;
-    print(`[clodent:session] ${session.sessionId}`);
+    printSession(session.sessionId);
     agent = runtime.open(session, { ask });
     runtime.resetStatus(session);
     await guarded((signal) => agent.fireSessionStart('clear', { signal }));
@@ -290,6 +298,7 @@ export async function runRepl(ctx, deps) {
     const command = parseCommand(submission);
     if (command) return runCommand(command, commandCtx);
     await guarded((signal) => agent.runTurn(submission.text, { signal, stopSignal: stopHooks.signal }));
+    spaced = true;
     return undefined;
   }
 
@@ -302,7 +311,7 @@ export async function runRepl(ctx, deps) {
   if (tty) stdout.on('resize', onResize);
   if (deps.screen) deps.screen.aside = aside;
   try {
-    print(`[clodent:session] ${session.sessionId}`);
+    printSession(session.sessionId);
     for (const warning of ctx.warnings) print(`clodent: ${warning}`);
     agent = runtime.open(session, { ask });
     await guarded((signal) => agent.fireSessionStart(ctx.resume ? 'resume' : 'startup', { signal }));
@@ -310,6 +319,7 @@ export async function runRepl(ctx, deps) {
       let submission;
       if (queue.length > 0) {
         submission = queue.shift();
+        gap();
         write(queuedEcho(submission));
       } else if (ended) {
         break;

@@ -4,6 +4,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PASTE_END, PASTE_START } from '../../src/repl/keys.js';
 import { ASK_LINE, EXIT_HINT, PASTE_ON, QUEUED_NOTE } from '../../src/repl/repl.js';
+import { wrapWords } from '../../src/repl/width.js';
 import { hookGroup, textReply, toolsReply, writeSettings } from '../helpers/run-main.js';
 import { useTempDir } from '../tools/tmp-dir.js';
 import { startRepl } from './harness.js';
@@ -113,12 +114,12 @@ test('on a TTY, a hook warning during the ask redraws the ask with its partial a
   const start = repl.out.text.length;
   repl.stdin.type('y');
   writeFileSync(join(cwd, 'go'), '');
-  const warning = `clodent: hook Notification "${WAIT_THEN_FAIL}": exit 1`;
+  const warning = wrapWords(`clodent: hook Notification "${WAIT_THEN_FAIL}": exit 1`, 20);
   await repl.until(warning);
   repl.stdin.type(`${PASTE_START}pasted\rprompt${PASTE_END}\r`);
   assert.equal(
     since(repl, start),
-    `y${ERASE_1}${yellow(warning)}\n${ASK_LINE}y[pasted text, 2 lines]${ERASE_2}${QUEUED_NOTE}\n${ASK_LINE}`,
+    `y${ERASE_1}${yellow(warning)}\n${ASK_LINE}y[pasted text, 2 lines]${ERASE_2}${wrapWords(QUEUED_NOTE, 20)}\n${ASK_LINE}`,
   );
   repl.stdin.type('y\r');
   await repl.prompts(3);

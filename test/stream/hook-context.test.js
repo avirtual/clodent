@@ -32,7 +32,7 @@ test('a hook context cut writes a system hook_context_truncated record on stdout
       { type: 'system', subtype: 'hook_context_truncated', hook_event: 'UserPromptSubmit', scope: 'hook', bytes: 102400, limit: 65536, session_id: UUID },
     ],
   );
-  assert.match(s.err.text, new RegExp(`^clodent: hook UserPromptSubmit "${submit.slice(0, 60)}": context of 102400 bytes truncated to 65536$`, 'm'));
+  assert.match(s.err.text, new RegExp(`^clodent: hook UserPromptSubmit "${submit.length <= 60 ? submit : `…${submit.slice(-60)}`}": context of 102400 bytes truncated to 65536$`, 'm'));
   const sent = s.fetch.calls[0].body.messages[0].content.map((block) => block.text).join('\n');
   assert.ok(sent.includes(contextMarker(70000, 65536)) && sent.includes(contextMarker(102400, 65536)));
 });

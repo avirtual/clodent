@@ -79,7 +79,7 @@ test('EVENT_TYPES is a frozen list naming every event the loop emits', () => {
   assert.ok(Object.isFrozen(EVENT_TYPES));
   assert.deepEqual(EVENT_TYPES, [
     'session_start', 'request_start', 'text_delta', 'thinking_delta', 'assistant_message', 'message_append', 'tool_use',
-    'permission_request', 'permission', 'tool_result', 'side_request', 'turn_end', 'budget_stop', 'warning', 'error', 'interrupted', 'compacted',
+    'permission_request', 'permission', 'tool_result', 'side_request', 'turn_end', 'budget_stop', 'warning', 'error', 'interrupted', 'compact_start', 'compacted',
     'session_end',
   ]);
 });
@@ -345,6 +345,19 @@ test('max_tokens warns and ends not ok; refusal ends not ok without a warning', 
   assert.deepEqual(r.of('warning'), []);
 });
 
+test('a pre-stream 529 or network retry warns with the status and the wait, marked as an http retry', async () => {
+  const overloaded = { status: 529, headers: { 'retry-after': '3' }, body: JSON.stringify({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }) };
+  const h = harness([overloaded, { status: 503, body: 'upstream down' }, { error: new TypeError('fetch failed') }, { body: 'text-only.sse' }]);
+  assert.deepEqual(await h.agent.runTurn('go'), { stopReason: 'end_turn', ok: true });
+  assert.deepEqual(h.sleeps, [3000, 2000, 4000]);
+  assert.deepEqual(h.of('warning'), [
+    { type: 'warning', message: '529 Overloaded; retrying in 3 s', retry: 'http' },
+    { type: 'warning', message: 'HTTP 503; retrying in 2 s', retry: 'http' },
+    { type: 'warning', message: 'fetch failed; retrying in 4 s', retry: 'http' },
+  ]);
+  assert.deepEqual(h.of('request_start').map((e) => e.attempt), [1]);
+});
+
 test('stop_sequence ends ok; an unknown stop_reason warns and ends not ok', async () => {
   const s = harness([textReply('x', { stopReason: 'stop_sequence' })]);
   assert.deepEqual(await s.agent.runTurn('go'), { stopReason: 'stop_sequence', ok: true });
@@ -359,7 +372,7 @@ test('a mid-stream overloaded error re-sends the same request after 2 s', async 
   assert.deepEqual(h.sleeps, [2000]);
   assert.deepEqual(h.fetch.calls[0].body, h.fetch.calls[1].body);
   assert.deepEqual(h.of('request_start').map((e) => e.attempt), [1, 2]);
-  assert.deepEqual(h.of('warning'), [{ type: 'warning', message: 'Overloaded; retrying in 2 s' }]);
+  assert.deepEqual(h.of('warning'), [{ type: 'warning', message: 'Overloaded; retrying in 2 s', retry: 'stream' }]);
   assert.deepEqual(h.agent.messages()[1], { role: 'assistant', content: [{ type: 'text', text: 'Hello, world!' }] });
 });
 

@@ -224,6 +224,8 @@ export async function streamMessage(request, deps, handlers = {}) {
       };
     }
     if (n + 1 >= MAX_ATTEMPTS) throw outcome.retry;
-    await sleep(outcome.retry.retryAfterMs ?? backoffMs(n, random), signal);
+    const wait = outcome.retry.retryAfterMs ?? backoffMs(n, random);
+    handlers.onRetry?.(outcome.retry, wait);
+    await sleep(wait, signal);
   }
 }
