@@ -55,7 +55,7 @@ test('on a TTY, a resize redraws the prompt line over the rows it uses at both t
   repl.out.resize(10);
   repl.out.resize(16);
   assert.equal(since(repl, start), `${ERASE_1}> ${x30}${ERASE_1}> ${x30}${ERASE_2}> ${x30}`);
-  repl.stdin.type('\x04');
+  repl.stdin.type('\x15\x04');
   assert.equal(await repl.done, 0);
   assert.equal(repl.out.listenerCount('resize'), 0);
 });
