@@ -2,13 +2,14 @@
 
 clodent was named clay up to 0.2.0.
 
-## Unreleased
+## 0.10.1 — 2026-11-23
 
 - A mid-stream retry no longer leaves the failed attempt's text on screen above the retried answer: on a TTY the REPL erases it, and where it can't, a dim `clodent: the text above was cut off and is repeated below` says so. Every retry, including a 429/529/5xx or network retry before the stream starts (now shown as a dim `clodent: <status>; retrying in <n> s`), writes a `system` `informational` record to the transcript.
 - A failed Bash call's `  ✗` line shows its `[exit <n>]`, timeout or signal trailer instead of the first output line, a failing Read shows a path inside the working directory relative to it, and a blank first line no longer leaves a bare `  ✗`.
 - REPL layout: a blank line before each prompt that follows a turn; text blocks, and text after a server tool, start on a new line; `\r\n` in model text is a line end; a permission ask shows the tool summary once, and `● <Tool>` lines are cut to 3 rows on a TTY; clodent's own lines (warnings, cost lines, `/help`) are word-wrapped at the terminal width; `/compact` prints `clodent: compacting…`; text cut by `max_tokens` ends in a dim `…`; a run of thinking blocks shows one `thinking…`.
-- Hook and statusLine warnings name the last 60 code points of the command, after a `…`, so the script's file name shows.
+- Hook and statusLine warnings name a command longer than 60 code points by its last 60, after a `…`, so the script's file name shows.
 - Enclosed ideographs (such as 🈁), Tangut, the kana supplement and Hangul Jamo Extended-A count as one cell, as xterm.js draws them, so the REPL no longer erases a row too many after them.
+- A tool call the interrupt stops while it runs now fires `PostToolUseFailure` with `is_interrupt: true` (its post hook runs under the second-signal abort, as `Stop` does), so Clodex's Console shows a row for an interrupted Bash command; its `error` has no `Exit code` line, just the output so far and the `[killed by <signal>]` trailer, and its hook context reaches the model with the interrupted tool results. A call stopped before it runs still fires nothing.
 
 ## 0.10.0 — 2026-11-23
 

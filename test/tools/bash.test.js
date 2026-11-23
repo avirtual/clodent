@@ -150,7 +150,7 @@ test('aborting through an AbortController kills the command', GUARD, async (t) =
   controller.abort();
   const result = await pending;
   assert.ok(Date.now() - started < 3000);
-  assert.deepEqual(result, { content: '[killed by SIGTERM]', isError: true, structured: { stdout: '', stderr: '', interrupted: true }, exitCode: 143 });
+  assert.deepEqual(result, { content: '[killed by SIGTERM]', isError: true, structured: { stdout: '', stderr: '', interrupted: true }, exitCode: null });
 });
 
 test('after an abort, a background child that ignores TERM and redirected its output still gets the SIGKILL', GUARD, async (t) => {

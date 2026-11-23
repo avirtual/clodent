@@ -262,7 +262,7 @@ export function createAgent(config, deps) {
     return result;
   }
 
-  async function runTool(use, signal, post) {
+  async function runTool(use, { signal, stopSignal }, post) {
     const tool = byName.get(use.name);
     if (!tool) {
       announce(use);
@@ -277,21 +277,22 @@ export function createAgent(config, deps) {
     const outcome = await execute(tool, use, input, pre, signal);
     const result = toolResult(use, outcome, now() - started);
     if (outcome.ran) {
+      const interrupted = signal?.aborted === true;
       const event = outcome.isError ? 'PostToolUseFailure' : 'PostToolUse';
       const tool_response = { ...outcome.structured, content: outcome.content, isError: outcome.isError };
-      const extra = outcome.isError ? { error: failureText(outcome), is_interrupt: false, is_timeout: outcome.timedOut === true } : {};
-      const after = await fireHook(event, { ...fields, tool_input: input, tool_response, ...extra }, signal);
+      const extra = outcome.isError ? { error: failureText(outcome), is_interrupt: interrupted, is_timeout: outcome.timedOut === true } : {};
+      const after = await fireHook(event, { ...fields, tool_input: input, tool_response, ...extra }, interrupted ? stopSignal : signal);
       post[event].push(...after.additionalContext);
     }
     return result;
   }
 
-  async function runTools(uses, signal) {
+  async function runTools(uses, { signal, stopSignal }) {
     const results = [];
     const post = { PostToolUse: [], PostToolUseFailure: [] };
     for (const use of uses) {
       if (signal?.aborted) break;
-      results.push(await runTool(use, signal, post));
+      results.push(await runTool(use, { signal, stopSignal }, post));
     }
     results.push(...notRun(uses.slice(results.length)));
     const blocks = results.map(resultBlock);
@@ -334,7 +335,7 @@ export function createAgent(config, deps) {
         const stop = message.stop_reason;
         const uses = message.content.filter((block) => block.type === 'tool_use');
         if (stop === 'tool_use' && uses.length > 0) {
-          await runTools(uses, signal);
+          await runTools(uses, { signal, stopSignal });
           continue;
         }
         if (uses.length > 0) append('user', notRun(uses).map(resultBlock), 'tool_results');
