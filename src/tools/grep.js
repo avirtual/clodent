@@ -74,6 +74,7 @@ export function createGrep(deps = {}) {
       }
       if (ctx.signal?.aborted) return fail('Search aborted');
       const out = [];
+      let matchedFiles = 0;
       for (const file of files) {
         if (ctx.signal?.aborted) return fail('Search aborted');
         let buf;
@@ -84,6 +85,7 @@ export function createGrep(deps = {}) {
         }
         if (isBinary(buf)) continue;
         const lines = textLines(buf);
+        const before = out.length;
         if (mode === 'files_with_matches') {
           if (lines.some((line) => regex.test(line))) out.push(file);
         } else if (mode === 'count') {
@@ -94,12 +96,14 @@ export function createGrep(deps = {}) {
             if (regex.test(line)) out.push(`${file}:${i + 1}:${line}`);
           });
         }
+        if (out.length > before) matchedFiles += 1;
       }
-      if (out.length === 0) return ok('No matches found');
       const limit = positiveInt(input.head_limit, DEFAULT_HEAD_LIMIT);
-      if (out.length <= limit) return ok(out.join('\n'));
+      const structured = { numFiles: matchedFiles, ...(mode === 'content' ? { numLines: out.length } : {}), truncated: out.length > limit };
+      if (out.length === 0) return ok('No matches found', structured);
+      if (out.length <= limit) return ok(out.join('\n'), structured);
       const note = `[clodent: showing the first ${limit} of ${out.length} lines; raise head_limit to see more]`;
-      return ok([...out.slice(0, limit), note].join('\n'));
+      return ok([...out.slice(0, limit), note].join('\n'), structured);
     },
   };
 }

@@ -1,11 +1,11 @@
 import { capResult } from './cap.js';
 
-export function ok(text) {
-  return { content: capResult(text), isError: false };
+export function ok(text, structured) {
+  return structured ? { content: capResult(text), isError: false, structured } : { content: capResult(text), isError: false };
 }
 
-export function fail(text) {
-  return { content: capResult(text), isError: true };
+export function fail(text, structured) {
+  return structured ? { content: capResult(text), isError: true, structured } : { content: capResult(text), isError: true };
 }
 
 export function oneLine(value, max = 200) {

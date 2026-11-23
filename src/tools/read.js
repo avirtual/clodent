@@ -63,7 +63,7 @@ export function createRead(deps = {}) {
       } catch (err) {
         return fail(describeFsError(err, path));
       }
-      if (buf.length === 0) return ok(`${path} is empty (0 bytes)`);
+      if (buf.length === 0) return ok(`${path} is empty (0 bytes)`, { file: { filePath: path, startLine: 1, numLines: 0, totalLines: 0 } });
       if (isBinary(buf)) return fail(`${path} is a binary file (NUL byte in the first 8 KiB)`);
       const lines = buf.toString('utf8').split('\n');
       if (lines.at(-1) === '') lines.pop();
@@ -75,7 +75,8 @@ export function createRead(deps = {}) {
       const shown = lines.slice(offset - 1, offset - 1 + limit);
       const text = shown.map((line, i) => `${String(offset + i).padStart(6)}\t${cutLine(line)}`).join('\n');
       const tooBig = overCap(text, maxTokens);
-      return tooBig ? fail(tooBig) : ok(text);
+      if (tooBig) return fail(tooBig);
+      return ok(text, { file: { filePath: path, startLine: offset, numLines: shown.length, totalLines: lines.length } });
     },
   };
 }

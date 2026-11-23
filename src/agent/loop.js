@@ -39,6 +39,10 @@ function definition({ name, description, input_schema }) {
   return { name, description, input_schema };
 }
 
+function failureText({ content, exitCode }) {
+  return typeof exitCode === 'number' ? `Exit code ${exitCode}\n${content}` : content;
+}
+
 function resultBlock({ id, content, isError }) {
   return { type: 'tool_result', tool_use_id: id, content, is_error: isError };
 }
@@ -229,7 +233,7 @@ export function createAgent(config, deps) {
     try {
       const sideRequestFor = (params, requestSignal = signal) => sideRequest(use.id, params, requestSignal);
       const outcome = await tool.run(input, { cwd: deps.cwd, env: deps.env, signal, hidden, sideRequest: sideRequestFor });
-      return { content: outcome.content, isError: outcome.isError, ran: true };
+      return { content: outcome.content, isError: outcome.isError, ran: true, structured: outcome.structured, exitCode: outcome.exitCode };
     } catch (err) {
       return { content: `${use.name} failed: ${err?.message ?? err}`, isError: true, ran: true };
     }
@@ -242,7 +246,7 @@ export function createAgent(config, deps) {
 
   function toolResult(use, outcome, durationMs) {
     const result = { id: use.id, name: use.name, content: outcome.content, isError: outcome.isError, durationMs };
-    emit({ type: 'tool_result', ...result });
+    emit({ type: 'tool_result', ...result, ...(outcome.structured ? { structured: outcome.structured } : {}) });
     return result;
   }
 
@@ -262,8 +266,8 @@ export function createAgent(config, deps) {
     const result = toolResult(use, outcome, now() - started);
     if (outcome.ran) {
       const event = outcome.isError ? 'PostToolUseFailure' : 'PostToolUse';
-      const tool_response = { content: outcome.content, isError: outcome.isError };
-      const extra = outcome.isError ? { error: outcome.content } : {};
+      const tool_response = { ...outcome.structured, content: outcome.content, isError: outcome.isError };
+      const extra = outcome.isError ? { error: failureText(outcome) } : {};
       const after = await fireHook(event, { ...fields, tool_input: input, tool_response, ...extra }, signal);
       post[event].push(...after.additionalContext);
     }
