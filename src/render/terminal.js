@@ -91,7 +91,7 @@ export function createRenderer({ out, err, mode, screen }) {
   }
 
   function layout(text, fit) {
-    if (!info.isTTY) return text;
+    if (!info.isTTY || fit === 'none') return text;
     const cols = columnsOf(info);
     return fit === 'clip' ? clipRows(text, cols, SUMMARY_ROWS) : wrapWords(text, cols);
   }
@@ -186,7 +186,7 @@ export function createRenderer({ out, err, mode, screen }) {
     },
     permission_request({ id, name, summary }) {
       if (heldTool?.id === id) heldTool = null;
-      line(summary ? `[clodent:permit ${name} ${id}] ${summary}` : `[clodent:permit ${name} ${id}]`);
+      line(summary ? `[clodent:permit ${name} ${id}] ${summary}` : `[clodent:permit ${name} ${id}]`, undefined, { fit: 'none' });
     },
     permission({ id, decision, reason }) {
       if (decision !== 'deny') return;

@@ -452,18 +452,16 @@ test('in the REPL a call that asks prints only its permit line; a call that runs
   assert.equal(print.err.text(), '● Bash touch x\n[clodent:permit Bash a] touch x\n');
 });
 
-test('on a TTY the ● line is cut to 3 rows ending in … and the permit line keeps its whole summary; off a TTY both are whole', () => {
+test('on a TTY the ● line is cut to 3 rows ending in … and the permit line is one whole line; off a TTY both are whole', () => {
   const command = `echo ${'word '.repeat(40)}`.trim();
   const { out, render } = sized('repl', { columns: 30 });
   render({ type: 'tool_use', id: 'a', name: 'Bash', input: {}, summary: command });
   render({ type: 'permission', id: 'a', name: 'Bash', decision: 'allow' });
   render({ type: 'permission_request', id: 'b', name: 'Bash', input: {}, summary: command });
-  const [tool, ...permit] = out.text().split('\n');
+  const [tool, permit, rest] = out.text().split('\n');
   assert.equal(tool, `${`● Bash ${command}`.slice(0, 89)}…`);
-  assert.equal(permit.pop(), '');
-  assert.ok(permit.length > 3);
-  assert.ok(permit.every((row) => row.length <= 30));
-  assert.equal(permit.join(' '), `[clodent:permit Bash b] ${command}`);
+  assert.equal(permit, `[clodent:permit Bash b] ${command}`);
+  assert.equal(rest, '');
   const plain = sized('repl', { tty: false, columns: 30 });
   plain.render({ type: 'permission_request', id: 'b', name: 'Bash', input: {}, summary: command });
   assert.equal(plain.out.text(), `[clodent:permit Bash b] ${command}\n`);
