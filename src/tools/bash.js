@@ -60,7 +60,7 @@ async function execute(command, timeoutMs, ctx, deps) {
     content: sink.text(),
     isError: res.timedOut || res.signal !== null || res.code !== 0,
     structured: { stdout: streams.stdout.text(), stderr: streams.stderr.text(), interrupted: res.aborted },
-    exitCode: res.timedOut || res.aborted ? null : exitCodeOf(res),
+    exitCode: res.timedOut || res.abortedLive ? null : exitCodeOf(res),
     ...(res.timedOut ? { timedOut: true } : {}),
   };
 }

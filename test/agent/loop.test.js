@@ -19,7 +19,7 @@ import { plant, useTempDir } from '../tools/tmp-dir.js';
 
 const MODEL = 'claude-opus-5-5';
 
-function harness(responses, { tools = [], permission = 'yolo', budgetUsd, cwd = '/work', onEvent, sleep, history, interrupted, hooks, cacheTtl, ask, scope } = {}) {
+function harness(responses, { tools = [], permission = 'yolo', budgetUsd, cwd = '/work', onEvent, sleep, history, interrupted, hooks, cacheTtl, ask, scope, now = () => 0 } = {}) {
   const events = [];
   const sleeps = [];
   const fetch = createFakeFetch(responses);
@@ -35,7 +35,7 @@ function harness(responses, { tools = [], permission = 'yolo', budgetUsd, cwd = 
         await sleep?.(ms, signal);
       },
       random: () => 0.5,
-      now: () => 0,
+      now,
       ledger,
       hooks,
       scope,
@@ -667,6 +667,21 @@ test('PostToolUseFailure carries is_interrupt false and is_timeout, true only fo
   ]);
 });
 
+test('PostToolUse and PostToolUseFailure carry duration_ms, the span of the tool run in whole milliseconds', async () => {
+  let clock = 0;
+  const fired = [];
+  const hooks = { fire: async (event, extra) => (fired.push([event, extra]), emptyOutcome()) };
+  const timed = (name, ms, result) => ({ ...fakeTool(name, 'read', [], result), run: async () => ((clock += ms), result) });
+  const tools = [timed('S', 1234.4, { content: 'fine', isError: false }), timed('F', 56.6, { content: '[exit 1]', isError: true, exitCode: 1 })];
+  const h = harness([toolReply([{ name: 'S', input: {} }, { name: 'F', input: {} }]), textReply('ok')], { tools, hooks, now: () => clock });
+  await h.agent.runTurn('go');
+  const post = fired.filter(([event]) => event.startsWith('PostToolUse')).map(([event, extra]) => [event, extra.tool_name, extra.duration_ms]);
+  assert.deepEqual(post, [
+    ['PostToolUse', 'S', 1234],
+    ['PostToolUseFailure', 'F', 57],
+  ]);
+});
+
 function fakeProcesses(onSpawn) {
   const children = [];
   const kills = [];
@@ -707,11 +722,13 @@ test('a Bash call interrupted while it runs fires PostToolUseFailure once, under
   assert.equal(post.length, 1);
   const [[event, extra, signal]] = post;
   assert.equal(event, 'PostToolUseFailure');
-  assert.equal(signal, stop.signal);
   assert.deepEqual([extra.is_interrupt, extra.is_timeout, extra.error], [true, false, KILLED]);
   assert.deepEqual(extra.tool_response, { stdout: 'partial\n', stderr: '', interrupted: true, content: KILLED, isError: true });
   assert.deepEqual(h.of('tool_result').map((e) => [e.content, e.isError]), [[KILLED, true]]);
   assert.equal(result.stopReason, 'interrupted');
+  assert.equal(signal.aborted, false);
+  stop.abort();
+  assert.equal(signal.aborted, true);
 });
 
 test('a second abort kills the PostToolUseFailure hook of an interrupted call, and the turn still ends', async () => {
@@ -757,7 +774,10 @@ test('a call that returns a result that is not an error after the interrupt fire
   const tool = { ...fakeTool('A', 'read', []), run: async () => (controller.abort(), { content: 'done', isError: false }) };
   const h = harness([toolReply([{ name: 'A', input: {} }]), textReply('never')], { tools: [tool], hooks });
   await h.agent.runTurn('go', { signal: controller.signal, stopSignal: stop.signal });
-  assert.deepEqual(fired.filter(([event]) => event.startsWith('PostToolUse')), [['PostToolUse', stop.signal]]);
+  const post = fired.filter(([event]) => event.startsWith('PostToolUse'));
+  assert.deepEqual(post.map(([event, signal]) => [event, signal.aborted]), [['PostToolUse', false]]);
+  stop.abort();
+  assert.equal(post[0][1].aborted, true);
 });
 
 test('an interrupted call\'s PostToolUseFailure context goes after its tool_result in that user message, which the next prompt joins', async () => {

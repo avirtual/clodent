@@ -2,6 +2,12 @@
 
 clodent was named clay up to 0.2.0.
 
+## 0.10.2 — 2026-11-23
+
+- `PostToolUse` and `PostToolUseFailure` hooks get `duration_ms`, the tool call's run time in whole milliseconds, so Clodex's Console shows a time on each Bash row.
+- After an interrupt, a second Ctrl-C in the REPL or a second stream-json `interrupt` kills a slow `PostToolUseFailure`, `PostToolUse` or `Stop` hook that is running instead of waiting for its timeout. In stream-json, an `interrupt` during the `Stop` hooks of an interrupted turn kills them instead of interrupting the next waiting prompt.
+- An interrupt that comes after a Bash command has exited, while a background child still holds its output open, no longer drops the `Exit code <n>` line from `PostToolUseFailure` `error`.
+
 ## 0.10.1 — 2026-11-23
 
 - A mid-stream retry no longer leaves the failed attempt's text on screen above the retried answer: on a TTY the REPL erases it, and where it can't, a dim `clodent: the text above was cut off and is repeated below` says so. Every retry, including a 429/529/5xx or network retry before the stream starts (now shown as a dim `clodent: <status>; retrying in <n> s`), writes a `system` `informational` record to the transcript.

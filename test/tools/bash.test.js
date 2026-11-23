@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { KILL_GRACE_MS, createBash, clampTimeout } from '../../src/tools/bash.js';
@@ -175,6 +176,38 @@ test('after an abort, a background child that ignores TERM and redirected its ou
   controller.abort();
   await pending;
   assert.ok(await until(() => isGone(pid)), `child ${pid} survived the abort`);
+});
+
+function scriptedBash(script) {
+  const pipe = () => Object.assign(new EventEmitter(), { destroy() {} });
+  const spawn = () => {
+    const child = Object.assign(new EventEmitter(), { pid: 5000, stdout: pipe(), stderr: pipe() });
+    queueMicrotask(() => script(child));
+    return child;
+  };
+  return createBash({ spawn, kill: () => {}, killGraceMs: 0 });
+}
+
+test('an interrupt after bash exited, while a background child holds its output open, keeps the exit status', async () => {
+  const controller = new AbortController();
+  const tool = scriptedBash((child) => {
+    child.emit('exit', 1, null);
+    controller.abort();
+    child.emit('close', 1, null);
+  });
+  const result = await tool.run({ command: 'sleep 30 & false' }, ctxFor('/work', { signal: controller.signal }));
+  assert.deepEqual(result, { content: '[exit 1]', isError: true, structured: { stdout: '', stderr: '', interrupted: true }, exitCode: 1 });
+});
+
+test('a command the interrupt stops before it exits has no exit status, even when it traps TERM and exits with a code', async () => {
+  const controller = new AbortController();
+  const tool = scriptedBash((child) => {
+    controller.abort();
+    child.emit('exit', 130, null);
+    child.emit('close', 130, null);
+  });
+  const result = await tool.run({ command: "trap 'exit 130' TERM; sleep 30" }, ctxFor('/work', { signal: controller.signal }));
+  assert.deepEqual(result, { content: '[exit 130]', isError: true, structured: { stdout: '', stderr: '', interrupted: true }, exitCode: null });
 });
 
 test('an already-aborted signal does not run the command', GUARD, async (t) => {

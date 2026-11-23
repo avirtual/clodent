@@ -158,7 +158,7 @@ export async function runRepl(ctx, deps) {
   function onAskToken(token, ctrlC) {
     const { answer, done } = asking;
     if (edit(answer, token, ASK_LINE)) return;
-    if (ctrlC) running?.abort();
+    if (ctrlC) interruptTurn();
     if (token.type !== 'enter') return;
     const submission = answer.take();
     const word = isTyped(submission) ? submission.text.trim().toLowerCase() : null;
@@ -182,7 +182,7 @@ export async function runRepl(ctx, deps) {
       const submission = editor.take();
       if (!isBlank(submission)) queue.push(submission);
     } else if (ctrlC) {
-      running?.abort();
+      interruptTurn();
     }
   }
 
@@ -247,6 +247,11 @@ export async function runRepl(ctx, deps) {
       write(ASK_LINE);
       drawn(ASK_LINE);
     });
+  }
+
+  function interruptTurn() {
+    if (running?.signal.aborted) agent.killRunningHooks();
+    else running?.abort();
   }
 
   async function guarded(step) {

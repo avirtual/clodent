@@ -104,6 +104,7 @@ export async function runStream(ctx, deps) {
     const subtype = request?.subtype;
     if (subtype === 'interrupt') {
       output.controlResponse({ subtype: 'success', request_id: requestId });
+      if (running?.signal.aborted && agent.killRunningHooks()) return;
       if (running && (!inTurn || output.turnOpen())) running.abort();
       else if (queue.some((entry) => !entry.empty)) pendingInterrupt = true;
     } else if (subtype === 'set_model') {

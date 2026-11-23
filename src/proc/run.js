@@ -15,10 +15,10 @@ export function runProcess(command, { cwd, env, stdin, timeoutMs, signal, onStdo
   const spawn = deps.spawn ?? nodeSpawn;
   const kill = deps.kill ?? process.kill.bind(process);
   const killGraceMs = deps.killGraceMs ?? KILL_GRACE_MS;
-  const base = { code: null, signal: null, timedOut: false, aborted: false, error: null };
+  const base = { code: null, signal: null, timedOut: false, aborted: false, abortedLive: false, error: null };
   return new Promise((resolve) => {
     if (signal?.aborted) {
-      resolve({ ...base, aborted: true });
+      resolve({ ...base, aborted: true, abortedLive: true });
       return;
     }
     let child;
@@ -35,6 +35,7 @@ export function runProcess(command, { cwd, env, stdin, timeoutMs, signal, onStdo
     }
     let timedOut = false;
     let aborted = false;
+    let abortedLive = false;
     let settled = false;
     let exited = false;
     let graceOver = false;
@@ -70,6 +71,7 @@ export function runProcess(command, { cwd, env, stdin, timeoutMs, signal, onStdo
     const onAbort = () => {
       if (timedOut) return;
       aborted = true;
+      abortedLive = !exited;
       clearTimeout(timer);
       terminate();
     };
@@ -79,7 +81,7 @@ export function runProcess(command, { cwd, env, stdin, timeoutMs, signal, onStdo
       settled = true;
       clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
-      resolve({ ...base, timedOut, aborted, ...fields });
+      resolve({ ...base, timedOut, aborted, abortedLive, ...fields });
     };
     child.on('exit', () => {
       exited = true;

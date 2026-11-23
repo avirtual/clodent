@@ -58,6 +58,7 @@ test('-p fires SessionStart, UserPromptSubmit, PreToolUse, PostToolUse and Stop 
   assert.deepEqual([pre.tool_name, pre.tool_input, pre.tool_use_id], ['Bash', { command: 'echo hi' }, 'toolu_1']);
   assert.deepEqual([post.tool_name, post.tool_input, post.tool_use_id], ['Bash', { command: 'echo hi' }, 'toolu_1']);
   assert.deepEqual(post.tool_response, { stdout: 'hi\n', stderr: '', interrupted: false, content: 'hi\n[exit 0]', isError: false });
+  assert.ok(Number.isInteger(post.duration_ms) && post.duration_ms >= 0, `duration_ms ${post.duration_ms}`);
   assert.equal(stop.stop_hook_active, false);
   const records = readJsonl(path);
   assert.equal(records.at(-1).subtype, 'turn_duration');
@@ -138,6 +139,7 @@ test('PostToolUseFailure fires instead of PostToolUse when the tool returns an e
   assert.equal(input.hook_event_name, 'PostToolUseFailure');
   assert.deepEqual(input.tool_response, { stdout: '', stderr: '', interrupted: false, content: '[exit 3]', isError: true });
   assert.equal(input.error, 'Exit code 3\n[exit 3]');
+  assert.ok(Number.isInteger(input.duration_ms) && input.duration_ms >= 0, `duration_ms ${input.duration_ms}`);
   const sent = strip(res.calls[1].body.messages);
   assert.deepEqual(sent[2].content.at(-1), block('PostToolUseFailure', 'it failed'));
 });
