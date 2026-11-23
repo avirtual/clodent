@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { mkdir, open, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { RESULT_MAX_BYTES, capResult } from '../../src/tools/cap.js';
 import { PREVIOUS_MAX_BYTES, createWrite } from '../../src/tools/write.js';
@@ -54,16 +55,15 @@ test('a created file records its content capped like a tool result, and an overs
   assert.deepEqual(updated.structured, { type: 'update', filePath: path, structuredPatch: [] });
 });
 
-test('replacing 600 lines with 600 others is past the edit-distance limit: one hunk of every - line, then every + line', async (t) => {
+test('600 changed lines, each before a shared line, are past the edit-distance limit: one run of every - line, then every + line', async (t) => {
   const dir = await useTempDir(t);
   const path = join(dir, 'f.txt');
-  const old = Array.from({ length: 600 }, (_, i) => `a${i}`);
-  const next = Array.from({ length: 600 }, (_, i) => `b${i}`);
+  const old = Array.from({ length: 600 }, (_, i) => [`a${i}`, 'k']).flat();
+  const next = Array.from({ length: 600 }, (_, i) => [`b${i}`, 'k']).flat();
   await writeFile(path, `${old.join('\n')}\n`);
   const result = await write.run({ file_path: path, content: `${next.join('\n')}\n` }, ctxFor(dir));
-  assert.deepEqual(result.structured.structuredPatch, [
-    { oldStart: 1, oldLines: 600, newStart: 1, newLines: 600, lines: [...old.map((line) => `-${line}`), ...next.map((line) => `+${line}`)] },
-  ]);
+  const lines = [...old.slice(0, -1).map((line) => `-${line}`), ...next.slice(0, -1).map((line) => `+${line}`), ' k'];
+  assert.deepEqual(result.structured.structuredPatch, [{ oldStart: 1, oldLines: 1200, newStart: 1, newLines: 1200, lines }]);
 });
 
 test('an existing file with a NUL byte gives an empty update patch', async (t) => {
@@ -74,7 +74,7 @@ test('an existing file with a NUL byte gives an empty update patch', async (t) =
   assert.deepEqual(result.structured, { type: 'update', filePath: path, structuredPatch: [] });
 });
 
-test('an existing FIFO is never opened for reading: the update patch is empty', async (t) => {
+test('an existing FIFO is never opened for reading: the update patch is empty', { timeout: 5000 }, async (t) => {
   const dir = await useTempDir(t);
   const fifo = join(dir, 'pipe');
   const made = spawnSync('mkfifo', [fifo], { timeout: 5000 });
@@ -86,9 +86,10 @@ test('an existing FIFO is never opened for reading: the update patch is empty', 
       return Buffer.from('old\n');
     },
   });
-  const received = readFile(fifo, 'utf8');
+  const reader = await open(fifo, constants.O_RDONLY | constants.O_NONBLOCK);
+  t.after(() => reader.close());
   const result = await spied.run({ file_path: fifo, content: 'new\n' }, ctxFor(dir));
-  assert.equal(await received, 'new\n');
+  assert.equal(await reader.readFile('utf8'), 'new\n');
   assert.deepEqual(reads, []);
   assert.deepEqual(result.structured, { type: 'update', filePath: fifo, structuredPatch: [] });
 });
