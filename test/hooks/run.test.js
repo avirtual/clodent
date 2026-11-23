@@ -13,7 +13,7 @@ import { entry, group, hookOutput, isGone, script, settingsWith } from './script
 
 const GUARD = { timeout: 10000 };
 const deps = { spawn };
-const label = (command) => command.slice(0, 60);
+const label = (command) => (command.length <= 60 ? command : `…${command.slice(-60)}`);
 const ctxFor = (cwd, settings, extra = {}) => ({ settings, cwd, env: cleanEnv(), ...extra });
 const UNCAPPED = { hookContextMaxBytes: { perHook: 16777216, perEvent: 16777216 } };
 
@@ -389,7 +389,9 @@ test('an already aborted signal runs nothing', GUARD, async (t) => {
   assert.deepEqual(outcome.warnings, ['hook Stop "true": aborted']);
 });
 
-test('the command label in hook and statusLine warnings is cut to 60 code points, so an emoji at the cut stays whole', () => {
-  assert.equal(commandLabel(`${'a'.repeat(59)}\u{1F600}b`), `${'a'.repeat(59)}\u{1F600}`);
+test('the command label in hook and statusLine warnings keeps the last 60 code points after a …, so an emoji at the cut stays whole', () => {
+  assert.equal(commandLabel(`/private/tmp/x/b\u{1F600}${'a'.repeat(59)}`), `…\u{1F600}${'a'.repeat(59)}`);
+  assert.equal(commandLabel(`/run/${'a'.repeat(52)}/hook.sh`), `…${'a'.repeat(52)}/hook.sh`);
+  assert.equal(commandLabel('x'.repeat(60)), 'x'.repeat(60));
   assert.equal(commandLabel('short'), 'short');
 });

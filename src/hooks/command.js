@@ -2,6 +2,7 @@ import { runProcess } from '../proc/run.js';
 
 export const STDOUT_CAP_BYTES = 1048576;
 export const STDERR_CAP_BYTES = 65536;
+const LABEL_CHARS = 60;
 
 function collector(cap) {
   const chunks = [];
@@ -33,7 +34,8 @@ export function failureOf(result) {
 }
 
 export function commandLabel(command) {
-  return Array.from(command).slice(0, 60).join('');
+  const chars = Array.from(command);
+  return chars.length <= LABEL_CHARS ? command : `…${chars.slice(-LABEL_CHARS).join('')}`;
 }
 
 export async function runCommand(command, { cwd, env, stdin, timeoutMs, signal }, deps = {}) {

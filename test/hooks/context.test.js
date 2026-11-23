@@ -15,7 +15,7 @@ const deps = { spawn };
 const KEY = 'sk-test-FAKE';
 const SHOW_ENV = 'printf "%s|%s|%s|%s|%s" "${ANTHROPIC_API_KEY-unset}" "${AWS_FAKE-unset}" "${CLODEX_TEST-unset}" "${PATH:+path}" "$CLODENT_PROJECT_DIR"';
 
-const label = (command) => command.slice(0, 60);
+const label = (command) => (command.length <= 60 ? command : `…${command.slice(-60)}`);
 const bytes = (text) => Buffer.byteLength(text, 'utf8');
 
 function bigContext(event, size, char = 'a') {

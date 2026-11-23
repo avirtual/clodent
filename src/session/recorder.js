@@ -65,6 +65,9 @@ export function createRecorder(transcript, { now }) {
     side_request({ subtype, toolUseId, model, requestId, usage, usd, durationMs }) {
       transcript.append({ type: 'system', subtype, toolUseId, model, requestId, usage, costUsd: usd, durationMs: Math.round(durationMs) });
     },
+    warning({ message, retry }) {
+      if (retry) transcript.append({ type: 'system', subtype: 'informational', content: message, level: 'warning' });
+    },
     interrupted() {
       append({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: INTERRUPT_TEXT }] }, isVisibleInTranscriptOnly: true });
     },

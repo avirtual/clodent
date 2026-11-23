@@ -232,7 +232,7 @@ test('the named files are re-read into text blocks after the unchanged summary b
     { tool_name: 'Read', tool_input: { file_path: a }, tool_use_id: 'compact-reload-1' },
     { tool_name: 'Read', tool_input: { file_path: notes }, tool_use_id: 'compact-reload-2' },
   ]);
-  assert.deepEqual(h.events.map((event) => event.type), ['session_start', 'request_start', 'compacted']);
+  assert.deepEqual(h.events.map((event) => event.type), ['session_start', 'compact_start', 'request_start', 'compacted']);
   await h.agent.runTurn('next');
   const sent = JSON.parse(h.raw[1]).messages;
   assert.deepEqual(sent.length, 1);

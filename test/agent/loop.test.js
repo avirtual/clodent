@@ -359,7 +359,7 @@ test('a mid-stream overloaded error re-sends the same request after 2 s', async 
   assert.deepEqual(h.sleeps, [2000]);
   assert.deepEqual(h.fetch.calls[0].body, h.fetch.calls[1].body);
   assert.deepEqual(h.of('request_start').map((e) => e.attempt), [1, 2]);
-  assert.deepEqual(h.of('warning'), [{ type: 'warning', message: 'Overloaded; retrying in 2 s' }]);
+  assert.deepEqual(h.of('warning'), [{ type: 'warning', message: 'Overloaded; retrying in 2 s', retry: 'stream' }]);
   assert.deepEqual(h.agent.messages()[1], { role: 'assistant', content: [{ type: 'text', text: 'Hello, world!' }] });
 });
 

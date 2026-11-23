@@ -29,6 +29,15 @@ function isMidStreamRetryable(err) {
   return err instanceof ApiError && err.status === null && MID_STREAM_RETRYABLE.has(err.type);
 }
 
+function seconds(ms) {
+  return Math.round(ms / 100) / 10;
+}
+
+function retryLabel(err) {
+  if (err?.status === null || err?.status === undefined) return err?.message ?? String(err);
+  return err.type === 'http_error' ? `HTTP ${err.status}` : `${err.status} ${err.message}`;
+}
+
 function failureFields(err) {
   const apiError = apiErrorFields(err);
   if (!apiError) return {};
@@ -139,6 +148,9 @@ export function createAgent(config, deps) {
       onUsage: (usage) => {
         reported = usage;
       },
+      onRetry: (err, wait) => {
+        emit({ type: 'warning', message: `${retryLabel(err)}; retrying in ${seconds(wait)} s`, retry: 'http' });
+      },
     };
     admit();
     for (let attempt = 1; ; attempt++) {
@@ -154,7 +166,7 @@ export function createAgent(config, deps) {
         if (signal?.aborted || !isMidStreamRetryable(err) || wait === undefined) throw err;
         admit();
         partial.length = 0;
-        emit({ type: 'warning', message: `${err.message}; retrying in ${wait / 1000} s` });
+        emit({ type: 'warning', message: `${err.message}; retrying in ${seconds(wait)} s`, retry: 'stream' });
         await deps.sleep(wait, signal);
       }
     }
@@ -419,6 +431,7 @@ export function createAgent(config, deps) {
     closeDanglingUses();
     const source = overflowed ? acceptedPart(history, accepted) : history;
     if (source.length === 0) return { ok: false, reason: NOTHING_TO_COMPACT, contextWindowExceeded: true };
+    emit({ type: 'compact_start', trigger });
     await fireHook('PreCompact', { trigger, custom_instructions: instructions ?? '' }, signal);
     if (signal?.aborted) return { ok: false, reason: 'interrupted' };
     const { message, reason, failure } = await summarise(source, instructions, signal);

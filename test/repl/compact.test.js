@@ -60,7 +60,7 @@ test('/compact <instructions> summarises quietly, records boundary and summary, 
   assert.deepEqual(userTexts(next), [`${SUMMARY_PREFIX}${SUMMARY}`, 'three', '<hook-context event="SessionStart">\nbriefing\n</hook-context>']);
   const out = repl.out.text;
   assert.equal(out.includes('SUMMARY-TEXT'), false);
-  assert.match(out, /> \/compact {3}keep the file list \nclodent: conversation compacted \(1200 → 45 tokens\)\n\[clodent:cost\] \$\d+\.\d{4} \(in 1000, cache-read 150, cache-write 50, out 45\)\n/);
+  assert.match(out, /> \/compact {3}keep the file list \nclodent: compacting…\nclodent: conversation compacted \(1200 → 45 tokens\)\n\[clodent:cost\] \$\d+\.\d{4} \(in 1000, cache-read 150, cache-write 50, out 45\)\n/);
   assert.equal(repl.sessionIds().length, 1);
   const records = readJsonl(transcriptPath(home, cwd, repl.sessionIds()[0]));
   assert.deepEqual(kinds(records).slice(-5), ['compact_boundary', 'summary', 'user', 'assistant', 'turn_duration']);
@@ -128,8 +128,8 @@ test('failed compacts leave the history and transcript unchanged and print why: 
   await exit(repl);
   const out = repl.out.text;
   assert.ok(out.includes('> /compact\nclodent: nothing to compact\n'));
-  assert.ok(out.includes('> /compact\nclodent: compact failed: stop_reason max_tokens\n'));
-  assert.ok(out.includes('> /compact\nclodent: compact failed: credit balance is too low\n'));
+  assert.ok(out.includes('> /compact\nclodent: compacting…\nclodent: compact failed: stop_reason max_tokens\n'));
+  assert.ok(out.includes('> /compact\nclodent: compacting…\nclodent: compact failed: credit balance is too low\n'));
   assert.ok(out.includes('clodent: compact failed: interrupted\n'));
   assert.equal(out.includes('clodent: interrupted'), false);
   assert.equal(out.includes('SUMMARY-TEXT'), false);
@@ -147,7 +147,7 @@ test('a compact failure reason holding control bytes prints them as visible esca
   await repl.prompts(1);
   await steps(repl, ['one', '/compact']);
   await exit(repl);
-  assert.ok(repl.out.text.includes('> /compact\nclodent: compact failed: bad\\u001b[2Jthing\n'));
+  assert.ok(repl.out.text.includes('> /compact\nclodent: compacting…\nclodent: compact failed: bad\\u001b[2Jthing\n'));
   assert.equal(repl.out.text.includes('\x1b[2J'), false);
 });
 
@@ -162,5 +162,5 @@ test('a budget stop fails the compact before any request, with the transcript un
   await exit(repl);
   assert.equal(repl.fetch.calls.length, 1);
   assert.equal(readFileSync(path, 'utf8'), before);
-  assert.match(repl.out.text, /> \/compact\n\[clodent:budget\][^\n]*\nclodent: compact failed: budget\n/);
+  assert.match(repl.out.text, /> \/compact\nclodent: compacting…\n\[clodent:budget\][^\n]*\nclodent: compact failed: budget\n/);
 });
