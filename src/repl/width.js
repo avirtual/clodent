@@ -20,7 +20,7 @@ const WIDE = [
   [0x20000, 0x2fffd],
   [0x30000, 0x3fffd],
 ];
-const ZERO_WIDTH = /^[\p{M}​-‏⁠-⁤﻿]+$/u;
+const ZERO_WIDTH = /^[\p{M}\u200b-\u200f\u2060-\u2064\ufeff]+$/u;
 const EMOJI = /^\p{Emoji_Presentation}/u;
 const EMOJI_BASE = /^\p{Emoji}/u;
 const TAB_STOP = 8;
@@ -38,7 +38,7 @@ function isWide(cp) {
 function graphemeWidth(grapheme) {
   const cp = grapheme.codePointAt(0);
   if (cp < 0x20 || (cp >= 0x7f && cp < 0xa0) || ZERO_WIDTH.test(grapheme)) return 0;
-  if (EMOJI.test(grapheme) || (grapheme.includes('️') && EMOJI_BASE.test(grapheme))) return 2;
+  if (EMOJI.test(grapheme) || (grapheme.includes('\ufe0f') && EMOJI_BASE.test(grapheme))) return 2;
   return isWide(cp) ? 2 : 1;
 }
 
