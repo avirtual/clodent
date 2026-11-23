@@ -731,7 +731,7 @@ A turn the model ended has `stop_reason: "end_turn"` on its last assistant recor
 
 | tool | fields |
 |---|---|
-| `Read` | `file: {filePath, startLine, numLines, totalLines}`: the absolute path, the first line shown (1-based), the number of lines shown and the file's line count. An empty file gives `startLine` 1 and 0 for both counts. The file's text is never copied |
+| `Read` | `file: {filePath, startLine, numLines, totalLines}`: the absolute path, the first line shown (1-based), the number of lines in the range read (counted before the 32 KiB cap) and the file's line count. An empty file gives `startLine` 1 and 0 for both counts. The file's text is never copied |
 | `Grep` | `numFiles`: files with a match; `numLines`: matching lines, in `content` mode only; `truncated`: `true` when `head_limit` cut the output. Both counts take every match, before `head_limit` |
 | `Glob` | `numFiles`: every match, before the 1000 cap; `truncated`: `true` when the list was cut to 1000 |
 | `Bash` | `stdout` and `stderr`: each stream on its own, each capped at 32768 bytes as a result is (head and tail kept); `interrupted`: `true` when the user's interrupt killed the command. Present on any command that started, failed ones included |
@@ -951,8 +951,8 @@ stdin is one JSON object followed by a newline, then closed. Every event sends `
 | `SessionStart` | `source`: `startup`, `resume`, `clear` or `compact`; `model`: the session's model id |
 | `UserPromptSubmit` | `prompt` |
 | `PreToolUse` | `tool_name`, `tool_input`, `tool_use_id`; for a `/compact` file reload, `tool_name` `Read`, `tool_input` `{"file_path": "<absolute path>"}` and `tool_use_id` `compact-reload-<n>`, where `<n>` is the file's place in the reload list, from 1 |
-| `PostToolUse` | `tool_name`, `tool_input` (the input that ran), `tool_use_id`, `tool_response`: `{content, isError}` plus the tool's `toolUseResult` fields beyond `name`, `isError` and `input` (see [Sessions](#sessions)), such as `Bash` `stdout`, `stderr` and `interrupted` |
-| `PostToolUseFailure` | the `PostToolUse` fields, and `error`: the result text. For a `Bash` command that started and did not time out, the line `Exit code <n>` comes first: `<n>` is its exit status, or 128 plus the signal number when a signal killed it |
+| `PostToolUse` | `tool_name`, `tool_input` (the input that ran), `tool_use_id`, `tool_response`: `{content, isError}` plus the tool's `toolUseResult` fields beyond `name`, `isError` and `input` (see [Sessions](#sessions)), such as `Bash` `stdout`, `stderr` and `interrupted`, except that `content` stays the result text |
+| `PostToolUseFailure` | the `PostToolUse` fields, and `error`: the result text. For a `Bash` command that started and did not time out, the line `Exit code <n>` comes first: `<n>` is its exit status, or 128 plus the signal number when a signal killed it. `is_timeout`: `true` for a `Bash` command that timed out, else `false`. `is_interrupt`: always `false`, since an interrupted call fires no `PostToolUseFailure` |
 | `Notification` | a permission prompt sends `notification_type: "permission_prompt"`, `title: "Permission needed"`, `message: "clodent needs your permission to use <Tool>"`, `tool` and `id` |
 | `PreCompact` | `trigger`: `manual`; `custom_instructions`: the `/compact` instructions, or `""` |
 | `Stop` | `stop_hook_active`: `false` |
