@@ -35,10 +35,10 @@ export function fakeStdin({ isTTY = true } = {}) {
   return stdin;
 }
 
-function screen() {
+function screen(columns) {
   let text = '';
   const waiters = [];
-  return {
+  const out = {
     write(chunk) {
       text += chunk;
       for (const waiter of [...waiters]) {
@@ -59,6 +59,19 @@ function screen() {
       for (const waiter of waiters.splice(0)) waiter.reject(new Error(`${reason} before ${waiter.label}:\n${JSON.stringify(text)}`));
     },
   };
+  if (columns === undefined) return out;
+  const events = new EventEmitter();
+  return Object.assign(out, {
+    isTTY: true,
+    columns,
+    on: (event, listener) => events.on(event, listener),
+    off: (event, listener) => events.off(event, listener),
+    listenerCount: (event) => events.listenerCount(event),
+    resize(next) {
+      out.columns = next;
+      events.emit('resize');
+    },
+  });
 }
 
 export function count(text, needle) {
@@ -100,9 +113,9 @@ export function heldFetch(replies = []) {
   return fetch;
 }
 
-export function startRepl(argv, { home, cwd, replies = [], env = {}, isTTY = true }) {
+export function startRepl(argv, { home, cwd, replies = [], env = {}, isTTY = true, columns }) {
   const stdin = fakeStdin({ isTTY });
-  const out = screen();
+  const out = screen(columns);
   const err = screen();
   const fetch = heldFetch(replies);
   const signals = {};

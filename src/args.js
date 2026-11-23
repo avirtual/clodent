@@ -197,3 +197,10 @@ export function givenFlags(opts) {
     return value !== undefined;
   }).map((flag) => flag.long);
 }
+
+export function isInteractive(argv) {
+  const parsed = parseArgs(argv);
+  if (!parsed.ok) return false;
+  const { opts } = parsed;
+  return !opts.help && !opts.version && !opts.listTools && opts.print === undefined;
+}

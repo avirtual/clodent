@@ -374,11 +374,12 @@ async function runInteractive(opts, deps) {
   const prep = await prepare(opts, deps);
   if (prep.code !== undefined) return prep.code;
   for (const line of ignoredFlags(opts)) deps.stderr.write(line);
-  const render = createRenderer({ out: deps.stdout, err: deps.stderr, mode: 'repl' });
+  const screen = { aside: (draw) => draw() };
+  const render = createRenderer({ out: deps.stdout, err: deps.stderr, mode: 'repl', screen });
   const runtime = createRuntime(prep, opts, deps, render);
   return runRepl(
     { runtime, session: prep.session, warnings: prep.warnings, resume: opts.resume !== undefined, signalExit: SIGNAL_EXIT },
-    { stdin: deps.stdin, stdout: deps.stdout, onSignal: deps.onSignal },
+    { stdin: deps.stdin, stdout: deps.stdout, onSignal: deps.onSignal, screen },
   );
 }
 

@@ -1,3 +1,5 @@
+import { graphemes } from './width.js';
+
 export function lineCount(text) {
   return text.replace(/\n$/, '').split('\n').length;
 }
@@ -40,7 +42,7 @@ export function createEditor() {
     backspace() {
       const last = tail();
       if (!last) return;
-      if (last.kind === 'typed') last.text = Array.from(last.text).slice(0, -1).join('');
+      if (last.kind === 'typed') last.text = graphemes(last.text).slice(0, -1).join('');
       if (last.kind === 'paste' || last.text === '') parts.pop();
     },
     deleteWord() {

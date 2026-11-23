@@ -24,7 +24,7 @@ export const TOO_LONG_HINTS = Object.freeze({
   print: "clodent: the conversation is larger than the model's context window; start a new session",
 });
 
-export function createRenderer({ out, err, mode }) {
+export function createRenderer({ out, err, mode, screen }) {
   const repl = mode === 'repl';
   const info = repl ? out : err;
   const warnedUnpriced = new Set();
@@ -41,7 +41,9 @@ export function createRenderer({ out, err, mode }) {
 
   function line(text, style) {
     if (repl) endLine();
-    info.write(`${paint(info, style, visible(text))}\n`);
+    const draw = () => info.write(`${paint(info, style, visible(text))}\n`);
+    if (screen) screen.aside(draw);
+    else draw();
   }
 
   function warnUnpriced(turn) {

@@ -7,6 +7,8 @@ clodent was named clay up to 0.2.0.
 - Transcripts carry Claude Code's `toolUseResult` fields (Read `file`, Grep and Glob counts, Bash `stdout`/`stderr`/`interrupted`, Edit and Write `type`/`structuredPatch`), with one tool results record per tool call, and `PostToolUse` `tool_response` carries the same fields; a failed Bash command's `PostToolUseFailure` `error` starts with `Exit code <n>`.
 - Requests ask for summarized thinking (`display: "summarized"`), so the transcript's thinking blocks carry text.
 - A prompt record starts with the prompt text, ahead of the interrupt marker and the `SessionStart` and `UserPromptSubmit` hook context, so hosts that read the transcript show the session's first prompt.
+- The REPL input line now redraws cleanly when it wraps and when a warning arrives while typing or at an `Allow? [y/n] ` ask, with no duplicated `> ` rows, and is redrawn on resize; backspace removes a whole grapheme, and the first exit Ctrl-C and a line queued at the ask no longer leave a stale prompt or ask row.
+- Raw mode now comes on before clodent loads its code, which halves the startup window in which the terminal echoes keys typed or pasted early (median 154 ms to 75 ms).
 
 ## 0.9.1 — 2026-11-20
 

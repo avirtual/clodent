@@ -341,12 +341,20 @@ Everything else is the REPL's: hooks, the statusLine after each response, the tr
 
 Startup, in this order:
 
-1. When stdin is a TTY, clodent turns raw mode on. Input that arrives from here on is parsed and kept.
+1. When stdin is a TTY, clodent turns raw mode on, before it loads the rest of its code, so the tty stops echoing what is typed. Input that arrives from here on is parsed and kept.
 2. `[clodent:session] <session-id>`, then one `clodent: <warning>` line per settings or session warning.
 3. The `SessionStart` hook, with `source` `startup`, or `resume` with `--resume`.
 4. The first prompt.
 
-Every prompt, and every queued line's echo, is written as `\x1b[?2004h` and then `> `. A host can take the first `\x1b[?2004h` as "ready for input". Bracketed paste stays on until exit, when clodent writes `\x1b[?2004l`.
+Every prompt, and every queued line's echo, is written as `\x1b[?2004h` and then `> `. A host can take the first `\x1b[?2004h` as "ready for input". Bracketed paste stays on until exit, when clodent writes `\x1b[?2004l`. The prompt `> ` and the permission ask line `Allow? [y/n] ` (see below) are stable contract strings: their bytes do not change.
+
+Input line: the prompt or the ask line, followed by the echo of what is typed. When stdout is a TTY:
+
+- An edit other than adding text (backspace, Ctrl-W, Ctrl-U, Ctrl-C with text) redraws it: `\r\x1b[2K`, then `\x1b[A\x1b[2K` once for each further row the line wraps onto, then the prompt or ask line and the echo. A redraw writes no `\x1b[?2004h`. Rows are counted at `stdout.columns` (80 when it is unset or 0), one cell per grapheme, two for East Asian wide and fullwidth characters and emoji.
+- On a resize, it is redrawn the same way, over the rows it uses at the old width or the new one, whichever is fewer, so no line above it is erased. A terminal that reflows the line when it narrows (tmux) or does not reflow it when it widens (xterm.js) can keep a stale row of it.
+- A line printed while it shows, such as a statusLine or hook warning, first erases it the same way; the input line is redrawn below the printed line.
+
+When stdout is not a TTY, a redraw is `\r\x1b[2K` and the line, and nothing else is redrawn.
 
 Keys, with stdin read as UTF-8:
 
@@ -354,10 +362,10 @@ Keys, with stdin read as UTF-8:
 |---|---|
 | printable text | typed into the line and echoed |
 | `\r`, `\n` or `\r\n` | submits the line; an empty or whitespace-only line just shows a new prompt |
-| `\x7f` or `\x08` (backspace) | deletes the last typed character, or the whole last paste |
+| `\x7f` or `\x08` (backspace) | deletes the last typed character (one grapheme: a letter with its combining marks, or a whole emoji sequence), or the whole last paste |
 | `\x15` (Ctrl-U) | clears the line |
 | `\x17` (Ctrl-W) | deletes the last typed word, or the whole last paste |
-| `\x03` (Ctrl-C) | during a turn, interrupts it. At a prompt with text, clears the line. At an empty prompt, prints `(press Ctrl-C again or Ctrl-D to exit)` and a new prompt; a second Ctrl-C with no other key in between exits |
+| `\x03` (Ctrl-C) | during a turn, interrupts it. At a prompt with text, clears the line. At an empty prompt, prints `(press Ctrl-C again or Ctrl-D to exit)`, on a TTY in place of the prompt row, and a new prompt; a second Ctrl-C with no other key in between exits |
 | `\x04` (Ctrl-D) | at an empty prompt, exits; otherwise ignored |
 | any other control byte, CSI sequence (`\x1b[` up to a final byte `@` to `~`) or SS3 sequence (`\x1bO` and one byte) | ignored; an ESC before any other byte is dropped alone |
 
@@ -410,8 +418,8 @@ Permission ask: in the default mode, a write or exec tool call that no hook allo
 
 1. clodent prints `[clodent:permit <Tool> <tool_use id>] <summary>` on its own line, with the summary of the `● <Tool> <summary>` line; with an empty summary the line ends at `]`.
 2. It writes `Allow? [y/n] ` and starts reading one line.
-3. With the ask listening, it fires the `Notification` hook with `notification_type: "permission_prompt"`, `title: "Permission needed"`, `message: "clodent needs your permission to use <Tool>"`, `tool` (the tool name) and `id` (the tool_use id). A line written while the hook runs is read as the answer. The call runs or is refused once both the answer and the hook are done. A hook warning may print after `Allow? [y/n] `.
-4. `y` or `yes`, trimmed and in any case, runs the call. `n` or `no` refuses it with the reason `denied by the user`. An empty line asks again. Any other line, and any line with a paste in it, is not an answer: it is queued as a prompt, and clodent prints `clodent: queued as a prompt; answer y or n` and asks again.
+3. With the ask listening, it fires the `Notification` hook with `notification_type: "permission_prompt"`, `title: "Permission needed"`, `message: "clodent needs your permission to use <Tool>"`, `tool` (the tool name) and `id` (the tool_use id). A line written while the hook runs is read as the answer. The call runs or is refused once both the answer and the hook are done.
+4. `y` or `yes`, trimmed and in any case, runs the call. `n` or `no` refuses it with the reason `denied by the user`. An empty line asks again. Any other line, and any line with a paste in it, is not an answer: it is queued as a prompt, and clodent prints `clodent: queued as a prompt; answer y or n` and asks again. On a TTY, a line that is not an answer erases the ask row first, so the screen keeps one `Allow? [y/n] ` line.
 5. Ctrl-C interrupts the turn, and the call does not run. stdin closing refuses the call with the reason `denied: input closed`.
 
 Exit, on every path: clodent prints the session total line, waits for the statusLine command, writes `\x1b[?2004l`, turns raw mode off, stops reading stdin and sends any pending SIGKILL (see [Tools](#tools)). An unexpected error skips the session total and the wait, but still restores the terminal and sends the pending SIGKILLs. Exit codes:

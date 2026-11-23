@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FLAGS, givenFlags, modelChoice, parseArgs } from '../src/args.js';
+import { FLAGS, givenFlags, isInteractive, modelChoice, parseArgs } from '../src/args.js';
 
 const UUID = '123e4567-e89b-42d3-a456-426614174000';
 
@@ -331,4 +331,15 @@ test('stream-json needs -p, stream input needs stream output and no prompt, and 
   assert.equal(err(['-p', 'hi', '--permission-prompt-tool', 'stdio']), '--permission-prompt-tool requires --input-format stream-json');
   assert.equal(err(['-p', ...STREAM, '--permission-prompt-tool', 'mcp__x']), '--permission-prompt-tool must be stdio, got "mcp__x"');
   assert.equal(err(['--verbose=1']), '--verbose takes no value');
+});
+
+test('isInteractive: true only for argv that starts the REPL', () => {
+  assert.equal(isInteractive([]), true);
+  assert.equal(isInteractive(['--yolo', '--model', 'claude-opus-5-5']), true);
+  assert.equal(isInteractive(['-p', 'hi']), false);
+  assert.equal(isInteractive(['-p', '--input-format', 'stream-json', '--output-format', 'stream-json']), false);
+  assert.equal(isInteractive(['--version']), false);
+  assert.equal(isInteractive(['--help']), false);
+  assert.equal(isInteractive(['--list-tools']), false);
+  assert.equal(isInteractive(['--no-such-flag']), false);
 });
