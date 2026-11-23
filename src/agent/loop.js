@@ -73,6 +73,7 @@ export function createAgent(config, deps) {
   let heldContext = [];
   let accepted = historyMark(history);
   let overflowed = false;
+  let stopFiring = null;
 
   function syncTools() {
     if (!toolset) return [];
@@ -107,6 +108,16 @@ export function createAgent(config, deps) {
     return outcome;
   }
 
+  async function fireStopHook(event, extra, stopSignal) {
+    const firing = new AbortController();
+    stopFiring = firing;
+    try {
+      return await fireHook(event, extra, stopSignal ? AbortSignal.any([stopSignal, firing.signal]) : firing.signal);
+    } finally {
+      if (stopFiring === firing) stopFiring = null;
+    }
+  }
+
   function addUserText(text, submitContext) {
     const blocks = [{ type: 'text', text }];
     if (interruptedBefore) blocks.push({ type: 'text', text: INTERRUPT_MARKER });
@@ -121,7 +132,7 @@ export function createAgent(config, deps) {
 
   async function finish(stopReason, ok, stopSignal) {
     emit({ type: 'turn_end', stopReason, turn: ledger.endTurn() });
-    await fireHook('Stop', { stop_hook_active: false }, stopSignal);
+    await fireStopHook('Stop', { stop_hook_active: false }, stopSignal);
     return { stopReason, ok };
   }
 
@@ -282,7 +293,7 @@ export function createAgent(config, deps) {
       const tool_response = { ...outcome.structured, content: outcome.content, isError: outcome.isError };
       const extra = outcome.isError ? { error: failureText(outcome), is_interrupt: interrupted, is_timeout: outcome.timedOut === true } : {};
       const payload = { ...fields, tool_input: input, tool_response, ...extra, duration_ms: Math.round(result.durationMs) };
-      const after = await fireHook(event, payload, interrupted ? stopSignal : signal);
+      const after = interrupted ? await fireStopHook(event, payload, stopSignal) : await fireHook(event, payload, signal);
       post[event].push(...after.additionalContext);
     }
     return result;
@@ -462,6 +473,10 @@ export function createAgent(config, deps) {
     compact,
     fireSessionStart,
     messages: () => structuredClone(history),
+    killRunningHooks() {
+      stopFiring?.abort();
+      return stopFiring !== null;
+    },
     setModel(nextModel, nextSystem) {
       model = nextModel;
       system = nextSystem;

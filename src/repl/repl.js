@@ -43,7 +43,6 @@ export async function runRepl(ctx, deps) {
   let agent = null;
   let mode = 'busy';
   let running = null;
-  let turnStop = null;
   let asking = null;
   let wake = null;
   let armed = false;
@@ -251,21 +250,18 @@ export async function runRepl(ctx, deps) {
   }
 
   function interruptTurn() {
-    if (running?.signal.aborted) turnStop.abort();
+    if (running?.signal.aborted) agent.killRunningHooks();
     else running?.abort();
   }
 
   async function guarded(step) {
     const controller = new AbortController();
     running = controller;
-    turnStop = new AbortController();
-    const stopSignal = AbortSignal.any([stopHooks.signal, turnStop.signal]);
     if (exitCode !== null) controller.abort();
     try {
-      return await step(controller.signal, stopSignal);
+      return await step(controller.signal);
     } finally {
       running = null;
-      turnStop = null;
     }
   }
 
@@ -306,7 +302,7 @@ export async function runRepl(ctx, deps) {
   async function handle(submission) {
     const command = parseCommand(submission);
     if (command) return runCommand(command, commandCtx);
-    await guarded((signal, stopSignal) => agent.runTurn(submission.text, { signal, stopSignal }));
+    await guarded((signal) => agent.runTurn(submission.text, { signal, stopSignal: stopHooks.signal }));
     spaced = true;
     return undefined;
   }
