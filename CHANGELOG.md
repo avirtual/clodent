@@ -2,6 +2,12 @@
 
 clodent was named clay up to 0.2.0.
 
+## Unreleased
+
+- Transcripts carry Claude Code's `toolUseResult` fields (Read `file`, Grep and Glob counts, Bash `stdout`/`stderr`/`interrupted`, Edit and Write `type`/`structuredPatch`), with one tool results record per tool call, and `PostToolUse` `tool_response` carries the same fields; a failed Bash command's `PostToolUseFailure` `error` starts with `Exit code <n>`.
+- Requests ask for summarized thinking (`display: "summarized"`), so the transcript's thinking blocks carry text.
+- A prompt record starts with the prompt text, ahead of the interrupt marker and the `SessionStart` and `UserPromptSubmit` hook context, so hosts that read the transcript show the session's first prompt.
+
 ## 0.9.1 — 2026-11-20
 
 - `clodent --list-tools` prints the built-in tools (name, kind, description, input schema) as one JSON line, so a host can learn new tools without its own update.
